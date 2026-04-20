@@ -1285,9 +1285,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
                 </p>
                 <input
                   type="text"
-                  maxLength={80}
+                  maxLength={200}
                   value={activeTask.shortDescription}
-                  onChange={(event) => void updateTask(activeTask.id, { shortDescription: event.target.value.slice(0, 80) })}
+                  onChange={(event) => void updateTask(activeTask.id, { shortDescription: event.target.value.slice(0, 200) })}
                   placeholder={lt("Brief description of this work...")}
                   className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
                 />

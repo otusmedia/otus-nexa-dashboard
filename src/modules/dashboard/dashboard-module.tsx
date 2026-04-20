@@ -1663,14 +1663,16 @@ export function DashboardModule() {
                       />
                       <div className="absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.85)_0%,rgba(0,0,0,0.4)_50%,transparent_100%)]" />
                       <div className="absolute inset-x-0 bottom-0 z-10 p-6">
-                        <p className="text-[1.4rem] font-normal text-white">{slide.title}</p>
-                        <p className="mt-2 text-[0.85rem] text-[rgba(255,255,255,0.6)]">{slide.description}</p>
-                        <Link
-                          href={`/projects/${slide.projectId}?taskId=${slide.taskId}`}
-                          className="mt-4 inline-flex rounded-md border border-white/35 px-2.5 py-1 text-xs text-white transition hover:bg-white/10"
-                        >
-                          {lt("View Task")}
-                        </Link>
+                        <div className="max-w-[24%] text-left">
+                          <p className="text-[1.4rem] font-normal text-white">{slide.title}</p>
+                          <p className="mt-2 text-[0.85rem] text-[rgba(255,255,255,0.6)]">{slide.description}</p>
+                          <Link
+                            href={`/projects/${slide.projectId}?taskId=${slide.taskId}`}
+                            className="mt-4 inline-flex rounded-md border border-white/35 px-2.5 py-1 text-xs text-white transition hover:bg-white/10"
+                          >
+                            {lt("View Task")}
+                          </Link>
+                        </div>
                       </div>
                     </div>
                   </div>
