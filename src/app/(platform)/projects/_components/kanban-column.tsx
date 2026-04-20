@@ -10,11 +10,13 @@ export function KanbanColumn({
   label,
   dotClass,
   projects,
+  onAddProject,
 }: {
   columnId: KanbanColumnId;
   label: string;
   dotClass: string;
   projects: Project[];
+  onAddProject: (columnId: KanbanColumnId) => void;
 }) {
   const { t: lt } = useLanguage();
   return (
@@ -52,6 +54,7 @@ export function KanbanColumn({
       </Droppable>
       <button
         type="button"
+        onClick={() => onAddProject(columnId)}
         className="mt-2 shrink-0 rounded-[8px] border border-dashed border-[var(--border-strong)] bg-transparent py-2.5 text-xs font-normal text-[rgba(255,255,255,0.4)] transition-colors hover:border-[var(--border)] hover:text-[var(--muted)]"
       >
         Add New Project

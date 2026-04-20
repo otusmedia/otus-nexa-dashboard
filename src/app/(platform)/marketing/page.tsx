@@ -1,5 +1,5 @@
-import { MarketingModule } from "@/modules/marketing/marketing-module";
+import { redirect } from "next/navigation";
 
 export default function MarketingPage() {
-  return <MarketingModule />;
+  redirect("/marketing/strategy");
 }

@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { ModuleGuard } from "@/components/layout/module-guard";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
+import { supabase } from "@/lib/supabase";
 
 type DriveFile = {
   id: string;
@@ -82,6 +83,7 @@ export default function FilesPage() {
   const { t: lt } = useLanguage();
   const [folders, setFolders] = useState<DriveFolder[]>(initialFolders);
   const [rootFiles, setRootFiles] = useState<DriveFile[]>(initialRootFiles);
+  const [loading, setLoading] = useState(true);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
 
@@ -122,6 +124,48 @@ export default function FilesPage() {
   }, [currentFolder]);
 
   useEffect(() => {
+    let mounted = true;
+    void Promise.all([supabase.from("folders").select("*"), supabase.from("files").select("*")])
+      .then(([foldersRes, filesRes]) => {
+        if (!mounted) return;
+        if (foldersRes.error || filesRes.error) {
+          if (foldersRes.error) console.error("[supabase] folders fetch failed:", foldersRes.error.message);
+          if (filesRes.error) console.error("[supabase] files fetch failed:", filesRes.error.message);
+          setFolders([]);
+          setRootFiles([]);
+          return;
+        }
+        const foldersRows = (foldersRes.data as Array<Record<string, unknown>> | null) ?? [];
+        const filesRows = (filesRes.data as Array<Record<string, unknown>> | null) ?? [];
+        const mappedFiles: DriveFile[] = filesRows.map((row) => ({
+          id: String(row.id ?? ""),
+          name: String(row.name ?? ""),
+          type: String(row.type ?? "file"),
+          size: Number(row.size ?? 0) || 0,
+          uploadedAt: String(row.created_at ?? new Date().toISOString().slice(0, 10)),
+          uploadedBy: String(row.uploaded_by ?? ""),
+          url: String(row.url ?? ""),
+          folderId: row.folder_id ? String(row.folder_id) : null,
+        }));
+        const mappedFolders: DriveFolder[] = foldersRows.map((row) => ({
+          id: String(row.id ?? ""),
+          name: String(row.name ?? ""),
+          createdAt: String(row.created_at ?? new Date().toISOString().slice(0, 10)),
+          createdBy: String(row.created_by ?? ""),
+          files: mappedFiles.filter((file) => file.folderId === String(row.id ?? "")),
+        }));
+        setFolders(mappedFolders);
+        setRootFiles(mappedFiles.filter((file) => file.folderId == null));
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const close = () => setOpenMenu(null);
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
@@ -157,16 +201,15 @@ export default function FilesPage() {
       return;
     }
     const now = new Date().toISOString().slice(0, 10);
-    setFolders((prev) => [
-      {
-        id: `fld-${crypto.randomUUID()}`,
-        name: trimmed,
-        createdAt: now,
-        createdBy: currentUser.name,
-        files: [],
-      },
-      ...prev,
-    ]);
+    const id = crypto.randomUUID();
+    const newFolder = { id, name: trimmed, createdAt: now, createdBy: currentUser.name, files: [] };
+    setFolders((prev) => [newFolder, ...prev]);
+    void supabase
+      .from("folders")
+      .insert({ id, name: trimmed, created_by: currentUser.name })
+      .then(({ error }) => {
+        if (error) console.error("[supabase] folder insert failed:", error.message);
+      });
     setNewFolderOpen(false);
     setNewFolderName("");
     setNewFolderError("");
@@ -186,6 +229,9 @@ export default function FilesPage() {
       return;
     }
     setFolders((prev) => prev.map((folder) => (folder.id === folderId ? { ...folder, name: trimmed } : folder)));
+    void supabase.from("folders").update({ name: trimmed }).eq("id", folderId).then(({ error }) => {
+      if (error) console.error("[supabase] folder update failed:", error.message);
+    });
     setRenamingFolderId(null);
     setRenameValue("");
   };
@@ -229,6 +275,20 @@ export default function FilesPage() {
     } else {
       setRootFiles((prev) => [next, ...prev]);
     }
+    void supabase
+      .from("files")
+      .insert({
+        id: next.id,
+        name: next.name,
+        type: next.type,
+        size: String(next.size),
+        folder_id: currentFolderId,
+        uploaded_by: next.uploadedBy,
+        url: next.url,
+      })
+      .then(({ error }) => {
+        if (error) console.error("[supabase] file insert failed:", error.message);
+      });
 
     setUploadConfirmOpen(false);
     setPendingUploadFile(null);
@@ -250,6 +310,9 @@ export default function FilesPage() {
     } else {
       setRootFiles((prev) => prev.filter((file) => file.id !== deleteFileTarget.id));
     }
+    void supabase.from("files").delete().eq("id", deleteFileTarget.id).then(({ error }) => {
+      if (error) console.error("[supabase] file delete failed:", error.message);
+    });
     setDeleteFileTarget(null);
   };
 
@@ -259,6 +322,9 @@ export default function FilesPage() {
     if (currentFolderId === deleteFolderTarget.id) {
       setCurrentFolderId(null);
     }
+    void supabase.from("folders").delete().eq("id", deleteFolderTarget.id).then(({ error }) => {
+      if (error) console.error("[supabase] folder delete failed:", error.message);
+    });
     setDeleteFolderTarget(null);
   };
 
@@ -453,7 +519,13 @@ export default function FilesPage() {
         <p className="mb-3 rounded-[8px] border border-[#ef4444]/40 bg-[#2b1111] px-3 py-2 text-xs text-[#fca5a5]">{lt(inlineError)}</p>
       ) : null}
 
-      {currentFolder ? (
+      {loading ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={`files-sk-${i}`} className="h-[140px] animate-pulse rounded-[8px] border-[rgba(255,255,255,0.06)] bg-[#161616]" />
+          ))}
+        </div>
+      ) : currentFolder ? (
         currentFolderFiles.length ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {currentFolderFiles.map((file) => renderFileCard(file))}

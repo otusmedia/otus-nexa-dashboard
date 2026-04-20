@@ -12,6 +12,7 @@ import { useMetaAds } from "@/context/meta-ads-context";
 import { canImportData } from "@/lib/can-import-data";
 import { parseInstagramInsightsCsv, type InstagramInsightMetricRow } from "@/lib/parse-instagram-csv";
 import { parseMetaAdsCsv } from "@/lib/parse-meta-csv";
+import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import type { MetaAdsCampaign, MetaAdsSummary } from "@/types/meta-ads";
 import {
@@ -374,7 +375,6 @@ const ga4WebsiteInitial: Ga4WebsiteState = {
   topPages: [],
 };
 
-const TOP_CREATIVES_STORAGE_KEY = "top-creatives";
 
 type TopCreativePlatform = "Meta" | "Google";
 
@@ -457,7 +457,6 @@ function storedToDraftSlots(items: TopCreativeStored[]): TopCreativeDraftSlot[] 
   }));
 }
 
-const INSTAGRAM_FEED_STORAGE_KEY = "instagram-feed-posts";
 
 type InstagramFeedPostStored = {
   id: string;
@@ -818,45 +817,61 @@ export function DashboardModule() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = localStorage.getItem(TOP_CREATIVES_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = parseTopCreativesFromStorage(raw);
-      if (parsed !== null && parsed.length > 0) {
-        setTopCreativesCustom(parsed);
-      }
-    } catch {
-      /* ignore */
-    }
+    let mounted = true;
+    void supabase
+      .from("creatives")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (!mounted) return;
+        if (error) {
+          console.error("[supabase] creatives fetch failed:", error.message);
+          setTopCreativesCustom(null);
+          return;
+        }
+        const rows: TopCreativeStored[] = ((data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
+          id: String(row.id ?? ""),
+          name: String(row.name ?? ""),
+          platform: row.platform === "Google" ? "Google" : "Meta",
+          adUrl: String(row.ad_url ?? ""),
+          ctr: Number(row.ctr ?? 0) || 0,
+          impressions: Number(row.impressions ?? 0) || 0,
+          imageUrl: String(row.image_url ?? ""),
+        }));
+        setTopCreativesCustom(rows.length > 0 ? rows : null);
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     let cancelled = false;
-    let backup: InstagramFeedPostStored[] | null = null;
-    try {
-      const raw = localStorage.getItem(INSTAGRAM_FEED_STORAGE_KEY);
-      const parsed = raw ? parseInstagramFeedFromStorage(raw) : null;
-      backup = parsed && parsed.length > 0 ? parsed : null;
-    } catch {
-      backup = null;
-    }
-    instagramFeedManualBackup.current = backup;
-    try {
-      localStorage.setItem(INSTAGRAM_FEED_STORAGE_KEY, "[]");
-    } catch {
-      /* ignore */
-    }
     setInstagramFeedSource(null);
     setInstagramFeedError(null);
     setInstagramFeedLoading(true);
     setInstagramFeedPosts(null);
 
-    fetch("/api/instagram-feed")
-      .then((r) => r.json())
-      .then((json: Record<string, unknown>) => {
+    void Promise.all([
+      supabase.from("instagram_posts").select("*").order("created_at", { ascending: false }),
+      fetch("/api/instagram-feed").then((r) => r.json()),
+    ])
+      .then(([postsRes, json]) => {
         if (cancelled) return;
+        if (postsRes.error) {
+          console.error("[supabase] instagram_posts fetch failed:", postsRes.error.message);
+          instagramFeedManualBackup.current = null;
+        } else {
+          const backup: InstagramFeedPostStored[] = ((postsRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
+            id: String(row.id ?? ""),
+            imageUrl: String(row.image_url ?? ""),
+            likes: Number(row.likes ?? 0) || 0,
+            comments: Number(row.comments ?? 0) || 0,
+            caption: String(row.caption ?? ""),
+          }));
+          instagramFeedManualBackup.current = backup.length > 0 ? backup : null;
+        }
         const err = typeof json.error === "string" ? json.error : null;
         const posts = json.posts;
         if (!err && Array.isArray(posts)) {
@@ -871,22 +886,12 @@ export function DashboardModule() {
           }));
           setInstagramFeedPosts(normalized.length > 0 ? normalized : []);
           setInstagramFeedSource("live");
-          try {
-            localStorage.setItem(INSTAGRAM_FEED_STORAGE_KEY, JSON.stringify(normalized));
-          } catch {
-            /* ignore */
-          }
           return;
         }
         const restore = instagramFeedManualBackup.current;
         if (restore && restore.length > 0) {
           setInstagramFeedPosts(restore);
           setInstagramFeedSource("manual");
-          try {
-            localStorage.setItem(INSTAGRAM_FEED_STORAGE_KEY, JSON.stringify(restore));
-          } catch {
-            /* ignore */
-          }
         } else {
           setInstagramFeedPosts(null);
           setInstagramFeedSource("manual");
@@ -901,11 +906,6 @@ export function DashboardModule() {
         if (restore && restore.length > 0) {
           setInstagramFeedPosts(restore);
           setInstagramFeedSource("manual");
-          try {
-            localStorage.setItem(INSTAGRAM_FEED_STORAGE_KEY, JSON.stringify(restore));
-          } catch {
-            /* ignore */
-          }
         } else {
           setInstagramFeedPosts(null);
           setInstagramFeedSource(null);
@@ -948,19 +948,31 @@ export function DashboardModule() {
       })
       .filter((c) => c.name.length > 0);
     if (saved.length === 0) {
-      try {
-        localStorage.removeItem(TOP_CREATIVES_STORAGE_KEY);
-      } catch {
-        /* ignore */
-      }
       setTopCreativesCustom(null);
+      void supabase.from("creatives").delete().not("id", "is", null).then(({ error }) => {
+        if (error) console.error("[supabase] creatives clear failed:", error.message);
+      });
     } else {
-      try {
-        localStorage.setItem(TOP_CREATIVES_STORAGE_KEY, JSON.stringify(saved));
-      } catch {
-        /* ignore quota */
-      }
       setTopCreativesCustom(saved);
+      void supabase.from("creatives").delete().not("id", "is", null).then(({ error }) => {
+        if (error) console.error("[supabase] creatives reset failed:", error.message);
+      });
+      void supabase
+        .from("creatives")
+        .insert(
+          saved.map((creative) => ({
+            id: creative.id,
+            name: creative.name,
+            platform: creative.platform,
+            ad_url: creative.adUrl,
+            ctr: creative.ctr,
+            impressions: creative.impressions,
+            image_url: creative.imageUrl ?? "",
+          })),
+        )
+        .then(({ error }) => {
+          if (error) console.error("[supabase] creatives insert failed:", error.message);
+        });
     }
     setCreativesModalOpen(false);
   };
@@ -1008,19 +1020,29 @@ export function DashboardModule() {
         (p) => p.imageUrl.length > 0 || p.caption.trim().length > 0 || p.likes > 0 || p.comments > 0,
       );
     if (saved.length === 0) {
-      try {
-        localStorage.removeItem(INSTAGRAM_FEED_STORAGE_KEY);
-      } catch {
-        /* ignore */
-      }
       setInstagramFeedPosts(null);
+      void supabase.from("instagram_posts").delete().not("id", "is", null).then(({ error }) => {
+        if (error) console.error("[supabase] instagram_posts clear failed:", error.message);
+      });
     } else {
-      try {
-        localStorage.setItem(INSTAGRAM_FEED_STORAGE_KEY, JSON.stringify(saved));
-      } catch {
-        /* ignore quota */
-      }
       setInstagramFeedPosts(saved);
+      void supabase.from("instagram_posts").delete().not("id", "is", null).then(({ error }) => {
+        if (error) console.error("[supabase] instagram_posts reset failed:", error.message);
+      });
+      void supabase
+        .from("instagram_posts")
+        .insert(
+          saved.map((post) => ({
+            id: post.id,
+            image_url: post.imageUrl,
+            likes: post.likes,
+            comments: post.comments,
+            caption: post.caption,
+          })),
+        )
+        .then(({ error }) => {
+          if (error) console.error("[supabase] instagram_posts insert failed:", error.message);
+        });
     }
     setInstagramFeedModalOpen(false);
   };
@@ -1035,18 +1057,14 @@ export function DashboardModule() {
       if (!prev) return null;
       const next = prev.filter((p) => p.id !== postId);
       if (next.length === 0) {
-        try {
-          localStorage.removeItem(INSTAGRAM_FEED_STORAGE_KEY);
-        } catch {
-          /* ignore */
-        }
+        void supabase.from("instagram_posts").delete().not("id", "is", null).then(({ error }) => {
+          if (error) console.error("[supabase] instagram_posts clear failed:", error.message);
+        });
         return null;
       }
-      try {
-        localStorage.setItem(INSTAGRAM_FEED_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        /* ignore quota */
-      }
+      void supabase.from("instagram_posts").delete().eq("id", postId).then(({ error }) => {
+        if (error) console.error("[supabase] instagram_posts delete failed:", error.message);
+      });
       return next;
     });
   };

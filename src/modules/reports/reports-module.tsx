@@ -1,15 +1,60 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ModuleGuard } from "@/components/layout/module-guard";
 import { useLanguage } from "@/context/language-context";
+import { supabase } from "@/lib/supabase";
 
 export function ReportsModule() {
   const { t: lt } = useLanguage();
   const [view, setView] = useState<"dashboard" | "pdf">("dashboard");
+  const [loading, setLoading] = useState(true);
+  const [reports, setReports] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    void supabase
+      .from("reports")
+      .select("*")
+      .order("uploaded_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (!mounted) return;
+        if (error) {
+          console.error("[supabase] reports fetch failed:", error.message);
+          setReports([]);
+        } else {
+          setReports(
+            ((data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
+              id: String(row.id ?? ""),
+              name: String(row.name ?? ""),
+            })),
+          );
+        }
+      })
+      .then(
+        () => {
+          if (mounted) setLoading(false);
+        },
+        () => {
+          if (mounted) setLoading(false);
+        },
+      );
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const addReport = () => {
+    const id = crypto.randomUUID();
+    const name = "New Report";
+    setReports((prev) => [{ id, name }, ...prev]);
+    void supabase.from("reports").insert({ id, name, category: "general", file_url: "" }).then(({ error }) => {
+      if (error) console.error("[supabase] report insert failed:", error.message);
+    });
+  };
 
   const kpiRows = [
     { label: "Social Performance", value: "+18.4%", fraction: "18.4 / 25.0" },
@@ -30,7 +75,7 @@ export function ReportsModule() {
         subtitle={lt("Social performance, traffic, and website analytics in dashboard/PDF views.")}
         action={
           <div className="flex gap-2">
-            <button className="btn-primary rounded-lg px-3 py-2 text-sm">{lt("Upload Report")}</button>
+            <button className="btn-primary rounded-lg px-3 py-2 text-sm" onClick={addReport}>{lt("Upload Report")}</button>
             <button
               type="button"
               onClick={() => setView("dashboard")}
@@ -75,6 +120,16 @@ export function ReportsModule() {
       </div>
       <Card className="mt-5">
         <h2 className="section-title">{view === "dashboard" ? lt("Dashboard View") : lt("PDF View")}</h2>
+        {loading ? <div className="mt-3 h-20 animate-pulse rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)]" /> : null}
+        {!loading && reports.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            {reports.slice(0, 5).map((report) => (
+              <div key={report.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-3 text-sm text-white">
+                {report.name}
+              </div>
+            ))}
+          </div>
+        ) : null}
         {view === "dashboard" ? (
           <div className="mt-3 grid gap-3 md:grid-cols-3">
             {(["Social", "Traffic", "Website"] as const).map((section) => (
