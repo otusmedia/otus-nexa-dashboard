@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  Check,
   ChevronDown,
   ChevronRight,
   FileArchive,
@@ -22,8 +23,15 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createPortal } from "react-dom";
-import type { Project, ProjectTaskRow, TaskRowStatus } from "../data";
-import { formatDisplayDate, OWNER_OPTIONS, TASK_STATUS_OPTIONS } from "../data";
+import type { Project, ProjectStatus, ProjectTaskRow, TaskRowStatus } from "../data";
+import {
+  COLUMN_TO_STATUS,
+  formatDisplayDate,
+  KANBAN_COLUMNS,
+  OWNER_OPTIONS,
+  PROJECT_TEAM_MEMBERS,
+  TASK_STATUS_OPTIONS,
+} from "../data";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { Card } from "@/components/ui/card";
@@ -85,6 +93,39 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function commentAuthorHue(name: string) {
+  let h = 0;
+  for (let i = 0; i < name.length; i += 1) h = (h + name.charCodeAt(i) * 17) % 360;
+  return h;
+}
+
+function commentAuthorInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function formatCommentTimestamp(iso: string) {
+  const d = new Date(iso);
+  const month = d.toLocaleString("en-US", { month: "short" });
+  const day = d.getDate();
+  const year = d.getFullYear();
+  const hour = d.getHours();
+  const minute = d.getMinutes().toString().padStart(2, "0");
+  return `${month} ${day}, ${year} at ${hour}:${minute}`;
+}
+
+type ProjectComment = {
+  id: string;
+  project_id: string;
+  user_name: string;
+  content: string;
+  created_at: string;
+};
+
 function attachmentKind(type: string, name: string) {
   const ext = name.split(".").pop()?.toLowerCase() || "";
   if (type.startsWith("image/")) return FileImage;
@@ -122,7 +163,8 @@ const BOARD_TASK_KEYS = new Set<keyof ProjectTaskRow>([
 
 export function ProjectDetailView({ project }: { project: Project }) {
   const searchParams = useSearchParams();
-  const { updateBoardProjectTask, addBoardProjectTask, deleteBoardProjectTask } = useAppContext();
+  const { updateBoardProjectTask, addBoardProjectTask, deleteBoardProjectTask, updateBoardProject, currentUser } =
+    useAppContext();
   const { t: lt } = useLanguage();
   const [description, setDescription] = useState(project.description);
   const [savedDescription, setSavedDescription] = useState(project.description);
@@ -153,6 +195,12 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [taskDeleteDialog, setTaskDeleteDialog] = useState<{ id: string; name: string } | null>(null);
   const [coverUploadLoading, setCoverUploadLoading] = useState(false);
   const [coverUploadError, setCoverUploadError] = useState("");
+  const [projectStatusDropdownOpen, setProjectStatusDropdownOpen] = useState(false);
+  const [projectOwnersDropdownOpen, setProjectOwnersDropdownOpen] = useState(false);
+  const [comments, setComments] = useState<ProjectComment[]>([]);
+  const [commentDraft, setCommentDraft] = useState("");
+  const projectPropsStatusRef = useRef<HTMLDivElement>(null);
+  const projectPropsOwnersRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const coverImageInputRef = useRef<HTMLInputElement | null>(null);
   const panelDescriptionRef = useRef<HTMLTextAreaElement | null>(null);
@@ -273,6 +321,82 @@ export function ProjectDetailView({ project }: { project: Project }) {
       document.removeEventListener("keydown", onEsc);
     };
   }, [rowStatusMenu]);
+
+  useEffect(() => {
+    if (!projectStatusDropdownOpen && !projectOwnersDropdownOpen) return;
+    const onDoc = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        projectStatusDropdownOpen &&
+        projectPropsStatusRef.current &&
+        !projectPropsStatusRef.current.contains(target)
+      ) {
+        setProjectStatusDropdownOpen(false);
+      }
+      if (
+        projectOwnersDropdownOpen &&
+        projectPropsOwnersRef.current &&
+        !projectPropsOwnersRef.current.contains(target)
+      ) {
+        setProjectOwnersDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [projectStatusDropdownOpen, projectOwnersDropdownOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void supabase
+      .from("project_comments")
+      .select("*")
+      .eq("project_id", project.id)
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error("[supabase] project comments fetch failed:", error.message);
+          return;
+        }
+        setComments((data as ProjectComment[] | null) ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`project_comments:${project.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "project_comments",
+          filter: `project_id=eq.${project.id}`,
+        },
+        (payload) => {
+          const row = payload.new as Record<string, unknown>;
+          const comment: ProjectComment = {
+            id: String(row.id ?? ""),
+            project_id: String(row.project_id ?? ""),
+            user_name: String(row.user_name ?? ""),
+            content: String(row.content ?? ""),
+            created_at: String(row.created_at ?? ""),
+          };
+          if (!comment.id) return;
+          setComments((prev) => {
+            if (prev.some((c) => c.id === comment.id)) return prev;
+            return [comment, ...prev];
+          });
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [project.id]);
 
   const updateTask = async (taskId: string, updates: Partial<LocalTask>) => {
     const dbPatch: Record<string, unknown> = {};
@@ -579,6 +703,40 @@ export function ProjectDetailView({ project }: { project: Project }) {
     closeTaskModal();
   };
 
+  const toggleProjectOwner = (member: (typeof PROJECT_TEAM_MEMBERS)[number]) => {
+    const selected = new Set(project.owners);
+    if (selected.has(member)) selected.delete(member);
+    else selected.add(member);
+    const nextOwners = PROJECT_TEAM_MEMBERS.filter((m) => selected.has(m));
+    updateBoardProject(project.id, { owners: nextOwners });
+  };
+
+  const selectProjectStatus = (status: ProjectStatus) => {
+    updateBoardProject(project.id, { status });
+    setProjectStatusDropdownOpen(false);
+  };
+
+  const postComment = async () => {
+    const content = commentDraft.trim();
+    if (!content) return;
+    const userName = currentUser.name.trim() || "User";
+    const { data, error } = await supabase
+      .from("project_comments")
+      .insert([{ project_id: project.id, user_name: userName, content }])
+      .select()
+      .single();
+    if (error) {
+      console.error("[supabase] project comment insert failed:", error.message);
+      return;
+    }
+    const row = data as ProjectComment;
+    setComments((prev) => {
+      if (prev.some((c) => c.id === row.id)) return prev;
+      return [row, ...prev];
+    });
+    setCommentDraft("");
+  };
+
   return (
     <div className="space-y-6">
       <Link
@@ -605,10 +763,86 @@ export function ProjectDetailView({ project }: { project: Project }) {
         <h2 className="section-title mb-1">{lt("Properties")}</h2>
         <div>
           <PropRow label={lt("Status")}>
-            <ProjectStatusBadge status={project.status} />
+            <div className="relative" ref={projectPropsStatusRef}>
+              <button
+                type="button"
+                onClick={() => setProjectStatusDropdownOpen((v) => !v)}
+                className="inline-flex items-center gap-2 rounded-[6px] text-left transition hover:bg-[rgba(255,255,255,0.04)]"
+              >
+                <ProjectStatusBadge status={project.status} />
+                <ChevronDown className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.35)]" strokeWidth={1.5} />
+              </button>
+              {projectStatusDropdownOpen ? (
+                <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2 shadow-lg">
+                  {KANBAN_COLUMNS.map((col) => {
+                    const status = COLUMN_TO_STATUS[col.id];
+                    return (
+                      <button
+                        key={col.id}
+                        type="button"
+                        onClick={() => selectProjectStatus(status)}
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
+                          project.status === status && "bg-[rgba(255,255,255,0.04)]",
+                        )}
+                      >
+                        <span className={cn("h-2 w-2 shrink-0 rounded-full", col.dotClass)} aria-hidden />
+                        {lt(status)}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
           </PropRow>
           <PropRow label={lt("Owner")}>
-            <OwnerAvatars names={project.owners} size="md" />
+            <div className="relative" ref={projectPropsOwnersRef}>
+              <button
+                type="button"
+                onClick={() => setProjectOwnersDropdownOpen((v) => !v)}
+                className="flex max-w-full flex-wrap items-center gap-2 rounded-[6px] text-left transition hover:bg-[rgba(255,255,255,0.04)]"
+              >
+                {project.owners.length === 0 ? (
+                  <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">—</span>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {project.owners.map((name) => (
+                      <div
+                        key={name}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] text-[0.7rem] font-light text-white"
+                        style={{ backgroundColor: `hsla(${commentAuthorHue(name)}, 35%, 32%, 1)` }}
+                        title={name}
+                      >
+                        {commentAuthorInitials(name)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <ChevronDown className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.35)]" strokeWidth={1.5} />
+              </button>
+              {projectOwnersDropdownOpen ? (
+                <div className="absolute left-0 top-full z-20 mt-1 max-h-64 w-full min-w-[260px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[#131313] p-2 shadow-lg">
+                  {PROJECT_TEAM_MEMBERS.map((member) => {
+                    const sel = project.owners.includes(member);
+                    return (
+                      <button
+                        key={member}
+                        type="button"
+                        onClick={() => toggleProjectOwner(member)}
+                        className="flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]"
+                      >
+                        {sel ? (
+                          <Check className="h-4 w-4 shrink-0 text-[#22c55e]" strokeWidth={2} />
+                        ) : (
+                          <span className="inline-flex h-4 w-4 shrink-0" aria-hidden />
+                        )}
+                        {member}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
           </PropRow>
           <PropRow label={lt("Progress")}>
             <div className="max-w-md">
@@ -616,7 +850,14 @@ export function ProjectDetailView({ project }: { project: Project }) {
             </div>
           </PropRow>
           <PropRow label={lt("Due date")}>
-            <span className="mono-num text-[rgba(255,255,255,0.4)]">{formatDisplayDate(project.dueDate)}</span>
+            <input
+              type="date"
+              value={project.dueDate ?? ""}
+              onChange={(event) =>
+                updateBoardProject(project.id, { dueDate: event.target.value || null })
+              }
+              className="mono-num max-w-[12rem] rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light text-white outline-none"
+            />
           </PropRow>
           <PropRow label={lt("Project type")}>
             <ProjectTypeBadge type={project.type} />
@@ -898,6 +1139,61 @@ export function ProjectDetailView({ project }: { project: Project }) {
               </tr>
             </tbody>
           </table>
+        </div>
+      </Card>
+
+      <Card className="rounded-[8px]">
+        <h2 className="section-title mb-3">{lt("COMMENTS")}</h2>
+        <div className="space-y-3">
+          <div>
+            <textarea
+              value={commentDraft}
+              onChange={(event) => setCommentDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  void postComment();
+                }
+              }}
+              placeholder={lt("Add a comment...")}
+              rows={3}
+              className="w-full resize-y rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
+            />
+            <div className="mt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => void postComment()}
+                className="rounded-[6px] bg-[#ff4500] px-3 py-1.5 text-xs font-light text-white transition-colors hover:bg-[#e33f00]"
+              >
+                {lt("Post")}
+              </button>
+            </div>
+          </div>
+          {comments.length === 0 ? (
+            <p className="text-sm font-light text-[rgba(255,255,255,0.4)]">
+              {lt("No comments yet — be the first to comment")}
+            </p>
+          ) : (
+            <ul className="space-y-0 divide-y divide-[var(--border)]">
+              {comments.map((comment) => (
+                <li key={comment.id} className="flex gap-3 py-3 first:pt-0">
+                  <div
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] text-[0.65rem] font-light text-white"
+                    style={{ backgroundColor: `hsla(${commentAuthorHue(comment.user_name)}, 35%, 32%, 1)` }}
+                  >
+                    {commentAuthorInitials(comment.user_name)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-white">{comment.user_name}</p>
+                    <p className="mt-1 text-sm font-light text-[rgba(255,255,255,0.85)]">{comment.content}</p>
+                    <p className="mt-1 text-[0.72rem] font-light text-[rgba(255,255,255,0.4)]">
+                      {formatCommentTimestamp(comment.created_at)}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </Card>
 

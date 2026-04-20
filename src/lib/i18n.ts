@@ -217,6 +217,11 @@ const platformPtBR: Record<string, string> = {
   "Add a cover image to display in Highlights": "Adicione uma imagem de capa para exibir nos Destaques",
   "Brief description of this work...": "Breve descrição deste trabalho...",
   "Design Services Page": "Página de serviços de design",
+  COMMENTS: "COMENTÁRIOS",
+  "Add a comment...": "Adicionar um comentário...",
+  Post: "Publicar",
+  "No comments yet — be the first to comment":
+    "Nenhum comentário ainda — seja o primeiro a comentar",
 
   // Financial
   "Payment tracking, invoice files, and total invested per project.":

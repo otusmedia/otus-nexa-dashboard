@@ -8,8 +8,10 @@ import {
   COLUMN_TO_STATUS,
   computeProjectProgressFromTasks,
   splitProjectsByColumn,
+  STATUS_TO_COLUMN,
   type KanbanColumnId,
   type Project,
+  type ProjectStatus,
   type ProjectTaskRow,
   type ProjectsByColumn,
 } from "@/app/(platform)/projects/data";
@@ -132,6 +134,10 @@ interface AppContextValue {
   deleteBoardProject: (projectId: string) => void;
   deleteBoardProjectTask: (projectId: string, taskId: string) => void;
   moveProjectInKanban: (result: DropResult) => void;
+  updateBoardProject: (
+    projectId: string,
+    patch: Partial<{ status: ProjectStatus; owners: string[]; dueDate: string | null }>,
+  ) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -151,6 +157,7 @@ type DbProjectRow = {
   status: string | null;
   progress: number | null;
   owner: string | null;
+  owners?: string | null;
   start_date: string | null;
   end_date: string | null;
   description: string | null;
@@ -201,7 +208,8 @@ function statusToColumn(status: string | null | undefined): KanbanColumnId {
 function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTaskRow[]): ProjectsByColumn {
   const projects: Project[] = projectRows.map((row) => {
     const column = statusToColumn(row.status);
-    const owner = row.owner ?? "";
+    const ownersStr = (row.owners?.trim() || row.owner?.trim() || "") as string;
+    const ownersList = ownersStr ? ownersStr.split(",").map((s) => s.trim()).filter(Boolean) : [];
     const projectTasks: ProjectTaskRow[] = taskRows
       .filter((task) => task.project_id === row.id)
       .map((task) => ({
@@ -225,13 +233,13 @@ function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTask
       id: row.id,
       name: row.name,
       column,
-      owners: owner ? [owner] : [],
+      owners: ownersList,
       progress: computeProjectProgressFromTasks(projectTasks),
       dueDate: row.end_date,
       status: COLUMN_TO_STATUS[column],
       type: row.type === "Website" || row.type === "Monthly Content" || row.type === "Paid Traffic" ? row.type : "Website",
       startDate: row.start_date,
-      teamMembers: owner ? [owner] : [],
+      teamMembers: ownersList,
       linkedInvoices: [],
       description: row.description ?? "",
       tasks: projectTasks,
@@ -1041,6 +1049,71 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             });
           return next;
         });
+      },
+      updateBoardProject: (projectId, patch) => {
+        const cols: KanbanColumnId[] = ["planning", "in_progress", "paused", "done", "cancelled"];
+        setProjectsByColumn((prev) => {
+          let sourceCol: KanbanColumnId | null = null;
+          let sourceIdx = -1;
+          let base: Project | null = null;
+          for (const col of cols) {
+            const i = prev[col].findIndex((p) => p.id === projectId);
+            if (i !== -1) {
+              sourceCol = col;
+              sourceIdx = i;
+              base = prev[col][i];
+              break;
+            }
+          }
+          if (!base || sourceCol === null) return prev;
+
+          let nextProject: Project = { ...base };
+          if (patch.owners !== undefined) {
+            nextProject = { ...nextProject, owners: [...patch.owners], teamMembers: [...patch.owners] };
+          }
+          if (patch.dueDate !== undefined) {
+            nextProject = { ...nextProject, dueDate: patch.dueDate };
+          }
+          if (patch.status !== undefined) {
+            const destCol = STATUS_TO_COLUMN[patch.status];
+            nextProject = { ...nextProject, status: patch.status, column: destCol };
+          }
+
+          const destCol = nextProject.column;
+          if (destCol !== sourceCol) {
+            const next: ProjectsByColumn = {
+              planning: [...prev.planning],
+              in_progress: [...prev.in_progress],
+              paused: [...prev.paused],
+              done: [...prev.done],
+              cancelled: [...prev.cancelled],
+            };
+            next[sourceCol].splice(sourceIdx, 1);
+            next[destCol].unshift(nextProject);
+            return next;
+          }
+          return {
+            ...prev,
+            [sourceCol]: prev[sourceCol].map((p, i) => (i === sourceIdx ? nextProject : p)),
+          };
+        });
+
+        const dbPayload: Record<string, unknown> = {};
+        if (patch.status !== undefined) dbPayload.status = patch.status;
+        if (patch.owners !== undefined) {
+          const joined = patch.owners.join(",");
+          dbPayload.owner = joined;
+          dbPayload.owners = joined;
+        }
+        if (patch.dueDate !== undefined) dbPayload.end_date = patch.dueDate;
+        if (Object.keys(dbPayload).length === 0) return;
+        void supabase
+          .from("projects")
+          .update(dbPayload)
+          .eq("id", projectId)
+          .then(({ error }) => {
+            if (error) console.error("[supabase] project fields update failed:", error.message);
+          });
       },
     }),
     [

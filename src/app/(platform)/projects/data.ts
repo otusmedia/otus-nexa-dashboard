@@ -94,6 +94,25 @@ export const COLUMN_TO_STATUS: Record<KanbanColumnId, ProjectStatus> = {
   cancelled: "Cancelled",
 };
 
+/** Kanban column for each project status (detail panel + board moves). */
+export const STATUS_TO_COLUMN: Record<ProjectStatus, KanbanColumnId> = {
+  Planning: "planning",
+  "In Progress": "in_progress",
+  Paused: "paused",
+  Done: "done",
+  Cancelled: "cancelled",
+};
+
+/** Team members available as project owners (Properties multi-select). */
+export const PROJECT_TEAM_MEMBERS = [
+  "Matheus Canci",
+  "David Martins",
+  "Matheus Foletto",
+  "Joe",
+  "Karla Kachuba",
+  "Luca",
+] as const;
+
 export const OWNER_OPTIONS = ["Ana Silva", "Matheus Canci", "Lucas Rocha", "Camila Manager", "David Martins"] as const;
 
 export const TASK_STATUS_OPTIONS: TaskStatusOption[] = [
