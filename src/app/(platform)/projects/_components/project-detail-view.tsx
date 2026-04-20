@@ -15,6 +15,7 @@ import {
   Plus,
   Star,
   Target,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -30,6 +31,7 @@ import { ProgressInline } from "./progress-inline";
 import { ProjectStatusBadge } from "./project-status-badge";
 import { ProjectTypeBadge } from "./project-type-badge";
 import { TaskRowStatusBadge } from "./task-row-status-badge";
+import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 
 function PropRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -105,7 +107,7 @@ const BOARD_TASK_KEYS = new Set<keyof ProjectTaskRow>([
 
 export function ProjectDetailView({ project }: { project: Project }) {
   const searchParams = useSearchParams();
-  const { updateBoardProjectTask, addBoardProjectTask } = useAppContext();
+  const { updateBoardProjectTask, addBoardProjectTask, deleteBoardProjectTask } = useAppContext();
   const { t: lt } = useLanguage();
   const [description, setDescription] = useState(project.description);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -133,6 +135,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [panelDueDateEditing, setPanelDueDateEditing] = useState(false);
   const [panelDescription, setPanelDescription] = useState("");
   const [panelPriority, setPanelPriority] = useState<Priority>("Medium");
+  const [taskDeleteDialog, setTaskDeleteDialog] = useState<{ id: string; name: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const coverImageInputRef = useRef<HTMLInputElement | null>(null);
   const panelDescriptionRef = useRef<HTMLTextAreaElement | null>(null);
@@ -256,6 +259,13 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
   const openTaskPanel = (taskId: string) => {
     setActiveTaskId(taskId);
+  };
+
+  const confirmDeleteTask = () => {
+    if (!taskDeleteDialog) return;
+    deleteBoardProjectTask(project.id, taskDeleteDialog.id);
+    if (activeTaskId === taskDeleteDialog.id) closeTaskPanel();
+    setTaskDeleteDialog(null);
   };
 
   const onRowStatusChange = (taskId: string, status: TaskRowStatus) => {
@@ -436,13 +446,14 @@ export function ProjectDetailView({ project }: { project: Project }) {
                 <th className="kpi-label w-12 border-[var(--border)] bg-[#101010] py-2.5 text-center" aria-label={lt("Featured")}>
                   <Star className="mx-auto h-4 w-4 text-[rgba(255,255,255,0.35)]" strokeWidth={1.5} />
                 </th>
+                <th className="kpi-label w-10 border-[var(--border)] bg-[#101010] py-2.5" aria-label={lt("Actions")} />
               </tr>
             </thead>
             <tbody>
               {tasks.map((task) => (
                 <tr
                   key={task.id}
-                  className="cursor-pointer transition-colors hover:bg-[rgba(255,255,255,0.03)]"
+                  className="group/row cursor-pointer transition-colors hover:bg-[rgba(255,255,255,0.03)]"
                   onClick={() => openTaskPanel(task.id)}
                 >
                   <td className="text-sm font-light text-white">
@@ -588,10 +599,20 @@ export function ProjectDetailView({ project }: { project: Project }) {
                       />
                     </button>
                   </td>
+                  <td className="w-10 text-center" onClick={(event) => event.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => setTaskDeleteDialog({ id: task.id, name: task.name })}
+                      className="inline-flex rounded-[6px] p-1.5 text-[rgba(255,255,255,0.3)] opacity-0 transition hover:text-[#ef4444] group-hover/row:opacity-100"
+                      aria-label={lt("Delete task")}
+                    >
+                      <Trash2 className="h-[14px] w-[14px]" strokeWidth={1.75} />
+                    </button>
+                  </td>
                 </tr>
               ))}
               <tr className="cursor-pointer border-t border-[var(--border)] transition-colors hover:bg-[rgba(255,255,255,0.03)]">
-                <td colSpan={5} className="py-3">
+                <td colSpan={6} className="py-3">
                   <button
                     type="button"
                     onClick={openTaskModal}
@@ -1024,10 +1045,34 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   <p className="text-xs text-amber-400">{lt("Add a cover image to display in Highlights")}</p>
                 ) : null}
               </div>
+
+              <div className="border-t border-[var(--border)] pt-5">
+                <button
+                  type="button"
+                  onClick={() => setTaskDeleteDialog({ id: activeTask.id, name: activeTask.name })}
+                  className="w-full rounded-[8px] border border-[rgba(239,68,68,0.35)] bg-transparent py-2.5 text-xs font-light text-[#fca5a5] transition-colors hover:bg-[rgba(239,68,68,0.08)]"
+                >
+                  {lt("Delete task")}
+                </button>
+              </div>
             </div>
           ) : null}
         </aside>
       </div>
+
+      <DeleteConfirmModal
+        open={taskDeleteDialog !== null}
+        title={lt("Delete Task")}
+        message={
+          taskDeleteDialog
+            ? lt("Delete {name}? This action cannot be undone.").replace("{name}", taskDeleteDialog.name)
+            : ""
+        }
+        confirmLabel={lt("Delete")}
+        cancelLabel={lt("Cancel")}
+        onCancel={() => setTaskDeleteDialog(null)}
+        onConfirm={confirmDeleteTask}
+      />
     </div>
   );
 }

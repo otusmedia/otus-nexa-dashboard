@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
-import { X } from "lucide-react";
+import { MoreHorizontal, Trash2, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { ModuleGuard } from "@/components/layout/module-guard";
 import { useAppContext } from "@/components/providers/app-providers";
 import { Card } from "@/components/ui/card";
+import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
@@ -91,6 +92,12 @@ function toColumn(status: string | null | undefined): MarketingColumnId {
   return "planning";
 }
 
+function computeMarketingProgress(taskList: MarketingTask[]): number {
+  if (taskList.length === 0) return 0;
+  const completed = taskList.filter((t) => t.status === "Done" || t.status === "Published").length;
+  return Math.round((completed / taskList.length) * 100);
+}
+
 export default function MarketingProjectsPage() {
   const { t } = useAppContext();
   const { t: lt } = useLanguage();
@@ -125,6 +132,10 @@ export default function MarketingProjectsPage() {
   const [newTaskReminderNote, setNewTaskReminderNote] = useState("");
 
   const [tagInput, setTagInput] = useState("");
+  const [campaignMenuOpenId, setCampaignMenuOpenId] = useState<string | null>(null);
+  const campaignMenuRef = useRef<HTMLDivElement>(null);
+  const [campaignDelete, setCampaignDelete] = useState<{ id: string; name: string } | null>(null);
+  const [marketingTaskDelete, setMarketingTaskDelete] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -194,6 +205,20 @@ export default function MarketingProjectsPage() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!campaignMenuOpenId) campaignMenuRef.current = null;
+  }, [campaignMenuOpenId]);
+
+  useEffect(() => {
+    if (!campaignMenuOpenId) return;
+    const onDoc = (e: MouseEvent) => {
+      if (campaignMenuRef.current?.contains(e.target as Node)) return;
+      setCampaignMenuOpenId(null);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [campaignMenuOpenId]);
 
   useEffect(() => {
     const campaignId = searchParams.get("campaignId");
@@ -462,6 +487,53 @@ export default function MarketingProjectsPage() {
     );
   };
 
+  const confirmDeleteCampaign = () => {
+    if (!campaignDelete) return;
+    const { id } = campaignDelete;
+    setProjects((prev) => prev.filter((p) => p.id !== id));
+    setTasks((prev) => prev.filter((t) => t.projectId !== id));
+    if (activeProjectId === id) setActiveProjectId(null);
+    void supabase
+      .from("marketing_projects")
+      .delete()
+      .eq("id", id)
+      .then(({ error }) => {
+        if (error) console.error("[supabase] marketing_projects delete failed:", error.message);
+      });
+    setCampaignDelete(null);
+  };
+
+  const confirmDeleteMarketingTask = () => {
+    if (!marketingTaskDelete) return;
+    const { id: taskId } = marketingTaskDelete;
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) {
+      setMarketingTaskDelete(null);
+      return;
+    }
+    const projectId = task.projectId;
+    const remaining = tasks.filter((t) => t.projectId === projectId && t.id !== taskId);
+    const progress = computeMarketingProgress(remaining);
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, progress } : p)));
+    void supabase
+      .from("marketing_tasks")
+      .delete()
+      .eq("id", taskId)
+      .then(({ error }) => {
+        if (error) console.error("[supabase] marketing_tasks delete failed:", error.message);
+      });
+    void supabase
+      .from("marketing_projects")
+      .update({ progress })
+      .eq("id", projectId)
+      .then(({ error }) => {
+        if (error) console.error("[supabase] marketing campaign progress update failed:", error.message);
+      });
+    if (activeTaskId === taskId) setActiveTaskId(null);
+    setMarketingTaskDelete(null);
+  };
+
   return (
     <ModuleGuard module="marketing">
       <MarketingAccessGuard>
@@ -497,20 +569,74 @@ export default function MarketingProjectsPage() {
                                   {...dragProvided.dragHandleProps}
                                   className={dropSnapshot.isDraggingOver ? "rounded-[8px] border border-[#ff4500]/20 p-0.5" : ""}
                                 >
-                                  <button
-                                    type="button"
-                                    onClick={() => setActiveProjectId(project.id)}
-                                    className="w-full rounded-[8px] border border-[var(--border)] bg-[#161616] p-3 text-left"
-                                  >
-                                    <p className="text-sm text-white">{project.name}</p>
-                                    <p className="mt-1 text-xs text-[var(--muted)]">{project.owner}</p>
-                                    <div className="mt-3 h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.12)]">
-                                      <div className="h-[2px] rounded-[2px] bg-[#ff4500]" style={{ width: `${project.progress}%` }} />
+                                  <div className="group relative w-full rounded-[8px] border border-[var(--border)] bg-[#161616]">
+                                    <div
+                                      className="pointer-events-none absolute right-1.5 top-1.5 z-20 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100"
+                                      ref={(el) => {
+                                        if (campaignMenuOpenId === project.id) campaignMenuRef.current = el;
+                                      }}
+                                    >
+                                      <button
+                                        type="button"
+                                        aria-expanded={campaignMenuOpenId === project.id}
+                                        aria-haspopup="menu"
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          setCampaignMenuOpenId((prev) => (prev === project.id ? null : project.id));
+                                        }}
+                                        className="flex h-7 w-7 items-center justify-center rounded-[4px] border border-[rgba(255,255,255,0.12)] bg-[#1a1a1a] text-[rgba(255,255,255,0.55)] transition-colors hover:border-[rgba(255,255,255,0.2)] hover:text-white"
+                                      >
+                                        <MoreHorizontal className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                                        <span className="sr-only">{lt("Menu")}</span>
+                                      </button>
+                                      {campaignMenuOpenId === project.id ? (
+                                        <div
+                                          className="absolute right-0 top-full z-30 mt-1 min-w-[140px] rounded-[4px] border border-[rgba(255,255,255,0.1)] bg-[#141414] py-1 shadow-lg"
+                                          role="menu"
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                        >
+                                          <button
+                                            type="button"
+                                            role="menuitem"
+                                            className="flex w-full px-3 py-2 text-left text-xs font-light text-white hover:bg-[rgba(255,255,255,0.06)]"
+                                            onClick={() => {
+                                              setCampaignMenuOpenId(null);
+                                              setActiveProjectId(project.id);
+                                            }}
+                                          >
+                                            {lt("Open")}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            role="menuitem"
+                                            className="flex w-full px-3 py-2 text-left text-xs font-light text-[#fca5a5] hover:bg-[rgba(239,68,68,0.12)]"
+                                            onClick={() => {
+                                              setCampaignMenuOpenId(null);
+                                              setCampaignDelete({ id: project.id, name: project.name });
+                                            }}
+                                          >
+                                            {lt("Delete")}
+                                          </button>
+                                        </div>
+                                      ) : null}
                                     </div>
-                                    <p className="mt-2 text-xs text-[var(--muted)]">
-                                      {lt("Due")}: <span className="mono-num">{project.endDate ?? "—"}</span>
-                                    </p>
-                                  </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveProjectId(project.id)}
+                                      className="w-full p-3 text-left"
+                                    >
+                                      <p className="pr-8 text-sm text-white">{project.name}</p>
+                                      <p className="mt-1 text-xs text-[var(--muted)]">{project.owner}</p>
+                                      <div className="mt-3 h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.12)]">
+                                        <div className="h-[2px] rounded-[2px] bg-[#ff4500]" style={{ width: `${project.progress}%` }} />
+                                      </div>
+                                      <p className="mt-2 text-xs text-[var(--muted)]">
+                                        {lt("Due")}: <span className="mono-num">{project.endDate ?? "—"}</span>
+                                      </p>
+                                    </button>
+                                  </div>
                                 </div>
                               )}
                             </Draggable>
@@ -740,11 +866,12 @@ export default function MarketingProjectsPage() {
                       <th className="px-2 py-2">{lt("Due date")}</th>
                       <th className="px-2 py-2">{lt("Status")}</th>
                       <th className="px-2 py-2">{lt("Priority")}</th>
+                      <th className="w-10 px-2 py-2" aria-label={lt("Actions")} />
                     </tr>
                   </thead>
                   <tbody>
                     {projectTasks.map((task) => (
-                      <tr key={task.id} className="border-b border-[var(--border)] last:border-b-0">
+                      <tr key={task.id} className="group/mktrow border-b border-[var(--border)] last:border-b-0">
                         <td className="px-2 py-2">
                           <button type="button" onClick={() => setActiveTaskId(task.id)} className="text-left text-white">
                             {task.title}
@@ -769,6 +896,19 @@ export default function MarketingProjectsPage() {
                           >
                             {TASK_PRIORITIES.map((value) => <option key={value}>{value}</option>)}
                           </select>
+                        </td>
+                        <td className="w-10 px-2 py-2 text-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMarketingTaskDelete({ id: task.id, name: task.title });
+                            }}
+                            className="inline-flex rounded-[6px] p-1.5 text-[rgba(255,255,255,0.3)] opacity-0 transition hover:text-[#ef4444] group-hover/mktrow:opacity-100"
+                            aria-label={lt("Delete task")}
+                          >
+                            <Trash2 className="h-[14px] w-[14px]" strokeWidth={1.75} />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -923,6 +1063,37 @@ export default function MarketingProjectsPage() {
             </form>
           </div>
         ) : null}
+
+        <DeleteConfirmModal
+          open={campaignDelete !== null}
+          title={lt("Delete Campaign")}
+          message={
+            campaignDelete
+              ? lt("This will permanently delete {name} and all its tasks. This action cannot be undone.").replace(
+                  "{name}",
+                  campaignDelete.name,
+                )
+              : ""
+          }
+          confirmLabel={lt("Delete")}
+          cancelLabel={lt("Cancel")}
+          onCancel={() => setCampaignDelete(null)}
+          onConfirm={confirmDeleteCampaign}
+        />
+
+        <DeleteConfirmModal
+          open={marketingTaskDelete !== null}
+          title={lt("Delete Task")}
+          message={
+            marketingTaskDelete
+              ? lt("Delete {name}? This action cannot be undone.").replace("{name}", marketingTaskDelete.name)
+              : ""
+          }
+          confirmLabel={lt("Delete")}
+          cancelLabel={lt("Cancel")}
+          onCancel={() => setMarketingTaskDelete(null)}
+          onConfirm={confirmDeleteMarketingTask}
+        />
 
         {taskModalOpen && activeProject ? (
           <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/70 p-4">

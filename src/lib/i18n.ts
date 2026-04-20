@@ -440,6 +440,18 @@ const platformPtBR: Record<string, string> = {
   "Creative name": "Nome do criativo",
   "Post caption or description…": "Legenda ou descrição do post…",
 
+  // Delete confirmations (projects & marketing)
+  Menu: "Menu",
+  Open: "Abrir",
+  "Delete Project": "Excluir projeto",
+  "Delete Task": "Excluir tarefa",
+  "Delete Campaign": "Excluir campanha",
+  "Delete task": "Excluir tarefa",
+  "This will permanently delete {name} and all its tasks. This action cannot be undone.":
+    "Isso excluirá permanentemente {name} e todas as suas tarefas. Esta ação não pode ser desfeita.",
+  "Delete {name}? This action cannot be undone.":
+    "Excluir {name}? Esta ação não pode ser desfeita.",
+
   // Notifications / misc
   Notifications: "Notificações",
   "Mark all": "Marcar todas",

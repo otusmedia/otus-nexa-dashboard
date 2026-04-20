@@ -67,6 +67,13 @@ export function mergeProjectsByColumn(board: ProjectsByColumn): Project[] {
   ];
 }
 
+/** Progress from board task rows (Done + Published), matching project detail view. */
+export function computeProjectProgressFromTasks(tasks: ProjectTaskRow[]): number {
+  if (tasks.length === 0) return 0;
+  const completed = tasks.filter((task) => task.status === "Done" || task.status === "Published").length;
+  return Math.round((completed / tasks.length) * 100);
+}
+
 export const KANBAN_COLUMNS: Array<{
   id: KanbanColumnId;
   label: string;

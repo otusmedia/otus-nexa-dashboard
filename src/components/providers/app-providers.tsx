@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from "@/context/auth-context";
 import { ALL_MODULE_KEYS } from "@/lib/modules";
 import {
   COLUMN_TO_STATUS,
+  computeProjectProgressFromTasks,
   splitProjectsByColumn,
   type KanbanColumnId,
   type Project,
@@ -128,6 +129,8 @@ interface AppContextValue {
   }) => void;
   updateBoardProjectTask: (projectId: string, taskId: string, updates: Partial<ProjectTaskRow>) => void;
   addBoardProjectTask: (projectId: string, task: ProjectTaskRow) => void;
+  deleteBoardProject: (projectId: string) => void;
+  deleteBoardProjectTask: (projectId: string, taskId: string) => void;
   moveProjectInKanban: (result: DropResult) => void;
 }
 
@@ -955,6 +958,67 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           .then(({ error }) => {
             if (error) console.error("[supabase] board task update failed:", error.message);
           });
+      },
+      deleteBoardProject: (projectId) => {
+        let deletedName = "";
+        setProjectsByColumn((prev) => {
+          const strip = (list: Project[]) => {
+            const hit = list.find((p) => p.id === projectId);
+            if (hit) deletedName = hit.name;
+            return list.filter((p) => p.id !== projectId);
+          };
+          return {
+            planning: strip(prev.planning),
+            in_progress: strip(prev.in_progress),
+            paused: strip(prev.paused),
+            done: strip(prev.done),
+            cancelled: strip(prev.cancelled),
+          };
+        });
+        void supabase
+          .from("projects")
+          .delete()
+          .eq("id", projectId)
+          .then(({ error }) => {
+            if (error) console.error("[supabase] project delete failed:", error.message);
+          });
+        if (deletedName) {
+          registerActivity(`Project deleted: ${deletedName}`);
+        }
+      },
+      deleteBoardProjectTask: (projectId, taskId) => {
+        let progressUpdate: number | null = null;
+        setProjectsByColumn((prev) => {
+          const mapProject = (p: Project): Project => {
+            if (p.id !== projectId) return p;
+            const nextTasks = p.tasks.filter((t) => t.id !== taskId);
+            progressUpdate = computeProjectProgressFromTasks(nextTasks);
+            return { ...p, tasks: nextTasks, progress: progressUpdate };
+          };
+          return {
+            planning: prev.planning.map(mapProject),
+            in_progress: prev.in_progress.map(mapProject),
+            paused: prev.paused.map(mapProject),
+            done: prev.done.map(mapProject),
+            cancelled: prev.cancelled.map(mapProject),
+          };
+        });
+        void supabase
+          .from("tasks")
+          .delete()
+          .eq("id", taskId)
+          .then(({ error }) => {
+            if (error) console.error("[supabase] board task delete failed:", error.message);
+          });
+        if (progressUpdate !== null) {
+          void supabase
+            .from("projects")
+            .update({ progress: progressUpdate })
+            .eq("id", projectId)
+            .then(({ error }) => {
+              if (error) console.error("[supabase] project progress update failed:", error.message);
+            });
+        }
       },
       addBoardProjectTask: (projectId, task) => {
         setProjectsByColumn((prev) => {
