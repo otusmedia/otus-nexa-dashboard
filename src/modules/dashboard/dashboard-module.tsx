@@ -615,6 +615,11 @@ export function DashboardModule() {
   const [instagramFeedExpanded, setInstagramFeedExpanded] = useState(false);
   const [instagramFeedModalOpen, setInstagramFeedModalOpen] = useState(false);
   const [instagramFeedDraft, setInstagramFeedDraft] = useState<InstagramFeedDraftSlot[]>([]);
+  const [kpiLoading, setKpiLoading] = useState(true);
+  const [kpiActiveTasks, setKpiActiveTasks] = useState(0);
+  const [kpiTotalTasks, setKpiTotalTasks] = useState(0);
+  const [kpiCompletedProjects, setKpiCompletedProjects] = useState(0);
+  const [kpiTotalProjects, setKpiTotalProjects] = useState(0);
 
   const topCreativesDisplay = useMemo(() => {
     if (creativesLive !== null && creativesLive.length > 0) {
@@ -1093,16 +1098,38 @@ export function DashboardModule() {
 
   const mergedProjects = useMemo(() => mergeProjectsByColumn(projectsByColumn), [projectsByColumn]);
 
-  const allProjectTasks = useMemo(
-    () => mergedProjects.flatMap((project) => project.tasks.map((task) => ({ ...task, projectId: project.id }))),
-    [mergedProjects],
-  );
-  const activeTasks = allProjectTasks.filter(
-    (task) => task.status === "In Progress" || task.status === "Waiting for Approval",
-  ).length;
-  const totalTasks = allProjectTasks.length;
-  const completedProjects = mergedProjects.filter((project) => project.status === "Done").length;
-  const totalProjects = mergedProjects.length;
+  useEffect(() => {
+    let cancelled = false;
+    setKpiLoading(true);
+    void Promise.all([
+      supabase.from("tasks").select("id", { count: "exact", head: true }),
+      supabase
+        .from("tasks")
+        .select("id", { count: "exact", head: true })
+        .not("status", "in", '("Done","Published")'),
+      supabase.from("projects").select("id", { count: "exact", head: true }),
+      supabase.from("projects").select("id", { count: "exact", head: true }).eq("status", "Done"),
+    ])
+      .then(([allTasksRes, activeTasksRes, allProjectsRes, completedProjectsRes]) => {
+        if (cancelled) return;
+        if (allTasksRes.error) console.error("[dashboard] total tasks KPI fetch failed:", allTasksRes.error.message);
+        if (activeTasksRes.error) console.error("[dashboard] active tasks KPI fetch failed:", activeTasksRes.error.message);
+        if (allProjectsRes.error) console.error("[dashboard] total projects KPI fetch failed:", allProjectsRes.error.message);
+        if (completedProjectsRes.error) {
+          console.error("[dashboard] completed projects KPI fetch failed:", completedProjectsRes.error.message);
+        }
+        setKpiTotalTasks(allTasksRes.count ?? 0);
+        setKpiActiveTasks(activeTasksRes.count ?? 0);
+        setKpiTotalProjects(allProjectsRes.count ?? 0);
+        setKpiCompletedProjects(completedProjectsRes.count ?? 0);
+      })
+      .finally(() => {
+        if (!cancelled) setKpiLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, customApplied]);
 
   const featuredSlides = useMemo(() => {
     const out: HighlightSlide[] = [];
@@ -1465,14 +1492,26 @@ export function DashboardModule() {
             <p className="kpi-label">{lt("Active Tasks")}</p>
             <MoreHorizontal className="h-4 w-4 text-[var(--muted)]" />
           </div>
-          <p className="metric-value mt-2 text-3xl text-white">{activeTasks}</p>
-          <div className="mt-2 h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.08)]">
-            <div
-              className="h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.35)]"
-              style={{ width: `${totalTasks === 0 ? 0 : (activeTasks / totalTasks) * 100}%` }}
-            />
-          </div>
-          <p className="kpi-fraction mt-1 text-xs">{activeTasks} / {totalTasks}</p>
+          {kpiLoading ? (
+            <>
+              <div className="mt-2 h-9 w-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.08)]" />
+              <div className="mt-2 h-[2px] w-full animate-pulse rounded-[2px] bg-[rgba(255,255,255,0.12)]" />
+              <div className="mt-2 h-3 w-20 animate-pulse rounded bg-[rgba(255,255,255,0.06)]" />
+            </>
+          ) : (
+            <>
+              <p className="metric-value mt-2 text-3xl text-white">{kpiActiveTasks}</p>
+              <div className="mt-2 h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.08)]">
+                <div
+                  className="h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.35)]"
+                  style={{ width: `${kpiTotalTasks === 0 ? 0 : (kpiActiveTasks / kpiTotalTasks) * 100}%` }}
+                />
+              </div>
+              <p className="kpi-fraction mt-1 text-xs">
+                {kpiActiveTasks} / {kpiTotalTasks}
+              </p>
+            </>
+          )}
           <DashboardVsComparisonBlock primaryRaw="+0.0%" invert={false} dateRange={dateRange} lt={lt} />
         </Card>
 
@@ -1481,14 +1520,26 @@ export function DashboardModule() {
             <p className="kpi-label">{lt("Completed Projects")}</p>
             <MoreHorizontal className="h-4 w-4 text-[var(--muted)]" />
           </div>
-          <p className="metric-value mt-2 text-3xl text-white">{completedProjects}</p>
-          <div className="mt-2 h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.08)]">
-            <div
-              className="h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.35)]"
-              style={{ width: `${(completedProjects / totalProjects) * 100}%` }}
-            />
-          </div>
-          <p className="kpi-fraction mt-1 text-xs">{completedProjects} / {totalProjects}</p>
+          {kpiLoading ? (
+            <>
+              <div className="mt-2 h-9 w-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.08)]" />
+              <div className="mt-2 h-[2px] w-full animate-pulse rounded-[2px] bg-[rgba(255,255,255,0.12)]" />
+              <div className="mt-2 h-3 w-20 animate-pulse rounded bg-[rgba(255,255,255,0.06)]" />
+            </>
+          ) : (
+            <>
+              <p className="metric-value mt-2 text-3xl text-white">{kpiCompletedProjects}</p>
+              <div className="mt-2 h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.08)]">
+                <div
+                  className="h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.35)]"
+                  style={{ width: `${kpiTotalProjects === 0 ? 0 : (kpiCompletedProjects / kpiTotalProjects) * 100}%` }}
+                />
+              </div>
+              <p className="kpi-fraction mt-1 text-xs">
+                {kpiCompletedProjects} / {kpiTotalProjects}
+              </p>
+            </>
+          )}
           <DashboardVsComparisonBlock primaryRaw="+0.0%" invert={false} dateRange={dateRange} lt={lt} />
         </Card>
 

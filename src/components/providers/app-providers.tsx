@@ -202,12 +202,31 @@ function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTask
   const projects: Project[] = projectRows.map((row) => {
     const column = statusToColumn(row.status);
     const owner = row.owner ?? "";
+    const projectTasks: ProjectTaskRow[] = taskRows
+      .filter((task) => task.project_id === row.id)
+      .map((task) => ({
+        id: task.id,
+        name: task.title ?? "",
+        dueDate: task.due_date,
+        owner: task.assigned_to ?? "",
+        status:
+          task.status === "In Progress" ||
+          task.status === "Waiting for Approval" ||
+          task.status === "Done" ||
+          task.status === "Scheduled" ||
+          task.status === "Published"
+            ? task.status
+            : "Not Started",
+        isFeatured: Boolean(task.is_featured),
+        coverImage: task.cover_image,
+        shortDescription: task.short_description ?? "",
+      }));
     return {
       id: row.id,
       name: row.name,
       column,
       owners: owner ? [owner] : [],
-      progress: row.progress ?? 0,
+      progress: computeProjectProgressFromTasks(projectTasks),
       dueDate: row.end_date,
       status: COLUMN_TO_STATUS[column],
       type: row.type === "Website" || row.type === "Monthly Content" || row.type === "Paid Traffic" ? row.type : "Website",
@@ -215,25 +234,7 @@ function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTask
       teamMembers: owner ? [owner] : [],
       linkedInvoices: [],
       description: row.description ?? "",
-      tasks: taskRows
-        .filter((task) => task.project_id === row.id)
-        .map((task) => ({
-          id: task.id,
-          name: task.title ?? "",
-          dueDate: task.due_date,
-          owner: task.assigned_to ?? "",
-          status:
-            task.status === "In Progress" ||
-            task.status === "Waiting for Approval" ||
-            task.status === "Done" ||
-            task.status === "Scheduled" ||
-            task.status === "Published"
-              ? task.status
-              : "Not Started",
-          isFeatured: Boolean(task.is_featured),
-          coverImage: task.cover_image,
-          shortDescription: task.short_description ?? "",
-        })),
+      tasks: projectTasks,
     };
   });
   return splitProjectsByColumn(projects);

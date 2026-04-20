@@ -281,7 +281,8 @@ export function ProjectDetailView({ project }: { project: Project }) {
       return;
     }
 
-    setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, ...updates } : task)));
+    const nextTasks = tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task));
+    setTasks(nextTasks);
     const rowPatch: Partial<ProjectTaskRow> = {};
     (Object.keys(updates) as (keyof LocalTask)[]).forEach((key) => {
       if (BOARD_TASK_KEYS.has(key as keyof ProjectTaskRow)) {
@@ -294,6 +295,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
     });
     if (Object.keys(rowPatch).length > 0) {
       updateBoardProjectTask(project.id, taskId, rowPatch);
+    }
+    if (updates.status !== undefined) {
+      void syncProjectProgressFromLocalTasks(nextTasks);
     }
   };
 
@@ -335,10 +339,25 @@ export function ProjectDetailView({ project }: { project: Project }) {
       console.error("[supabase] board task delete failed:", error.message);
       return;
     }
-    setTasks((prev) => prev.filter((task) => task.id !== targetTaskId));
+    const nextTasks = tasks.filter((task) => task.id !== targetTaskId);
+    setTasks(nextTasks);
     deleteBoardProjectTask(project.id, taskDeleteDialog.id);
+    void syncProjectProgressFromLocalTasks(nextTasks);
     if (activeTaskId === targetTaskId) closeTaskPanel();
     setTaskDeleteDialog(null);
+  };
+
+  const syncProjectProgressFromLocalTasks = async (nextTasks: LocalTask[]) => {
+    const nextProgress = Math.round(
+      nextTasks.length === 0
+        ? 0
+        : (nextTasks.filter((task) => task.status === "Done" || task.status === "Published").length / nextTasks.length) *
+            100,
+    );
+    const { error } = await supabase.from("projects").update({ progress: nextProgress }).eq("id", project.id);
+    if (error) {
+      console.error("[supabase] project progress update failed:", error.message);
+    }
   };
 
   const onRowStatusChange = (taskId: string, status: TaskRowStatus) => {
@@ -357,7 +376,8 @@ export function ProjectDetailView({ project }: { project: Project }) {
     void updateTask(activeTask.id, { attachments: [...activeTask.attachments, ...additions] });
   };
 
-  const onCoverImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // -- Run in Supabase Dashboard > Storage: create a public bucket called 'task-covers'
+  const onCoverImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !activeTaskId) return;
     if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
@@ -366,11 +386,20 @@ export function ProjectDetailView({ project }: { project: Project }) {
     }
     const task = tasks.find((t) => t.id === activeTaskId);
     if (!task) return;
-    if (task.coverImage?.startsWith("blob:")) {
-      URL.revokeObjectURL(task.coverImage);
+    const filePath = `${activeTaskId}-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const { data, error } = await supabase.storage.from("task-covers").upload(filePath, file);
+    if (error || !data?.path) {
+      console.error("[supabase] task cover upload failed:", error?.message ?? "No upload path");
+      event.target.value = "";
+      return;
     }
-    const url = URL.createObjectURL(file);
-    void updateTask(activeTaskId, { coverImage: url });
+    const { data: publicData } = supabase.storage.from("task-covers").getPublicUrl(data.path);
+    if (!publicData?.publicUrl) {
+      console.error("[supabase] task cover public URL failed");
+      event.target.value = "";
+      return;
+    }
+    void updateTask(activeTaskId, { coverImage: publicData.publicUrl });
     event.target.value = "";
   };
 
@@ -378,9 +407,6 @@ export function ProjectDetailView({ project }: { project: Project }) {
     if (!activeTaskId) return;
     const task = tasks.find((t) => t.id === activeTaskId);
     if (!task?.coverImage) return;
-    if (task.coverImage.startsWith("blob:")) {
-      URL.revokeObjectURL(task.coverImage);
-    }
     void updateTask(activeTaskId, { coverImage: null });
   };
 
@@ -439,7 +465,8 @@ export function ProjectDetailView({ project }: { project: Project }) {
       priority: row.priority === "Low" || row.priority === "Medium" || row.priority === "High" || row.priority === "Urgent" ? row.priority : "Medium",
       attachments: [],
     };
-    setTasks((prev) => [...prev, createdTask]);
+    const nextTasks = [...tasks, createdTask];
+    setTasks(nextTasks);
     const boardRow: ProjectTaskRow = {
       id: createdTask.id,
       name: createdTask.name,
@@ -451,6 +478,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
       shortDescription: createdTask.shortDescription,
     };
     addBoardProjectTask(project.id, boardRow);
+    void syncProjectProgressFromLocalTasks(nextTasks);
     closeTaskModal();
   };
 
