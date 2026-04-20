@@ -124,6 +124,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const { updateBoardProjectTask, addBoardProjectTask, deleteBoardProjectTask } = useAppContext();
   const { t: lt } = useLanguage();
   const [description, setDescription] = useState(project.description);
+  const [savedDescription, setSavedDescription] = useState(project.description);
+  const [projectDescriptionSavedHint, setProjectDescriptionSavedHint] = useState(false);
+  const [projectDescriptionError, setProjectDescriptionError] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
   const [tasks, setTasks] = useState<LocalTask[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -142,6 +145,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [panelOwnerEditing, setPanelOwnerEditing] = useState(false);
   const [panelDueDateEditing, setPanelDueDateEditing] = useState(false);
   const [panelDescription, setPanelDescription] = useState("");
+  const [panelSavedDescription, setPanelSavedDescription] = useState("");
+  const [taskDescriptionSavedHint, setTaskDescriptionSavedHint] = useState(false);
+  const [taskDescriptionError, setTaskDescriptionError] = useState("");
   const [panelPriority, setPanelPriority] = useState<Priority>("Medium");
   const [taskDeleteDialog, setTaskDeleteDialog] = useState<{ id: string; name: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -183,6 +189,13 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setTaskNameError("");
     setTaskSubmitError("");
   };
+
+  useEffect(() => {
+    setDescription(project.description);
+    setSavedDescription(project.description);
+    setProjectDescriptionSavedHint(false);
+    setProjectDescriptionError("");
+  }, [project.id, project.description]);
 
   useEffect(() => {
     let mounted = true;
@@ -272,13 +285,13 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
     if (Object.keys(dbPatch).length === 0) {
       setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, ...updates } : task)));
-      return;
+      return true;
     }
 
     const { error } = await supabase.from("tasks").update(dbPatch).eq("id", taskId).eq("project_id", project.id);
     if (error) {
       console.error("[supabase] board task update failed:", error.message);
-      return;
+      return false;
     }
 
     const nextTasks = tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task));
@@ -299,6 +312,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     if (updates.status !== undefined) {
       void syncProjectProgressFromLocalTasks(nextTasks);
     }
+    return true;
   };
 
   const activeTask = useMemo(() => tasks.find((task) => task.id === activeTaskId) || null, [tasks, activeTaskId]);
@@ -306,6 +320,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
   useEffect(() => {
     if (!activeTask) return;
     setPanelDescription(activeTask.description);
+    setPanelSavedDescription(activeTask.description);
+    setTaskDescriptionSavedHint(false);
+    setTaskDescriptionError("");
     setPanelPriority(activeTask.priority);
     setPanelStatusOpen(false);
     setPanelEditingName(false);
@@ -412,7 +429,35 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
   const onPanelDescriptionChange = (value: string) => {
     setPanelDescription(value);
-    if (activeTask) void updateTask(activeTask.id, { description: value });
+  };
+
+  const saveProjectDescription = async () => {
+    setProjectDescriptionError("");
+    const { error } = await supabase
+      .from("projects")
+      .update({ description })
+      .eq("id", project.id);
+    if (error) {
+      console.error("[supabase] project description update failed:", error.message);
+      setProjectDescriptionError("Failed to save. Try again.");
+      return;
+    }
+    setSavedDescription(description);
+    setProjectDescriptionSavedHint(true);
+    window.setTimeout(() => setProjectDescriptionSavedHint(false), 2000);
+  };
+
+  const saveTaskDescription = async () => {
+    if (!activeTask) return;
+    setTaskDescriptionError("");
+    const ok = await updateTask(activeTask.id, { description: panelDescription });
+    if (!ok) {
+      setTaskDescriptionError("Failed to save. Try again.");
+      return;
+    }
+    setPanelSavedDescription(panelDescription);
+    setTaskDescriptionSavedHint(true);
+    window.setTimeout(() => setTaskDescriptionSavedHint(false), 2000);
   };
 
   const handleCreateTask = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -565,11 +610,43 @@ export function ProjectDetailView({ project }: { project: Project }) {
         <h2 className="section-title mb-3">{lt("About this project")}</h2>
         <textarea
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
+          onChange={(e) => {
+            setDescription(e.target.value);
+            if (projectDescriptionError) setProjectDescriptionError("");
+          }}
           placeholder={lt("Add a project description...")}
           rows={5}
           className="w-full resize-y rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
         />
+        {description !== savedDescription ? (
+          <div className="mt-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void saveProjectDescription();
+                }}
+                className="rounded-[8px] bg-[#ff4500] px-4 py-1.5 text-[0.8rem] font-light text-white transition-colors hover:bg-[#e33f00]"
+              >
+                {lt("Save")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDescription(savedDescription);
+                  setProjectDescriptionError("");
+                }}
+                className="btn-ghost rounded-[8px] px-3 py-1.5 text-[0.8rem]"
+              >
+                {lt("Cancel")}
+              </button>
+              {projectDescriptionSavedHint ? <span className="text-[0.75rem] text-[#22c55e]">{lt("Saved")}</span> : null}
+            </div>
+            {projectDescriptionError ? (
+              <p className="mt-1 text-[0.75rem] text-[#ef4444]">{lt(projectDescriptionError)}</p>
+            ) : null}
+          </div>
+        ) : null}
       </Card>
 
       <Card className="rounded-[8px]">
@@ -1059,11 +1136,43 @@ export function ProjectDetailView({ project }: { project: Project }) {
                 <textarea
                   ref={panelDescriptionRef}
                   value={panelDescription}
-                  onChange={(event) => onPanelDescriptionChange(event.target.value)}
+                  onChange={(event) => {
+                    onPanelDescriptionChange(event.target.value);
+                    if (taskDescriptionError) setTaskDescriptionError("");
+                  }}
                   rows={1}
                   placeholder={lt("Add a task description...")}
                   className="w-full resize-none overflow-hidden rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
                 />
+                {panelDescription !== panelSavedDescription ? (
+                  <div className="mt-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void saveTaskDescription();
+                        }}
+                        className="rounded-[8px] bg-[#ff4500] px-4 py-1.5 text-[0.8rem] font-light text-white transition-colors hover:bg-[#e33f00]"
+                      >
+                        {lt("Save")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPanelDescription(panelSavedDescription);
+                          setTaskDescriptionError("");
+                        }}
+                        className="btn-ghost rounded-[8px] px-3 py-1.5 text-[0.8rem]"
+                      >
+                        {lt("Cancel")}
+                      </button>
+                      {taskDescriptionSavedHint ? <span className="text-[0.75rem] text-[#22c55e]">{lt("Saved")}</span> : null}
+                    </div>
+                    {taskDescriptionError ? (
+                      <p className="mt-1 text-[0.75rem] text-[#ef4444]">{lt(taskDescriptionError)}</p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
               <div>

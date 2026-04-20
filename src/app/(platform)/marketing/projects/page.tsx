@@ -136,6 +136,10 @@ export default function MarketingProjectsPage() {
   const campaignMenuRef = useRef<HTMLDivElement>(null);
   const [campaignDelete, setCampaignDelete] = useState<{ id: string; name: string } | null>(null);
   const [marketingTaskDelete, setMarketingTaskDelete] = useState<{ id: string; name: string } | null>(null);
+  const [campaignDescriptionDraft, setCampaignDescriptionDraft] = useState("");
+  const [campaignDescriptionSaved, setCampaignDescriptionSaved] = useState("");
+  const [campaignDescriptionSavedHint, setCampaignDescriptionSavedHint] = useState(false);
+  const [campaignDescriptionError, setCampaignDescriptionError] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -257,6 +261,20 @@ export default function MarketingProjectsPage() {
     () => projectTasks.find((task) => task.id === activeTaskId) ?? null,
     [projectTasks, activeTaskId],
   );
+
+  useEffect(() => {
+    if (!activeProject) {
+      setCampaignDescriptionDraft("");
+      setCampaignDescriptionSaved("");
+      setCampaignDescriptionSavedHint(false);
+      setCampaignDescriptionError("");
+      return;
+    }
+    setCampaignDescriptionDraft(activeProject.description);
+    setCampaignDescriptionSaved(activeProject.description);
+    setCampaignDescriptionSavedHint(false);
+    setCampaignDescriptionError("");
+  }, [activeProject?.id, activeProject?.description]);
 
   const openProjectModal = (columnId: MarketingColumnId) => {
     setTargetColumn(columnId);
@@ -485,6 +503,28 @@ export default function MarketingProjectsPage() {
       activeProject.id,
       { tags: activeProject.tags.filter((tag) => tag !== value) },
     );
+  };
+
+  const saveCampaignDescription = async () => {
+    if (!activeProject) return;
+    setCampaignDescriptionError("");
+    const { error } = await supabase
+      .from("marketing_projects")
+      .update({ description: campaignDescriptionDraft })
+      .eq("id", activeProject.id);
+    if (error) {
+      console.error("[supabase] marketing campaign description update failed:", error.message);
+      setCampaignDescriptionError("Failed to save. Try again.");
+      return;
+    }
+    setProjects((prev) =>
+      prev.map((project) =>
+        project.id === activeProject.id ? { ...project, description: campaignDescriptionDraft } : project,
+      ),
+    );
+    setCampaignDescriptionSaved(campaignDescriptionDraft);
+    setCampaignDescriptionSavedHint(true);
+    window.setTimeout(() => setCampaignDescriptionSavedHint(false), 2000);
   };
 
   const confirmDeleteCampaign = () => {
@@ -736,11 +776,45 @@ export default function MarketingProjectsPage() {
             <Card className="mt-4">
               <h3 className="section-title">{lt("Description")}</h3>
               <textarea
-                value={activeProject.description}
-                onChange={(e) => updateProject(activeProject.id, { description: e.target.value })}
+                value={campaignDescriptionDraft}
+                onChange={(e) => {
+                  setCampaignDescriptionDraft(e.target.value);
+                  if (campaignDescriptionError) setCampaignDescriptionError("");
+                }}
                 rows={4}
                 className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
               />
+              {campaignDescriptionDraft !== campaignDescriptionSaved ? (
+                <div className="mt-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void saveCampaignDescription();
+                      }}
+                      className="rounded-[8px] bg-[#ff4500] px-4 py-1.5 text-[0.8rem] font-light text-white transition-colors hover:bg-[#e33f00]"
+                    >
+                      {lt("Save")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCampaignDescriptionDraft(campaignDescriptionSaved);
+                        setCampaignDescriptionError("");
+                      }}
+                      className="btn-ghost rounded-[8px] px-3 py-1.5 text-[0.8rem]"
+                    >
+                      {lt("Cancel")}
+                    </button>
+                    {campaignDescriptionSavedHint ? (
+                      <span className="text-[0.75rem] text-[#22c55e]">{lt("Saved")}</span>
+                    ) : null}
+                  </div>
+                  {campaignDescriptionError ? (
+                    <p className="mt-1 text-[0.75rem] text-[#ef4444]">{lt(campaignDescriptionError)}</p>
+                  ) : null}
+                </div>
+              ) : null}
             </Card>
 
             <Card className="mt-4">
