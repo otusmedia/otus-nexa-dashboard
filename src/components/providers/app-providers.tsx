@@ -1,6 +1,18 @@
 "use client";
 
+import type { DropResult } from "@hello-pangea/dnd";
 import { createContext, useContext, useMemo, useState } from "react";
+import { AuthProvider, useAuth } from "@/context/auth-context";
+import { ALL_MODULE_KEYS } from "@/lib/modules";
+import {
+  COLUMN_TO_STATUS,
+  MOCK_PROJECTS,
+  splitProjectsByColumn,
+  type KanbanColumnId,
+  type Project,
+  type ProjectTaskRow,
+  type ProjectsByColumn,
+} from "@/app/(platform)/projects/data";
 import {
   activityLog as activitySeed,
   contracts as contractsSeed,
@@ -14,7 +26,8 @@ import {
   tasks as tasksSeed,
   users as usersSeed,
 } from "@/services/mock-data";
-import { localizeDynamic, localizeStatus, translate, type TranslationKey } from "@/services/i18n";
+import { useLanguage, type AppLanguage } from "@/context/language-context";
+import { dictionary, localizeDynamic, localizeStatus, type TranslationKey } from "@/services/i18n";
 import type {
   ActivityLogItem,
   AppUser,
@@ -25,26 +38,32 @@ import type {
   Goal,
   IdeaItem,
   InvoiceItem,
+  ModuleKey,
   NotificationItem,
   RoadmapItem,
   Task,
   TaskStatus,
 } from "@/types";
 
-type Language = "en" | "pt-BR";
-
 interface AppContextValue {
-  language: Language;
-  setLanguage: (lang: Language) => void;
+  language: AppLanguage;
+  setLanguage: (lang: AppLanguage) => void;
   t: (key: TranslationKey) => string;
   td: (content: string) => string;
   ts: (status: string) => string;
   currentUser: AppUser;
-  setCurrentUserById: (id: string) => void;
   availableUsers: AppUser[];
-  allowedModules: AppUser["modules"];
+  allowedModules: ModuleKey[];
   users: AppUser[];
   setUserModules: (userId: string, modules: AppUser["modules"]) => void;
+  addUser: (input: {
+    name: string;
+    role: AppUser["role"];
+    modules: AppUser["modules"];
+    company?: AppUser["company"];
+  }) => void;
+  updateUser: (id: string, updates: Partial<Pick<AppUser, "name" | "role" | "modules" | "company">>) => void;
+  deleteUser: (id: string) => void;
   tasks: Task[];
   setTaskStatus: (id: string, status: TaskStatus) => void;
   addTask: (input: Omit<Task, "id" | "comments" | "files"> & { files?: string[] }) => void;
@@ -91,14 +110,34 @@ interface AppContextValue {
   markNotificationRead: (id: string) => void;
   query: string;
   setQuery: (value: string) => void;
+  projectsByColumn: ProjectsByColumn;
+  updateBoardProjectTask: (projectId: string, taskId: string, updates: Partial<ProjectTaskRow>) => void;
+  addBoardProjectTask: (projectId: string, task: ProjectTaskRow) => void;
+  moveProjectInKanban: (result: DropResult) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+const GUEST_USER: AppUser = {
+  id: "__guest__",
+  name: "",
+  role: "client",
+  company: "",
+  modules: [],
+};
+
 export function AppProviders({ children }: { children: React.ReactNode }) {
-  const [language, setLanguage] = useState<Language>("en");
+  return (
+    <AuthProvider>
+      <AppStateProvider>{children}</AppStateProvider>
+    </AuthProvider>
+  );
+}
+
+function AppStateProvider({ children }: { children: React.ReactNode }) {
+  const { sessionUserId, logout } = useAuth();
+  const { language, setLanguage, t: tLine } = useLanguage();
   const [users, setUsers] = useState<AppUser[]>(usersSeed);
-  const [currentUserId, setCurrentUserId] = useState<string>(usersSeed[0].id);
   const [notifications, setNotifications] = useState<NotificationItem[]>(notificationsSeed);
   const [tasks, setTasks] = useState<Task[]>(tasksSeed);
   const [events, setEvents] = useState<EventItem[]>(eventsSeed);
@@ -111,17 +150,19 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   const [activity, setActivity] = useState<ActivityLogItem[]>(activitySeed);
   const [embedConfig, setEmbedConfig] = useState<EmbedConfig>({ title: "Performance Embed", url: "https://example.com" });
   const [query, setQuery] = useState("");
+  const [projectsByColumn, setProjectsByColumn] = useState<ProjectsByColumn>(() =>
+    splitProjectsByColumn(JSON.parse(JSON.stringify(MOCK_PROJECTS)) as Project[]),
+  );
 
-  const currentUser = users.find((user) => user.id === currentUserId) ?? users[0];
-  const normalizedRole = currentUser.role === "client" ? "client" : currentUser.role === "admin" ? "admin" : "team";
-  const roleModules: Record<"admin" | "team" | "client", AppUser["modules"]> = {
-    admin: ["dashboard", "tasks", "goals", "roadmap", "events", "ideas", "files", "contracts", "invoices", "marketing", "users"],
-    team: ["dashboard", "tasks", "goals", "roadmap", "events", "ideas", "files", "marketing"],
-    client: ["dashboard", "goals", "files", "invoices"],
-  };
-  const allowedModules = roleModules[normalizedRole].filter((module) => currentUser.modules.includes(module));
+  const currentUser =
+    sessionUserId && users.some((u) => u.id === sessionUserId)
+      ? (users.find((u) => u.id === sessionUserId) as AppUser)
+      : GUEST_USER;
+
+  const allowedModules: ModuleKey[] =
+    !sessionUserId || currentUser.id === GUEST_USER.id ? [] : [...currentUser.modules];
   const unreadCount = notifications.filter((notification) => !notification.read).length;
-  const t = (key: TranslationKey) => translate(language, key);
+  const t = (key: TranslationKey) => tLine(dictionary.en[key]);
   const td = (content: string) => localizeDynamic(language, content);
   const ts = (status: string) => localizeStatus(language, status);
 
@@ -145,12 +186,38 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       td,
       ts,
       currentUser,
-      setCurrentUserById: setCurrentUserId,
       availableUsers: users,
       allowedModules,
       users,
       setUserModules: (userId, modules) =>
-        setUsers((prev) => prev.map((user) => (user.id === userId ? { ...user, modules } : user))),
+        setUsers((prev) =>
+          prev.map((user) => {
+            if (user.id !== userId) return user;
+            return { ...user, modules };
+          }),
+        ),
+      addUser: ({ name, role, modules, company = "" }) => {
+        const id = crypto.randomUUID();
+        const nextModules =
+          role === "admin" ? (modules.length > 0 ? modules : [...ALL_MODULE_KEYS]) : modules;
+        setUsers((prev) => [...prev, { id, name, role, company, modules: nextModules }]);
+      },
+      updateUser: (id, updates) => {
+        setUsers((prev) =>
+          prev.map((u) => {
+            if (u.id !== id) return u;
+            const merged = { ...u, ...updates };
+            if (merged.role === "admin" && updates.modules !== undefined) {
+              return { ...merged, modules: updates.modules };
+            }
+            return merged;
+          }),
+        );
+      },
+      deleteUser: (id) => {
+        setUsers((prev) => prev.filter((u) => u.id !== id));
+        if (sessionUserId === id) logout();
+      },
       tasks,
       setTaskStatus: (id, status) => {
         setTasks((prev) => prev.map((task) => (task.id === id ? { ...task, status } : task)));
@@ -285,7 +352,14 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         registerActivity(`Contract uploaded: ${input.name}`);
       },
       updateContract: (id, updates) => setContracts((prev) => prev.map((item) => (item.id === id ? { ...item, ...updates } : item))),
-      deleteContract: (id) => setContracts((prev) => prev.filter((item) => item.id !== id)),
+      deleteContract: (id) =>
+        setContracts((prev) => {
+          const target = prev.find((item) => item.id === id);
+          if (target?.fileUrl.startsWith("blob:")) {
+            URL.revokeObjectURL(target.fileUrl);
+          }
+          return prev.filter((item) => item.id !== id);
+        }),
       invoices,
       uploadInvoice: (input) => {
         setInvoices((prev) => [{ id: crypto.randomUUID(), ...input }, ...prev]);
@@ -323,12 +397,68 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         setNotifications((prev) => prev.map((item) => (item.id === id ? { ...item, read: true } : item))),
       query,
       setQuery,
+      projectsByColumn,
+      updateBoardProjectTask: (projectId, taskId, updates) => {
+        setProjectsByColumn((prev) => {
+          const mapProject = (p: Project): Project => {
+            if (p.id !== projectId) return p;
+            return { ...p, tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, ...updates } : t)) };
+          };
+          return {
+            planning: prev.planning.map(mapProject),
+            in_progress: prev.in_progress.map(mapProject),
+            paused: prev.paused.map(mapProject),
+            done: prev.done.map(mapProject),
+            cancelled: prev.cancelled.map(mapProject),
+          };
+        });
+      },
+      addBoardProjectTask: (projectId, task) => {
+        setProjectsByColumn((prev) => {
+          const mapProject = (p: Project): Project =>
+            p.id === projectId ? { ...p, tasks: [...p.tasks, task] } : p;
+          return {
+            planning: prev.planning.map(mapProject),
+            in_progress: prev.in_progress.map(mapProject),
+            paused: prev.paused.map(mapProject),
+            done: prev.done.map(mapProject),
+            cancelled: prev.cancelled.map(mapProject),
+          };
+        });
+      },
+      moveProjectInKanban: (result: DropResult) => {
+        const { source, destination } = result;
+        if (!destination) return;
+        if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+        const sourceColumn = source.droppableId as KanbanColumnId;
+        const destinationColumn = destination.droppableId as KanbanColumnId;
+        setProjectsByColumn((prev) => {
+          const next: ProjectsByColumn = {
+            planning: [...prev.planning],
+            in_progress: [...prev.in_progress],
+            paused: [...prev.paused],
+            done: [...prev.done],
+            cancelled: [...prev.cancelled],
+          };
+          const [movedProject] = next[sourceColumn].splice(source.index, 1);
+          if (!movedProject) return prev;
+          next[destinationColumn].splice(destination.index, 0, {
+            ...movedProject,
+            column: destinationColumn,
+            status: COLUMN_TO_STATUS[destinationColumn],
+          });
+          return next;
+        });
+      },
     }),
     [
       language,
+      tLine,
       currentUser,
+      sessionUserId,
       users,
       allowedModules,
+      logout,
       tasks,
       events,
       ideas,
@@ -342,6 +472,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       notifications,
       unreadCount,
       query,
+      projectsByColumn,
     ],
   );
 

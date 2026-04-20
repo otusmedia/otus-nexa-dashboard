@@ -1,6 +1,10 @@
-const dictionary = {
+export const dictionary = {
   en: {
     dashboard: "Dashboard",
+    projects: "Projects",
+    financial: "Financial",
+    reports: "Reports",
+    marketing: "Marketing",
     tasks: "Tasks",
     goals: "Goals",
     roadmap: "Roadmap",
@@ -9,7 +13,6 @@ const dictionary = {
     files: "Files",
     contracts: "Contracts",
     invoices: "Invoices",
-    marketing: "Marketing",
     users: "Users & RBAC",
     searchPlaceholder: "Global search: tasks, files, users, events...",
     noAlerts: "No alerts",
@@ -75,6 +78,10 @@ const dictionary = {
   },
   "pt-BR": {
     dashboard: "Painel",
+    projects: "Projetos",
+    financial: "Financeiro",
+    reports: "Relatorios",
+    marketing: "Marketing",
     tasks: "Tarefas",
     goals: "Metas",
     roadmap: "Roadmap",
@@ -83,7 +90,6 @@ const dictionary = {
     files: "Arquivos",
     contracts: "Contratos",
     invoices: "Faturas",
-    marketing: "Marketing",
     users: "Usuarios e RBAC",
     searchPlaceholder: "Busca global: tarefas, arquivos, usuarios, eventos...",
     noAlerts: "Sem alertas",

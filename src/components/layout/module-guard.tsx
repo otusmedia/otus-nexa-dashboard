@@ -1,32 +1,34 @@
 "use client";
 
-import Link from "next/link";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import type { ModuleKey } from "@/types";
 import { useAppContext } from "@/components/providers/app-providers";
 
-export function ModuleGuard({
-  module,
-  children,
-}: {
-  module: ModuleKey;
-  children: React.ReactNode;
-}) {
-  const { allowedModules } = useAppContext();
-  const allowed = allowedModules.includes(module);
+type ModuleGuardProps =
+  | { module: ModuleKey; children: React.ReactNode }
+  | { requireAdmin: true; children: React.ReactNode };
 
-  if (allowed) {
-    return <>{children}</>;
+export function ModuleGuard(props: ModuleGuardProps) {
+  const router = useRouter();
+  const { allowedModules, currentUser } = useAppContext();
+
+  const allowed =
+    "requireAdmin" in props && props.requireAdmin
+      ? currentUser.role === "admin"
+      : "module" in props
+        ? allowedModules.includes(props.module)
+        : false;
+
+  useEffect(() => {
+    if (!allowed) {
+      router.replace("/projects");
+    }
+  }, [allowed, router]);
+
+  if (!allowed) {
+    return null;
   }
 
-  return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900 shadow-sm">
-      <p className="font-medium">Access restricted</p>
-      <p className="mt-1 text-sm">
-        Your role cannot access this module. Switch user role in the top bar to preview other module experiences.
-      </p>
-      <Link href="/dashboard" className="mt-3 inline-block text-sm font-medium text-indigo-600">
-        Back to dashboard
-      </Link>
-    </div>
-  );
+  return <>{props.children}</>;
 }

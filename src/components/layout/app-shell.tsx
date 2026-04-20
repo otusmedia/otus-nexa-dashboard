@@ -1,140 +1,364 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useAuth } from "@/context/auth-context";
 import {
   Bell,
-  CalendarDays,
-  ClipboardList,
+  BarChart3,
   FileText,
   FileUp,
-  Flag,
-  Gauge,
   LayoutDashboard,
-  Lightbulb,
+  LogOut,
+  MessageCircle,
   Megaphone,
-  Search,
-  ShieldCheck,
+  Settings,
   Wallet,
 } from "lucide-react";
 import type { ModuleKey } from "@/types";
 import { useAppContext } from "@/components/providers/app-providers";
+import { useLanguage } from "@/context/language-context";
 import { cn } from "@/lib/utils";
+import { Modal } from "@/components/ui/modal";
 
 const moduleLinks: Array<{
   key: ModuleKey;
-  labelKey: "dashboard" | "tasks" | "goals" | "roadmap" | "events" | "ideas" | "files" | "contracts" | "invoices" | "marketing" | "users";
+  labelKey: "dashboard" | "projects" | "financial" | "reports" | "marketing" | "files" | "contracts";
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
 }> = [
   { key: "dashboard", labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { key: "tasks", labelKey: "tasks", href: "/tasks", icon: ClipboardList },
-  { key: "goals", labelKey: "goals", href: "/goals", icon: Flag },
-  { key: "roadmap", labelKey: "roadmap", href: "/roadmap", icon: Gauge },
-  { key: "events", labelKey: "events", href: "/events", icon: CalendarDays },
-  { key: "ideas", labelKey: "ideas", href: "/ideas", icon: Lightbulb },
+  { key: "projects", labelKey: "projects", href: "/projects", icon: BarChart3 },
+  { key: "financial", labelKey: "financial", href: "/financial", icon: Wallet },
+  { key: "reports", labelKey: "reports", href: "/reports", icon: FileText },
+  { key: "marketing", labelKey: "marketing", href: "/marketing", icon: Megaphone },
   { key: "files", labelKey: "files", href: "/files", icon: FileUp },
   { key: "contracts", labelKey: "contracts", href: "/contracts", icon: FileText },
-  { key: "invoices", labelKey: "invoices", href: "/invoices", icon: Wallet },
-  { key: "marketing", labelKey: "marketing", href: "/marketing", icon: Megaphone },
-  { key: "users", labelKey: "users", href: "/users", icon: ShieldCheck },
 ];
+
+const WHATSAPP_POS_KEY = "whatsapp-button-position";
+const WH_BTN = 36;
+const WH_MARGIN = 20;
+
+function clampWhatsAppPosition(left: number, top: number): { left: number; top: number } {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  return {
+    left: Math.max(WH_MARGIN, Math.min(left, w - WH_MARGIN - WH_BTN)),
+    top: Math.max(WH_MARGIN, Math.min(top, h - WH_MARGIN - WH_BTN)),
+  };
+}
+
+function getDefaultWhatsAppPosition(): { left: number; top: number } {
+  const h = window.innerHeight;
+  const w = window.innerWidth;
+  const lg = window.matchMedia("(min-width: 1024px)").matches;
+  const sidebar = lg ? 256 : 0;
+  return clampWhatsAppPosition(WH_MARGIN + sidebar, h - WH_MARGIN - WH_BTN);
+}
+
+function readStoredWhatsAppPosition(): { left: number; top: number } {
+  try {
+    const raw = localStorage.getItem(WHATSAPP_POS_KEY);
+    if (!raw) return getDefaultWhatsAppPosition();
+    const o = JSON.parse(raw) as { left?: unknown; top?: unknown };
+    if (typeof o.left !== "number" || typeof o.top !== "number") return getDefaultWhatsAppPosition();
+    return clampWhatsAppPosition(o.left, o.top);
+  } catch {
+    return getDefaultWhatsAppPosition();
+  }
+}
+
+function snapWhatsAppToNearestEdge(left: number, top: number): { left: number; top: number } {
+  const w = window.innerWidth;
+  const center = left + WH_BTN / 2;
+  const snapLeft = center < w / 2;
+  const nextLeft = snapLeft ? WH_MARGIN : w - WH_BTN - WH_MARGIN;
+  return clampWhatsAppPosition(nextLeft, top);
+}
+
+function persistWhatsAppPosition(p: { left: number; top: number }) {
+  try {
+    localStorage.setItem(WHATSAPP_POS_KEY, JSON.stringify(p));
+  } catch {
+    /* ignore */
+  }
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { logout: authLogout } = useAuth();
   const {
     currentUser,
-    availableUsers,
-    setCurrentUserById,
-    language,
-    setLanguage,
     unreadCount,
     markAllAsRead,
-    query,
-    setQuery,
     notifications,
     markNotificationRead,
     allowedModules,
     t,
     td,
   } = useAppContext();
+  const { t: lt, setLanguage, language } = useLanguage();
   const [openNotifications, setOpenNotifications] = useState(false);
+  const [openProfileMenu, setOpenProfileMenu] = useState(false);
+  const [openSettingsModal, setOpenSettingsModal] = useState(false);
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const langMenuRef = useRef<HTMLDivElement>(null);
+  const [profileName, setProfileName] = useState(currentUser.name);
+  const [profileEmail, setProfileEmail] = useState(`${currentUser.name.toLowerCase().replace(/\s+/g, ".")}@rocketride.com`);
+  const [profilePassword, setProfilePassword] = useState("");
+  const [profileImage, setProfileImage] = useState<string | null>(null);
 
+  const isAdmin = currentUser.role === "admin";
   const links = moduleLinks.filter((link) => allowedModules.includes(link.key));
+  const avatarInitial = profileName.trim().slice(0, 1).toUpperCase() || "U";
+
+  useEffect(() => {
+    setProfileName(currentUser.name);
+    setProfileEmail(`${currentUser.name.toLowerCase().replace(/\s+/g, ".")}@rocketride.com`);
+  }, [currentUser.id, currentUser.name]);
+
+  useEffect(() => {
+    if (!langMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (langMenuRef.current && !langMenuRef.current.contains(e.target as Node)) {
+        setLangMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [langMenuOpen]);
+
+  const [waPos, setWaPos] = useState<{ left: number; top: number }>({ left: WH_MARGIN, top: 600 });
+  const [waDragging, setWaDragging] = useState(false);
+  const [waSnapTransition, setWaSnapTransition] = useState(false);
+  const waLinkRef = useRef<HTMLAnchorElement>(null);
+  const waDragRef = useRef({
+    active: false,
+    offsetX: 0,
+    offsetY: 0,
+    startX: 0,
+    startY: 0,
+    hasMoved: false,
+  });
+  const waLivePosRef = useRef<{ left: number; top: number }>({ left: WH_MARGIN, top: 600 });
+  const waSuppressClickRef = useRef(false);
+  const waMoveMouseRef = useRef<(e: MouseEvent) => void>(() => {});
+  const waUpMouseRef = useRef<() => void>(() => {});
+  const waMoveTouchRef = useRef<(e: TouchEvent) => void>(() => {});
+  const waEndTouchRef = useRef<(e: TouchEvent) => void>(() => {});
+  const waRemoveDocListenersRef = useRef<(() => void) | null>(null);
+
+  useLayoutEffect(() => {
+    const p = readStoredWhatsAppPosition();
+    setWaPos(p);
+    waLivePosRef.current = p;
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => {
+      setWaPos((prev) => {
+        const next = clampWhatsAppPosition(prev.left, prev.top);
+        waLivePosRef.current = next;
+        return next;
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      waRemoveDocListenersRef.current?.();
+      waRemoveDocListenersRef.current = null;
+      document.body.style.cursor = "";
+    };
+  }, []);
+
+  waMoveMouseRef.current = (e: MouseEvent) => {
+    const drag = waDragRef.current;
+    if (!drag.active) return;
+    const next = clampWhatsAppPosition(e.clientX - drag.offsetX, e.clientY - drag.offsetY);
+    waLivePosRef.current = next;
+    setWaPos(next);
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (dx * dx + dy * dy > 9) drag.hasMoved = true;
+  };
+
+  waUpMouseRef.current = () => {
+    const drag = waDragRef.current;
+    if (!drag.active) return;
+    drag.active = false;
+    waRemoveDocListenersRef.current?.();
+    waRemoveDocListenersRef.current = null;
+    document.body.style.cursor = "";
+    setWaDragging(false);
+    if (drag.hasMoved) {
+      const snapped = snapWhatsAppToNearestEdge(waLivePosRef.current.left, waLivePosRef.current.top);
+      waSuppressClickRef.current = true;
+      setWaSnapTransition(true);
+      setWaPos(snapped);
+      waLivePosRef.current = snapped;
+      persistWhatsAppPosition(snapped);
+      window.setTimeout(() => setWaSnapTransition(false), 200);
+    }
+    drag.hasMoved = false;
+  };
+
+  waMoveTouchRef.current = (e: TouchEvent) => {
+    const drag = waDragRef.current;
+    if (!drag.active || e.touches.length === 0) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    const next = clampWhatsAppPosition(t.clientX - drag.offsetX, t.clientY - drag.offsetY);
+    waLivePosRef.current = next;
+    setWaPos(next);
+    const dx = t.clientX - drag.startX;
+    const dy = t.clientY - drag.startY;
+    if (dx * dx + dy * dy > 9) drag.hasMoved = true;
+  };
+
+  waEndTouchRef.current = (e: TouchEvent) => {
+    const drag = waDragRef.current;
+    if (!drag.active) return;
+    drag.active = false;
+    waRemoveDocListenersRef.current?.();
+    waRemoveDocListenersRef.current = null;
+    document.body.style.cursor = "";
+    setWaDragging(false);
+    if (drag.hasMoved) {
+      const t = e.changedTouches[0];
+      if (t) {
+        waLivePosRef.current = clampWhatsAppPosition(t.clientX - drag.offsetX, t.clientY - drag.offsetY);
+      }
+      const snapped = snapWhatsAppToNearestEdge(waLivePosRef.current.left, waLivePosRef.current.top);
+      waSuppressClickRef.current = true;
+      setWaSnapTransition(true);
+      setWaPos(snapped);
+      waLivePosRef.current = snapped;
+      persistWhatsAppPosition(snapped);
+      window.setTimeout(() => setWaSnapTransition(false), 200);
+    }
+    drag.hasMoved = false;
+  };
+
+  const handleProfileImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const objectUrl = URL.createObjectURL(file);
+    setProfileImage(objectUrl);
+  };
+
+  const handleLogout = () => {
+    setOpenProfileMenu(false);
+    authLogout();
+    router.push("/login");
+  };
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] text-slate-800">
-      <div className="flex">
-        <aside className="sticky top-0 hidden h-screen w-64 border-r border-slate-200 bg-white p-4 lg:block">
-          <div className="mb-8 rounded-xl bg-indigo-600 p-4 text-white shadow-sm">
-            <p className="text-xs uppercase tracking-wide text-indigo-100">Client Ops Hub</p>
-            <p className="mt-1 text-lg font-semibold">Otus x Nexa</p>
-          </div>
-          <nav className="space-y-1">
-            {links.map((link) => {
-              const isActive = pathname === link.href;
-              const Icon = link.icon;
-              return (
-                <Link
-                  key={link.key}
-                  href={link.href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition",
-                    isActive ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-100",
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {t(link.labelKey)}
-                </Link>
-              );
-            })}
-          </nav>
-        </aside>
-        <div className="flex-1">
-          <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur lg:px-8">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex min-w-72 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                <Search className="h-4 w-4 text-slate-400" />
-                <input
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
-                  placeholder={t("searchPlaceholder")}
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+    <div className="min-h-screen bg-[var(--background)] text-[var(--text)]">
+      <div className="flex min-w-0 flex-row">
+        <aside className="sticky top-0 hidden h-screen w-64 min-w-64 shrink-0 flex-col border-r border-[var(--border)] bg-black lg:flex">
+          <div className="flex min-h-0 flex-1 flex-col px-4 pb-2 pt-4">
+            <div className="mb-6 flex shrink-0 items-center px-3">
+              <div className="flex h-[36.8px] items-center justify-start">
+                <img
+                  src="/frame-1.svg"
+                  alt="RocketRide logo"
+                  className="h-[36.8px] w-auto max-w-[93.15px] object-contain object-left"
                 />
               </div>
-              <div className="relative flex items-center gap-2">
-                <select
-                  value={language}
-                  onChange={(event) => setLanguage(event.target.value as "en" | "pt-BR")}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="en">EN</option>
-                  <option value="pt-BR">PT-BR</option>
-                </select>
-                <select
-                  value={currentUser.id}
-                  onChange={(event) => setCurrentUserById(event.target.value)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                >
-                  {availableUsers.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.name} ({user.role})
-                    </option>
-                  ))}
-                </select>
+            </div>
+            <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+              {links.map((link) => {
+                const isActive =
+                  link.key === "projects" ? pathname.startsWith("/projects") : pathname === link.href;
+                const Icon = link.icon;
+                return (
+                  <Link
+                    key={link.key}
+                    href={link.href}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg border-l-2 border-transparent px-3 py-2 text-sm transition [border-image:none]",
+                      isActive
+                        ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
+                        : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
+                    )}
+                  >
+                    <Icon className="h-4 w-4" strokeWidth={1.5} />
+                    {t(link.labelKey)}
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+
+          <div className="shrink-0 space-y-3 border-t border-[rgba(255,255,255,0.06)] px-3 pb-8 pt-3">
+            <div className="flex items-center justify-between">
+              <div className="relative ml-3" ref={langMenuRef}>
                 <button
-                  onClick={() => setOpenNotifications((prev) => !prev)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
+                  type="button"
+                  onClick={() => setLangMenuOpen((o) => !o)}
+                  className="cursor-pointer border-none bg-transparent text-[0.8rem] font-light text-[rgba(255,255,255,0.5)] outline-none"
+                  aria-expanded={langMenuOpen}
+                  aria-haspopup="listbox"
                 >
-                  <Bell className="h-4 w-4" />
-                  {unreadCount > 0 ? `${unreadCount} ${t("newAlerts")}` : t("noAlerts")}
+                  {language === "pt-BR" ? "PT" : "EN"}
+                </button>
+                {langMenuOpen ? (
+                  <div
+                    className="absolute bottom-full left-0 z-[60] mb-1 min-w-[200px] rounded-lg border border-[var(--border)] bg-[var(--surface)] py-1 shadow-lg"
+                    role="listbox"
+                  >
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={language === "en"}
+                      onClick={() => {
+                        setLanguage("en");
+                        setLangMenuOpen(false);
+                      }}
+                      className="block w-full px-3 py-2 text-left text-xs text-[var(--text)] hover:bg-[var(--surface-elevated)]"
+                    >
+                    {lt("EN — English")}
+                  </button>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={language === "pt-BR"}
+                    onClick={() => {
+                      setLanguage("pt-BR");
+                      setLangMenuOpen(false);
+                    }}
+                    className="block w-full px-3 py-2 text-left text-xs text-[var(--text)] hover:bg-[var(--surface-elevated)]"
+                  >
+                    {lt("PT — Português (Brasil)")}
+                  </button>
+                  </div>
+                ) : null}
+              </div>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenNotifications((prev) => !prev)}
+                  className="relative inline-flex p-1 text-[rgba(255,255,255,0.5)] transition hover:text-[rgba(255,255,255,0.75)]"
+                  aria-label={t("notifications")}
+                >
+                  <Bell className="h-5 w-5" strokeWidth={1.5} />
+                  {unreadCount > 0 ? (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[10px] font-medium text-white">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  ) : null}
                 </button>
                 {openNotifications ? (
-                  <div className="absolute right-0 top-12 z-20 w-80 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                  <div className="absolute bottom-full right-0 z-50 mb-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
                     <div className="mb-2 flex items-center justify-between">
-                      <p className="text-sm font-semibold">{t("notifications")}</p>
-                      <button onClick={markAllAsRead} className="text-xs text-indigo-600">
+                      <p className="text-sm font-normal">{t("notifications")}</p>
+                      <button type="button" onClick={markAllAsRead} className="text-xs text-[var(--primary)]">
                         {t("markAll")}
                       </button>
                     </div>
@@ -142,10 +366,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       {notifications.map((item) => (
                         <button
                           key={item.id}
+                          type="button"
                           onClick={() => markNotificationRead(item.id)}
                           className={cn(
                             "block w-full rounded-lg border px-3 py-2 text-left text-xs",
-                            item.read ? "border-slate-100 bg-slate-50 text-slate-500" : "border-indigo-100 bg-indigo-50 text-slate-700",
+                            item.read
+                              ? "border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--muted)]"
+                              : "border-[var(--border-strong)] bg-[var(--primary)]/10 text-white",
                           )}
                         >
                           {td(item.message)}
@@ -156,10 +383,191 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ) : null}
               </div>
             </div>
-          </header>
-          <main className="px-4 py-6 lg:px-8">{children}</main>
+
+            <div className="flex items-center gap-1">
+              <div className="relative min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => setOpenProfileMenu((prev) => !prev)}
+                  className="flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-1.5 text-left transition hover:bg-[var(--surface-elevated)]"
+                  aria-label={lt("Profile menu")}
+                >
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-elevated)]">
+                    {profileImage ? (
+                      <img src={profileImage} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-xs text-[var(--text)]">{avatarInitial}</span>
+                    )}
+                  </span>
+                  <span className="truncate text-xs font-light text-[rgba(255,255,255,0.5)]">{profileName}</span>
+                </button>
+                {openProfileMenu ? (
+                  <div className="absolute bottom-full left-0 right-0 z-50 mb-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenSettingsModal(true);
+                        setOpenProfileMenu(false);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-[var(--text)] hover:bg-[var(--surface-elevated)]"
+                    >
+                      <Settings className="h-4 w-4" />
+                      {lt("Profile")}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="shrink-0 rounded-lg p-2 text-[rgba(255,255,255,0.5)] transition hover:bg-[var(--surface-elevated)] hover:text-[rgba(255,255,255,0.75)]"
+                aria-label={lt("Logout")}
+              >
+                <LogOut className="h-4 w-4" strokeWidth={1.5} />
+              </button>
+            </div>
+
+            {isAdmin ? (
+              <>
+                <div className="border-t border-[rgba(255,255,255,0.06)]" />
+                <Link
+                  href="/settings"
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition [border-image:none]",
+                    pathname === "/settings"
+                      ? "border-l-2 border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] pl-[10px] text-[#FF4500]"
+                      : "border-l-2 border-transparent text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
+                  )}
+                >
+                  <Settings className="h-4 w-4" strokeWidth={1.5} />
+                  {lt("Settings")}
+                </Link>
+              </>
+            ) : null}
+          </div>
+        </aside>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
+          <main className="min-h-0 min-w-0 flex-1 px-4 py-6 lg:px-8">{children}</main>
+          <a
+            ref={waLinkRef}
+            href="https://chat.whatsapp.com/GM1ODG5EMHuLf03W6kn1b9?mode=gi_t"
+            target="_blank"
+            rel="noreferrer"
+            className={cn(
+              "fixed z-30 inline-flex h-9 w-9 cursor-grab items-center justify-center rounded-full border border-[var(--border)] bg-[#25d366] text-white",
+              waDragging && "cursor-grabbing",
+            )}
+            style={{
+              left: waPos.left,
+              top: waPos.top,
+              right: "auto",
+              bottom: "auto",
+              transition: waSnapTransition ? "left 0.15s ease, top 0.15s ease" : "none",
+            }}
+            aria-label={lt("WhatsApp group")}
+            onClick={(e) => {
+              if (waSuppressClickRef.current) {
+                e.preventDefault();
+                e.stopPropagation();
+                waSuppressClickRef.current = false;
+              }
+            }}
+            onMouseDown={(e) => {
+              if (e.button !== 0) return;
+              const el = waLinkRef.current;
+              if (!el) return;
+              const r = el.getBoundingClientRect();
+              waDragRef.current = {
+                active: true,
+                offsetX: e.clientX - r.left,
+                offsetY: e.clientY - r.top,
+                startX: e.clientX,
+                startY: e.clientY,
+                hasMoved: false,
+              };
+              waLivePosRef.current = { left: r.left, top: r.top };
+              document.body.style.cursor = "grabbing";
+              setWaDragging(true);
+              const move = (ev: MouseEvent) => waMoveMouseRef.current(ev);
+              const up = () => waUpMouseRef.current();
+              document.addEventListener("mousemove", move);
+              document.addEventListener("mouseup", up);
+              waRemoveDocListenersRef.current = () => {
+                document.removeEventListener("mousemove", move);
+                document.removeEventListener("mouseup", up);
+              };
+            }}
+            onTouchStart={(e) => {
+              if (e.touches.length !== 1) return;
+              const t = e.touches[0];
+              const el = waLinkRef.current;
+              if (!el) return;
+              const r = el.getBoundingClientRect();
+              waDragRef.current = {
+                active: true,
+                offsetX: t.clientX - r.left,
+                offsetY: t.clientY - r.top,
+                startX: t.clientX,
+                startY: t.clientY,
+                hasMoved: false,
+              };
+              waLivePosRef.current = { left: r.left, top: r.top };
+              document.body.style.cursor = "grabbing";
+              setWaDragging(true);
+              const move = (ev: TouchEvent) => waMoveTouchRef.current(ev);
+              const end = (ev: TouchEvent) => waEndTouchRef.current(ev);
+              const touchOpts: AddEventListenerOptions = { passive: false };
+              document.addEventListener("touchmove", move, touchOpts);
+              document.addEventListener("touchend", end);
+              document.addEventListener("touchcancel", end);
+              waRemoveDocListenersRef.current = () => {
+                document.removeEventListener("touchmove", move, touchOpts);
+                document.removeEventListener("touchend", end);
+                document.removeEventListener("touchcancel", end);
+              };
+            }}
+          >
+            <MessageCircle className="h-4 w-4" strokeWidth={1.75} />
+          </a>
         </div>
       </div>
+      <Modal open={openSettingsModal} title={lt("Profile settings")} onClose={() => setOpenSettingsModal(false)} closeLabel={lt("Close")}>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-elevated)]">
+              {profileImage ? (
+                <img src={profileImage} alt="Profile preview" className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-sm text-[var(--text)]">{avatarInitial}</span>
+              )}
+            </div>
+            <input type="file" accept="image/*" onChange={handleProfileImageChange} className="text-xs" />
+          </div>
+          <input
+            value={profileName}
+            onChange={(event) => setProfileName(event.target.value)}
+            placeholder={lt("Name")}
+            className="w-full rounded-lg px-3 py-2 text-sm"
+          />
+          <input
+            type="email"
+            value={profileEmail}
+            onChange={(event) => setProfileEmail(event.target.value)}
+            placeholder={lt("Email")}
+            className="w-full rounded-lg px-3 py-2 text-sm"
+          />
+          <input
+            type="password"
+            value={profilePassword}
+            onChange={(event) => setProfilePassword(event.target.value)}
+            placeholder={lt("Password")}
+            className="w-full rounded-lg px-3 py-2 text-sm"
+          />
+          <button onClick={() => setOpenSettingsModal(false)} className="btn-primary rounded-lg px-3 py-2 text-sm">
+            {lt("Save")}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -4,3 +4,8 @@ dist
 out
 .DS_Store
 *.log
+
+# local secrets
+.env
+.env.local
+.env*.local

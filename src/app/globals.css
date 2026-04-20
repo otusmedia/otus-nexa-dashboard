@@ -1,16 +1,163 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap");
 @import "tailwindcss";
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
+  --font-sans: "Plus Jakarta Sans", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --background: #111111;
+  --surface: #050505;
+  --surface-elevated: #121212;
+  --primary: #ff4500;
+  --accent: #ff4500;
+  --text: #ffffff;
+  --muted: rgba(255, 255, 255, 0.4);
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.08);
+  --kpi-active-border: rgba(255, 255, 255, 0.06);
 }
 
 body {
   margin: 0;
-  background: #f9fafb;
-  color: #0f172a;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+  background: var(--background);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-weight: 300;
+}
+
+.mono-num,
+.metric-value,
+.kpi-fraction,
+.num,
+.tnum {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 * {
   box-sizing: border-box;
+}
+
+input,
+textarea,
+select {
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+
+button {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 300;
+}
+
+.btn-primary {
+  border: 1px solid var(--border-strong);
+  background: var(--primary);
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.btn-ghost {
+  border: 1px solid var(--border-strong);
+  background: #101010;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.status-badge {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-elevated);
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  font-weight: 400;
+}
+
+.status-backlog {
+  border-color: var(--border-strong);
+  background: #37415133;
+  color: #d1d5db;
+}
+
+.status-progress {
+  border-color: var(--border-strong);
+  background: #ff45001f;
+  color: #ffb79e;
+}
+
+.status-completed {
+  border-color: var(--border-strong);
+  background: #22c55e1f;
+  color: #86efac;
+}
+
+.status-pending {
+  border-color: var(--border-strong);
+  background: #f59e0b1f;
+  color: #fcd34d;
+}
+
+.status-overdue {
+  border-color: var(--border-strong);
+  background: #ef44441f;
+  color: #fca5a5;
+}
+
+.section-title {
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.metric-value {
+  font-weight: 300;
+  letter-spacing: -0.02em;
+}
+
+.kpi-label {
+  font-size: 0.7rem;
+  font-weight: 300;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.kpi-fraction {
+  font-weight: 300;
+  color: var(--muted);
+}
+
+.source-label {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.25);
+  font-weight: 300;
+}
+
+.kpi-active {
+  border-color: var(--kpi-active-border);
 }

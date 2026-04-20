@@ -1,17 +1,16 @@
-export type Role = "admin" | "team" | "client" | "traffic_manager" | "assistant";
+export type Role = "admin" | "manager" | "contributor" | "client";
+
+/** Company affiliation for import permissions (Meta Ads CSV). */
+export type UserCompany = "nexa" | "otus" | "rocketride" | "";
 
 export type ModuleKey =
   | "dashboard"
-  | "tasks"
-  | "goals"
-  | "roadmap"
-  | "events"
-  | "ideas"
-  | "files"
-  | "contracts"
-  | "invoices"
+  | "projects"
+  | "financial"
+  | "reports"
   | "marketing"
-  | "users";
+  | "files"
+  | "contracts";
 
 export type ApprovalStatus = "draft" | "pending" | "approved" | "rejected";
 export type TaskStatus = "backlog" | "in_progress" | "in_review" | "completed";
@@ -74,11 +73,11 @@ export interface FileItem {
 export interface ContractItem {
   id: string;
   name: string;
-  description: string;
   uploadDate: string;
-  status: "active" | "expired";
-  assignee: string;
-  tags: string[];
+  status: "active" | "draft" | "expired";
+  fileUrl: string;
+  fileSizeBytes: number;
+  pageCount?: number;
 }
 
 export interface InvoiceItem {
@@ -109,6 +108,7 @@ export interface AppUser {
   name: string;
   role: Role;
   modules: ModuleKey[];
+  company: UserCompany;
 }
 
 export interface IdeaItem {
