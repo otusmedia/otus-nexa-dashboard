@@ -12,6 +12,7 @@ import {
   FileImage,
   FileText,
   FileVideo,
+  Loader2,
   Plus,
   Star,
   Target,
@@ -150,6 +151,8 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [taskDescriptionError, setTaskDescriptionError] = useState("");
   const [panelPriority, setPanelPriority] = useState<Priority>("Medium");
   const [taskDeleteDialog, setTaskDeleteDialog] = useState<{ id: string; name: string } | null>(null);
+  const [coverUploadLoading, setCoverUploadLoading] = useState(false);
+  const [coverUploadError, setCoverUploadError] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const coverImageInputRef = useRef<HTMLInputElement | null>(null);
   const panelDescriptionRef = useRef<HTMLTextAreaElement | null>(null);
@@ -318,7 +321,11 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const activeTask = useMemo(() => tasks.find((task) => task.id === activeTaskId) || null, [tasks, activeTaskId]);
 
   useEffect(() => {
-    if (!activeTask) return;
+    if (!activeTask) {
+      setCoverUploadLoading(false);
+      setCoverUploadError("");
+      return;
+    }
     setPanelDescription(activeTask.description);
     setPanelSavedDescription(activeTask.description);
     setTaskDescriptionSavedHint(false);
@@ -328,6 +335,8 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setPanelEditingName(false);
     setPanelOwnerEditing(false);
     setPanelDueDateEditing(false);
+    setCoverUploadError("");
+    setCoverUploadLoading(false);
   }, [activeTask]);
 
   useEffect(() => {
@@ -395,35 +404,78 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
   // -- Run in Supabase Dashboard > Storage: create a public bucket called 'task-covers'
   const onCoverImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !activeTaskId) return;
-    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
-      event.target.value = "";
+    const inputEl = event.target;
+    const file = inputEl.files?.[0];
+    const resetInput = () => {
+      inputEl.value = "";
+    };
+
+    if (!file || !activeTaskId) {
+      resetInput();
       return;
     }
-    const task = tasks.find((t) => t.id === activeTaskId);
-    if (!task) return;
-    const filePath = `${activeTaskId}-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-    const { data, error } = await supabase.storage.from("task-covers").upload(filePath, file);
+
+    const looksLikeImage =
+      (Boolean(file.type) && file.type.startsWith("image/")) ||
+      /\.(jpe?g|png|gif|webp|bmp|svg|heic|heif|avif)$/i.test(file.name);
+    if (!looksLikeImage) {
+      setCoverUploadError(lt("Upload failed. Try again."));
+      resetInput();
+      return;
+    }
+
+    const taskId = activeTaskId;
+    setCoverUploadLoading(true);
+    setCoverUploadError("");
+
+    const fileExt = file.name.split(".").pop() || "jpg";
+    const fileName = `${taskId}-${Date.now()}.${fileExt}`;
+    const { data, error } = await supabase.storage.from("task-covers").upload(fileName, file, {
+      cacheControl: "3600",
+      upsert: true,
+    });
+
     if (error || !data?.path) {
       console.error("[supabase] task cover upload failed:", error?.message ?? "No upload path");
-      event.target.value = "";
+      setCoverUploadLoading(false);
+      setCoverUploadError(lt("Upload failed. Try again."));
+      resetInput();
       return;
     }
-    const { data: publicData } = supabase.storage.from("task-covers").getPublicUrl(data.path);
-    if (!publicData?.publicUrl) {
-      console.error("[supabase] task cover public URL failed");
-      event.target.value = "";
+
+    const { data: urlData } = supabase.storage.from("task-covers").getPublicUrl(data.path);
+    const publicUrl = urlData.publicUrl;
+
+    const { error: dbError } = await supabase
+      .from("tasks")
+      .update({ cover_image: publicUrl })
+      .eq("id", taskId)
+      .eq("project_id", project.id);
+
+    if (dbError) {
+      console.error("[supabase] task cover_image update failed:", dbError.message);
+      setCoverUploadLoading(false);
+      setCoverUploadError(lt("Upload failed. Try again."));
+      resetInput();
       return;
     }
-    void updateTask(activeTaskId, { coverImage: publicData.publicUrl });
-    event.target.value = "";
+
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, coverImage: publicUrl } : t)));
+    updateBoardProjectTask(project.id, taskId, { coverImage: publicUrl });
+    setCoverUploadLoading(false);
+    resetInput();
+  };
+
+  const triggerCoverImageFilePicker = () => {
+    if (coverUploadLoading) return;
+    coverImageInputRef.current?.click();
   };
 
   const removeCoverImage = () => {
     if (!activeTaskId) return;
     const task = tasks.find((t) => t.id === activeTaskId);
     if (!task?.coverImage) return;
+    setCoverUploadError("");
     void updateTask(activeTaskId, { coverImage: null });
   };
 
@@ -1243,12 +1295,13 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
               <div className="space-y-2 border-t border-[var(--border)] pt-5">
                 <p className="section-title mb-0">{lt("COVER IMAGE")}</p>
-                <p className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Recommended 1920x1080px")}</p>
                 <input
                   ref={coverImageInputRef}
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                  className="hidden"
+                  accept="image/jpeg,image/png,image/webp,image/*"
+                  className="sr-only"
+                  aria-hidden
+                  tabIndex={-1}
                   onChange={onCoverImageChange}
                 />
                 {activeTask.coverImage ? (
@@ -1266,12 +1319,26 @@ export function ProjectDetailView({ project }: { project: Project }) {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => coverImageInputRef.current?.click()}
-                    className="flex w-full items-center justify-center rounded-[8px] border border-dashed border-[rgba(255,255,255,0.15)] bg-[#161616] px-4 py-6 text-sm font-light text-[rgba(255,255,255,0.5)]"
+                    onClick={triggerCoverImageFilePicker}
+                    disabled={coverUploadLoading}
+                    className="relative flex w-full items-center justify-center rounded-[8px] border border-dashed border-[rgba(255,255,255,0.15)] bg-[#161616] px-4 py-6 text-sm font-light text-[rgba(255,255,255,0.5)] disabled:opacity-60"
                   >
-                    {lt("Click to upload cover image")}
+                    {coverUploadLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" strokeWidth={1.5} />
+                        {lt("Uploading…")}
+                      </>
+                    ) : (
+                      lt("Click to upload cover image")
+                    )}
                   </button>
                 )}
+                {coverUploadError ? (
+                  <p className="text-[0.75rem] text-[#ef4444]">{coverUploadError}</p>
+                ) : null}
+                <p className="text-[0.72rem] font-light text-[rgba(255,255,255,0.3)]">
+                  {lt("Recommended: 1920×1080px — any size accepted")}
+                </p>
               </div>
 
               <div className="space-y-2 border-t border-[var(--border)] pt-5">

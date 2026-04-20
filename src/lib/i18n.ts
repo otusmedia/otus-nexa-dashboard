@@ -209,6 +209,10 @@ const platformPtBR: Record<string, string> = {
     "Exibido nos Destaques do painel quando em destaque",
   "COVER IMAGE": "IMAGEM DE CAPA",
   "Recommended 1920x1080px": "Recomendado 1920x1080px",
+  "Uploading…": "Enviando…",
+  "Recommended: 1920×1080px — any size accepted":
+    "Recomendado: 1920×1080px — qualquer tamanho aceito",
+  "Upload failed. Try again.": "Falha no envio. Tente novamente.",
   "FEATURED IN HIGHLIGHTS": "DESTAQUE NO PAINEL",
   "Add a cover image to display in Highlights": "Adicione uma imagem de capa para exibir nos Destaques",
   "Brief description of this work...": "Breve descrição deste trabalho...",

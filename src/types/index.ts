@@ -9,6 +9,8 @@ export type ModuleKey =
   | "financial"
   | "reports"
   | "marketing"
+  | "calendar"
+  | "crm"
   | "files"
   | "contracts";
 

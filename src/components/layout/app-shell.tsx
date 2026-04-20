@@ -7,6 +7,8 @@ import { useAuth } from "@/context/auth-context";
 import {
   Bell,
   BarChart3,
+  Briefcase,
+  Calendar,
   FileText,
   FileUp,
   LayoutDashboard,
@@ -25,7 +27,16 @@ import { Modal } from "@/components/ui/modal";
 
 const moduleLinks: Array<{
   key: ModuleKey;
-  labelKey: "dashboard" | "projects" | "financial" | "reports" | "marketing" | "files" | "contracts";
+  labelKey:
+    | "dashboard"
+    | "projects"
+    | "financial"
+    | "reports"
+    | "marketing"
+    | "calendar"
+    | "crm"
+    | "files"
+    | "contracts";
   href: string;
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
 }> = [
@@ -34,6 +45,8 @@ const moduleLinks: Array<{
   { key: "financial", labelKey: "financial", href: "/financial", icon: Wallet },
   { key: "reports", labelKey: "reports", href: "/reports", icon: FileText },
   { key: "marketing", labelKey: "marketing", href: "/marketing", icon: Megaphone },
+  { key: "calendar", labelKey: "calendar", href: "/calendar", icon: Calendar },
+  { key: "crm", labelKey: "crm", href: "/crm", icon: Briefcase },
   { key: "files", labelKey: "files", href: "/files", icon: FileUp },
   { key: "contracts", labelKey: "contracts", href: "/contracts", icon: FileText },
 ];
@@ -106,6 +119,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [openProfileMenu, setOpenProfileMenu] = useState(false);
   const [openSettingsModal, setOpenSettingsModal] = useState(false);
   const [marketingMenuOpen, setMarketingMenuOpen] = useState(false);
+  const [crmMenuOpen, setCrmMenuOpen] = useState(false);
   const [marketingReminders, setMarketingReminders] = useState<
     Array<{ id: string; title: string; note: string; projectId: string; reminderAt: string }>
   >([]);
@@ -135,6 +149,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (pathname.startsWith("/marketing")) setMarketingMenuOpen(true);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (pathname.startsWith("/crm")) setCrmMenuOpen(true);
   }, [pathname]);
 
   useEffect(() => {
@@ -333,7 +351,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
               {links.map((link) => {
                 const isActive =
-                  link.key === "projects" ? pathname.startsWith("/projects") : pathname === link.href;
+                  link.key === "projects"
+                    ? pathname.startsWith("/projects")
+                    : link.key === "calendar"
+                      ? pathname.startsWith("/calendar")
+                      : pathname === link.href;
                 const Icon = link.icon;
                 if (link.key === "marketing") {
                   const isMarketingActive = pathname.startsWith("/marketing");
@@ -360,6 +382,53 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       {marketingMenuOpen ? (
                         <div className="mt-1 space-y-1 pl-7">
                           {submenuItems.map((item) => {
+                            const subActive = pathname === item.href;
+                            return (
+                              <Link
+                                key={item.href}
+                                href={item.href}
+                                className={cn(
+                                  "flex items-center rounded-lg border-l-2 border-transparent px-3 py-1.5 text-xs transition [border-image:none]",
+                                  subActive
+                                    ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
+                                    : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
+                                )}
+                              >
+                                {item.label}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                }
+                if (link.key === "crm") {
+                  const isCrmActive = pathname.startsWith("/crm");
+                  const crmSubmenuItems = [
+                    { label: "Dashboard", href: "/crm" },
+                    { label: "Pipeline", href: "/crm/pipeline" },
+                    { label: "Contacts", href: "/crm/contacts" },
+                    { label: "Reports", href: "/crm/reports" },
+                  ] as const;
+                  return (
+                    <div key={link.key}>
+                      <button
+                        type="button"
+                        onClick={() => setCrmMenuOpen((prev) => !prev)}
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-lg border-l-2 border-transparent px-3 py-2 text-sm transition [border-image:none]",
+                          isCrmActive
+                            ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
+                            : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
+                        )}
+                      >
+                        <Icon className="h-4 w-4" strokeWidth={1.5} />
+                        {t(link.labelKey)}
+                      </button>
+                      {crmMenuOpen ? (
+                        <div className="mt-1 space-y-1 pl-7">
+                          {crmSubmenuItems.map((item) => {
                             const subActive = pathname === item.href;
                             return (
                               <Link
