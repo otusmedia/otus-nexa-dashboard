@@ -470,7 +470,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="shrink-0 space-y-3 border-t border-[rgba(255,255,255,0.06)] px-3 pb-8 pt-3">
-            <div className="flex items-center justify-between">
+            <div className="relative w-full min-w-0">
+              <div className="flex items-center justify-between">
               <div className="relative ml-3" ref={langMenuRef}>
                 <button
                   type="button"
@@ -513,11 +514,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </div>
                 ) : null}
               </div>
-              <div className="relative">
                 <button
                   type="button"
                   onClick={() => setOpenNotifications((prev) => !prev)}
-                  className="relative inline-flex p-1 text-[rgba(255,255,255,0.5)] transition hover:text-[rgba(255,255,255,0.75)]"
+                  className="relative inline-flex shrink-0 p-1 text-[rgba(255,255,255,0.5)] transition hover:text-[rgba(255,255,255,0.75)]"
                   aria-label={t("notifications")}
                 >
                   <Bell className="h-5 w-5" strokeWidth={1.5} />
@@ -527,56 +527,56 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </span>
                   ) : null}
                 </button>
-                {openNotifications ? (
-                  <div className="absolute bottom-full right-0 z-50 mb-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                    <div className="mb-2 flex items-center justify-between">
-                      <p className="text-sm font-normal">{t("notifications")}</p>
-                      <button type="button" onClick={markAllAsRead} className="text-xs text-[var(--primary)]">
-                        {t("markAll")}
-                      </button>
-                    </div>
-                    <div className="max-h-72 space-y-2 overflow-auto">
-                      {marketingReminders.map((item) => {
-                        const reminderRead = readReminderIds.includes(item.id);
-                        return (
-                          <Link
-                            key={`reminder-${item.id}`}
-                            href={`/marketing/campaigns?campaignId=${encodeURIComponent(item.projectId)}&taskId=${encodeURIComponent(item.id)}`}
-                            onClick={() =>
-                              setReadReminderIds((prev) =>
-                                prev.includes(item.id) ? prev : [...prev, item.id],
-                              )
-                            }
-                            className={cn(
-                              "block w-full rounded-lg border px-3 py-2 text-left text-xs",
-                              reminderRead
-                                ? "border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--muted)]"
-                                : "border-[var(--border-strong)] bg-[var(--primary)]/10 text-white",
-                            )}
-                          >
-                            {item.title} — {item.note || lt("Reminder due")}
-                          </Link>
-                        );
-                      })}
-                      {notifications.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => markNotificationRead(item.id)}
+              </div>
+              {openNotifications ? (
+                <div className="absolute bottom-full left-0 right-0 z-50 mb-2 min-w-0 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-xl">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="min-w-0 truncate text-sm font-normal">{t("notifications")}</p>
+                    <button type="button" onClick={markAllAsRead} className="shrink-0 text-xs text-[var(--primary)]">
+                      {t("markAll")}
+                    </button>
+                  </div>
+                  <div className="max-h-72 space-y-2 overflow-auto">
+                    {marketingReminders.map((item) => {
+                      const reminderRead = readReminderIds.includes(item.id);
+                      return (
+                        <Link
+                          key={`reminder-${item.id}`}
+                          href={`/marketing/campaigns?campaignId=${encodeURIComponent(item.projectId)}&taskId=${encodeURIComponent(item.id)}`}
+                          onClick={() =>
+                            setReadReminderIds((prev) =>
+                              prev.includes(item.id) ? prev : [...prev, item.id],
+                            )
+                          }
                           className={cn(
                             "block w-full rounded-lg border px-3 py-2 text-left text-xs",
-                            item.read
+                            reminderRead
                               ? "border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--muted)]"
                               : "border-[var(--border-strong)] bg-[var(--primary)]/10 text-white",
                           )}
                         >
-                          {td(item.message)}
-                        </button>
-                      ))}
-                    </div>
+                          {item.title} — {item.note || lt("Reminder due")}
+                        </Link>
+                      );
+                    })}
+                    {notifications.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => markNotificationRead(item.id)}
+                        className={cn(
+                          "block w-full rounded-lg border px-3 py-2 text-left text-xs",
+                          item.read
+                            ? "border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--muted)]"
+                            : "border-[var(--border-strong)] bg-[var(--primary)]/10 text-white",
+                        )}
+                      >
+                        {td(item.message)}
+                      </button>
+                    ))}
                   </div>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-1">
