@@ -26,6 +26,7 @@ import { formatDisplayDate, OWNER_OPTIONS, TASK_STATUS_OPTIONS } from "../data";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { Card } from "@/components/ui/card";
+import { supabase } from "@/lib/supabase";
 import { OwnerAvatars } from "./owner-avatars";
 import { ProgressInline } from "./progress-inline";
 import { ProjectStatusBadge } from "./project-status-badge";
@@ -56,6 +57,19 @@ interface LocalTask extends ProjectTaskRow {
   priority: Priority;
   attachments: TaskAttachment[];
 }
+
+type DbProjectTaskRow = {
+  id: string;
+  title: string;
+  due_date: string | null;
+  assigned_to: string | null;
+  status: string | null;
+  is_featured: boolean | null;
+  cover_image: string | null;
+  short_description: string | null;
+  description: string | null;
+  priority: string | null;
+};
 
 const PRIORITY_OPTIONS: Array<{ value: Priority; textClass: string; dotClass: string }> = [
   { value: "Low", textClass: "text-[#9ca3af]", dotClass: "bg-[#9ca3af]" },
@@ -111,14 +125,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const { t: lt } = useLanguage();
   const [description, setDescription] = useState(project.description);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [tasks, setTasks] = useState<LocalTask[]>(() =>
-    project.tasks.map((task) => ({
-      ...task,
-      description: "",
-      priority: "Medium",
-      attachments: [],
-    })),
-  );
+  const [tasks, setTasks] = useState<LocalTask[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false); // modal menu
   const [rowStatusMenu, setRowStatusMenu] = useState<{ taskId: string; top: number; left: number } | null>(null);
@@ -127,6 +134,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [dueDate, setDueDate] = useState("");
   const [taskStatus, setTaskStatus] = useState<TaskRowStatus>("Not Started");
   const [taskNameError, setTaskNameError] = useState("");
+  const [taskSubmitError, setTaskSubmitError] = useState("");
   const [editingCell, setEditingCell] = useState<{ taskId: string; field: "name" | "owner" | "dueDate" } | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [panelStatusOpen, setPanelStatusOpen] = useState(false);
@@ -160,6 +168,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setDueDate("");
     setTaskStatus("Not Started");
     setTaskNameError("");
+    setTaskSubmitError("");
     setStatusMenuOpen(false);
   };
 
@@ -172,21 +181,56 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setModalOpen(false);
     setStatusMenuOpen(false);
     setTaskNameError("");
+    setTaskSubmitError("");
   };
 
   useEffect(() => {
-    setTasks((prev) =>
-      project.tasks.map((row) => {
-        const prevLocal = prev.find((t) => t.id === row.id);
-        return {
-          ...row,
-          description: prevLocal?.description ?? "",
-          priority: prevLocal?.priority ?? "Medium",
-          attachments: prevLocal?.attachments ?? [],
-        };
-      }),
-    );
-  }, [project.tasks]);
+    let mounted = true;
+    void supabase
+      .from("tasks")
+      .select("*")
+      .eq("project_id", project.id)
+      .order("created_at", { ascending: true })
+      .then(({ data, error }) => {
+        if (!mounted) return;
+        if (error) {
+          console.error("[supabase] project tasks fetch failed:", error.message);
+          setTasks([]);
+          return;
+        }
+        const mapped = ((data as DbProjectTaskRow[] | null) ?? []).map((row) => {
+          const status: TaskRowStatus =
+            row.status === "In Progress" ||
+            row.status === "Waiting for Approval" ||
+            row.status === "Done" ||
+            row.status === "Scheduled" ||
+            row.status === "Published"
+              ? row.status
+              : "Not Started";
+          const priority: Priority =
+            row.priority === "Low" || row.priority === "Medium" || row.priority === "High" || row.priority === "Urgent"
+              ? row.priority
+              : "Medium";
+          return {
+            id: row.id,
+            name: row.title ?? "",
+            dueDate: row.due_date,
+            owner: row.assigned_to ?? "",
+            status,
+            isFeatured: Boolean(row.is_featured),
+            coverImage: row.cover_image,
+            shortDescription: row.short_description ?? "",
+            description: row.description ?? "",
+            priority,
+            attachments: [],
+          } satisfies LocalTask;
+        });
+        setTasks(mapped);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [project.id]);
 
   useEffect(() => {
     const tid = searchParams.get("taskId");
@@ -214,7 +258,29 @@ export function ProjectDetailView({ project }: { project: Project }) {
     };
   }, [rowStatusMenu]);
 
-  const updateTask = (taskId: string, updates: Partial<LocalTask>) => {
+  const updateTask = async (taskId: string, updates: Partial<LocalTask>) => {
+    const dbPatch: Record<string, unknown> = {};
+    if (updates.name !== undefined) dbPatch.title = updates.name;
+    if (updates.dueDate !== undefined) dbPatch.due_date = updates.dueDate;
+    if (updates.owner !== undefined) dbPatch.assigned_to = updates.owner;
+    if (updates.status !== undefined) dbPatch.status = updates.status;
+    if (updates.isFeatured !== undefined) dbPatch.is_featured = updates.isFeatured;
+    if (updates.coverImage !== undefined) dbPatch.cover_image = updates.coverImage;
+    if (updates.shortDescription !== undefined) dbPatch.short_description = updates.shortDescription;
+    if (updates.description !== undefined) dbPatch.description = updates.description;
+    if (updates.priority !== undefined) dbPatch.priority = updates.priority;
+
+    if (Object.keys(dbPatch).length === 0) {
+      setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, ...updates } : task)));
+      return;
+    }
+
+    const { error } = await supabase.from("tasks").update(dbPatch).eq("id", taskId).eq("project_id", project.id);
+    if (error) {
+      console.error("[supabase] board task update failed:", error.message);
+      return;
+    }
+
     setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, ...updates } : task)));
     const rowPatch: Partial<ProjectTaskRow> = {};
     (Object.keys(updates) as (keyof LocalTask)[]).forEach((key) => {
@@ -261,15 +327,22 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setActiveTaskId(taskId);
   };
 
-  const confirmDeleteTask = () => {
+  const confirmDeleteTask = async () => {
     if (!taskDeleteDialog) return;
+    const targetTaskId = taskDeleteDialog.id;
+    const { error } = await supabase.from("tasks").delete().eq("id", targetTaskId);
+    if (error) {
+      console.error("[supabase] board task delete failed:", error.message);
+      return;
+    }
+    setTasks((prev) => prev.filter((task) => task.id !== targetTaskId));
     deleteBoardProjectTask(project.id, taskDeleteDialog.id);
-    if (activeTaskId === taskDeleteDialog.id) closeTaskPanel();
+    if (activeTaskId === targetTaskId) closeTaskPanel();
     setTaskDeleteDialog(null);
   };
 
   const onRowStatusChange = (taskId: string, status: TaskRowStatus) => {
-    updateTask(taskId, { status });
+    void updateTask(taskId, { status });
     setRowStatusMenu(null);
   };
 
@@ -281,7 +354,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
       size: file.size,
       type: file.type,
     }));
-    updateTask(activeTask.id, { attachments: [...activeTask.attachments, ...additions] });
+    void updateTask(activeTask.id, { attachments: [...activeTask.attachments, ...additions] });
   };
 
   const onCoverImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -297,7 +370,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
       URL.revokeObjectURL(task.coverImage);
     }
     const url = URL.createObjectURL(file);
-    updateTask(activeTaskId, { coverImage: url });
+    void updateTask(activeTaskId, { coverImage: url });
     event.target.value = "";
   };
 
@@ -308,33 +381,76 @@ export function ProjectDetailView({ project }: { project: Project }) {
     if (task.coverImage.startsWith("blob:")) {
       URL.revokeObjectURL(task.coverImage);
     }
-    updateTask(activeTaskId, { coverImage: null });
+    void updateTask(activeTaskId, { coverImage: null });
   };
 
   const onPanelDescriptionChange = (value: string) => {
     setPanelDescription(value);
-    if (activeTask) updateTask(activeTask.id, { description: value });
+    if (activeTask) void updateTask(activeTask.id, { description: value });
   };
 
-  const handleCreateTask = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleCreateTask = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedName = taskName.trim();
     if (!trimmedName) {
       setTaskNameError("Task name is required.");
       return;
     }
-
-    const newRow: ProjectTaskRow = {
-      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: trimmedName,
-      owner,
-      dueDate: dueDate || null,
-      status: taskStatus,
-      isFeatured: false,
-      coverImage: null,
-      shortDescription: "",
+    setTaskSubmitError("");
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert([
+        {
+          project_id: project.id,
+          title: trimmedName,
+          status: taskStatus,
+          assigned_to: owner,
+          due_date: dueDate || null,
+          priority: "Medium",
+          description: "",
+        },
+      ])
+      .select()
+      .single();
+    if (error || !data) {
+      console.error("[supabase] board task insert failed:", error?.message ?? "Unknown error");
+      setTaskSubmitError("Failed to create task. Please try again.");
+      return;
+    }
+    const row = data as DbProjectTaskRow;
+    const createdStatus: TaskRowStatus =
+      row.status === "In Progress" ||
+      row.status === "Waiting for Approval" ||
+      row.status === "Done" ||
+      row.status === "Scheduled" ||
+      row.status === "Published"
+        ? row.status
+        : "Not Started";
+    const createdTask: LocalTask = {
+      id: row.id,
+      name: row.title ?? trimmedName,
+      owner: row.assigned_to ?? owner,
+      dueDate: row.due_date,
+      status: createdStatus,
+      isFeatured: Boolean(row.is_featured),
+      coverImage: row.cover_image,
+      shortDescription: row.short_description ?? "",
+      description: row.description ?? "",
+      priority: row.priority === "Low" || row.priority === "Medium" || row.priority === "High" || row.priority === "Urgent" ? row.priority : "Medium",
+      attachments: [],
     };
-    addBoardProjectTask(project.id, newRow);
+    setTasks((prev) => [...prev, createdTask]);
+    const boardRow: ProjectTaskRow = {
+      id: createdTask.id,
+      name: createdTask.name,
+      owner: createdTask.owner,
+      dueDate: createdTask.dueDate,
+      status: createdTask.status,
+      isFeatured: createdTask.isFeatured,
+      coverImage: createdTask.coverImage,
+      shortDescription: createdTask.shortDescription,
+    };
+    addBoardProjectTask(project.id, boardRow);
     closeTaskModal();
   };
 
@@ -462,7 +578,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                         autoFocus
                         value={task.name}
                         onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => updateTask(task.id, { name: event.target.value })}
+                        onChange={(event) => void updateTask(task.id, { name: event.target.value })}
                         onBlur={() => setEditingCell(null)}
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
@@ -490,7 +606,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                       <select
                         autoFocus
                         value={task.owner}
-                        onChange={(event) => updateTask(task.id, { owner: event.target.value })}
+                        onChange={(event) => void updateTask(task.id, { owner: event.target.value })}
                         onBlur={() => setEditingCell(null)}
                         className="w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs font-light text-white outline-none"
                       >
@@ -516,7 +632,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                         type="date"
                         autoFocus
                         value={task.dueDate || ""}
-                        onChange={(event) => updateTask(task.id, { dueDate: event.target.value || null })}
+                        onChange={(event) => void updateTask(task.id, { dueDate: event.target.value || null })}
                         onBlur={() => setEditingCell(null)}
                         className="w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs font-light text-white outline-none"
                       />
@@ -586,7 +702,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   <td className="w-12 text-center" onClick={(event) => event.stopPropagation()}>
                     <button
                       type="button"
-                      onClick={() => updateTask(task.id, { isFeatured: !task.isFeatured })}
+                      onClick={() => void updateTask(task.id, { isFeatured: !task.isFeatured })}
                       className="inline-flex rounded-[6px] p-1.5 text-[rgba(255,255,255,0.35)] transition hover:bg-[rgba(255,255,255,0.06)]"
                       aria-label={task.isFeatured ? lt("Unfeature task") : lt("Feature task in highlights")}
                     >
@@ -661,6 +777,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   required
                 />
                 {taskNameError ? <span className="text-xs font-light text-[#fca5a5]">{lt(taskNameError)}</span> : null}
+                {taskSubmitError ? <span className="text-xs font-light text-[#fca5a5]">{lt(taskSubmitError)}</span> : null}
               </label>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -771,7 +888,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     <input
                       autoFocus
                       value={activeTask.name}
-                      onChange={(event) => updateTask(activeTask.id, { name: event.target.value })}
+                      onChange={(event) => void updateTask(activeTask.id, { name: event.target.value })}
                       onBlur={() => setPanelEditingName(false)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
@@ -806,7 +923,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                                 key={option.value}
                                 type="button"
                                 onClick={() => {
-                                  updateTask(activeTask.id, { status: option.value });
+                                  void updateTask(activeTask.id, { status: option.value });
                                   setPanelStatusOpen(false);
                                 }}
                                 className={cn(
@@ -841,7 +958,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                       <select
                         autoFocus
                         value={activeTask.owner}
-                        onChange={(event) => updateTask(activeTask.id, { owner: event.target.value })}
+                        onChange={(event) => void updateTask(activeTask.id, { owner: event.target.value })}
                         onBlur={() => setPanelOwnerEditing(false)}
                         className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light text-white outline-none"
                       >
@@ -865,7 +982,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                         type="date"
                         autoFocus
                         value={activeTask.dueDate || ""}
-                        onChange={(event) => updateTask(activeTask.id, { dueDate: event.target.value || null })}
+                        onChange={(event) => void updateTask(activeTask.id, { dueDate: event.target.value || null })}
                         onBlur={() => setPanelDueDateEditing(false)}
                         className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light text-white outline-none"
                       />
@@ -893,7 +1010,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     onChange={(event) => {
                       const next = event.target.value as Priority;
                       setPanelPriority(next);
-                      updateTask(activeTask.id, { priority: next });
+                      void updateTask(activeTask.id, { priority: next });
                     }}
                     className={cn(
                       "w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light outline-none",
@@ -958,7 +1075,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                         <button
                           type="button"
                           onClick={() =>
-                            updateTask(activeTask.id, {
+                            void updateTask(activeTask.id, {
                               attachments: activeTask.attachments.filter((item) => item.id !== attachment.id),
                             })
                           }
@@ -981,7 +1098,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   type="text"
                   maxLength={80}
                   value={activeTask.shortDescription}
-                  onChange={(event) => updateTask(activeTask.id, { shortDescription: event.target.value.slice(0, 80) })}
+                  onChange={(event) => void updateTask(activeTask.id, { shortDescription: event.target.value.slice(0, 80) })}
                   placeholder={lt("Brief description of this work...")}
                   className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
                 />
@@ -1027,7 +1144,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     type="button"
                     role="switch"
                     aria-checked={activeTask.isFeatured}
-                    onClick={() => updateTask(activeTask.id, { isFeatured: !activeTask.isFeatured })}
+                    onClick={() => void updateTask(activeTask.id, { isFeatured: !activeTask.isFeatured })}
                     className={cn(
                       "relative h-7 w-12 shrink-0 rounded-full transition-colors",
                       activeTask.isFeatured ? "bg-[var(--primary)]" : "bg-[rgba(255,255,255,0.15)]",
@@ -1071,7 +1188,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
         confirmLabel={lt("Delete")}
         cancelLabel={lt("Cancel")}
         onCancel={() => setTaskDeleteDialog(null)}
-        onConfirm={confirmDeleteTask}
+        onConfirm={() => {
+          void confirmDeleteTask();
+        }}
       />
     </div>
   );

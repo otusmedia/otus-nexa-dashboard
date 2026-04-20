@@ -942,22 +942,6 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             cancelled: prev.cancelled.map(mapProject),
           };
         });
-        void supabase
-          .from("tasks")
-          .update({
-            title: updates.name,
-            due_date: updates.dueDate,
-            assigned_to: updates.owner,
-            status: updates.status,
-            is_featured: updates.isFeatured,
-            cover_image: updates.coverImage,
-            short_description: updates.shortDescription,
-          })
-          .eq("id", taskId)
-          .eq("project_id", projectId)
-          .then(({ error }) => {
-            if (error) console.error("[supabase] board task update failed:", error.message);
-          });
       },
       deleteBoardProject: (projectId) => {
         let deletedName = "";
@@ -1003,13 +987,6 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             cancelled: prev.cancelled.map(mapProject),
           };
         });
-        void supabase
-          .from("tasks")
-          .delete()
-          .eq("id", taskId)
-          .then(({ error }) => {
-            if (error) console.error("[supabase] board task delete failed:", error.message);
-          });
         if (progressUpdate !== null) {
           void supabase
             .from("projects")
@@ -1032,22 +1009,6 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             cancelled: prev.cancelled.map(mapProject),
           };
         });
-        void supabase
-          .from("tasks")
-          .insert({
-            id: task.id,
-            project_id: projectId,
-            title: task.name,
-            due_date: task.dueDate,
-            assigned_to: task.owner,
-            status: task.status,
-            is_featured: task.isFeatured,
-            cover_image: task.coverImage,
-            short_description: task.shortDescription,
-          })
-          .then(({ error }) => {
-            if (error) console.error("[supabase] board task insert failed:", error.message);
-          });
       },
       moveProjectInKanban: (result: DropResult) => {
         const { source, destination } = result;
