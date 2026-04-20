@@ -1,7 +1,7 @@
 "use client";
 
 import type { DropResult } from "@hello-pangea/dnd";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { AuthProvider, useAuth } from "@/context/auth-context";
 import { ALL_MODULE_KEYS } from "@/lib/modules";
 import {
@@ -23,7 +23,6 @@ import {
   goals as goalsSeed,
   ideasSeed,
   invoices as invoicesSeed,
-  notificationsSeed,
   roadmapSeed,
   tasks as tasksSeed,
   users as usersSeed,
@@ -116,6 +115,13 @@ interface AppContextValue {
   unreadCount: number;
   markAllAsRead: () => void;
   markNotificationRead: (id: string) => void;
+  dismissNotification: (id: string) => void;
+  notifyProjectComment: (input: {
+    commentId: string;
+    authorName: string;
+    projectName: string;
+    ownerNames: string[];
+  }) => void;
   query: string;
   setQuery: (value: string) => void;
   projectsByColumn: ProjectsByColumn;
@@ -260,7 +266,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const { sessionUserId, logout } = useAuth();
   const { language, setLanguage, t: tLine } = useLanguage();
   const [users, setUsers] = useState<AppUser[]>(usersSeed);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(notificationsSeed);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [events, setEvents] = useState<EventItem[]>(eventsSeed);
@@ -300,14 +306,160 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (error) console.error("[supabase] activity insert failed:", error.message);
       });
   };
-  const createNotification = (message: string, type: NotificationItem["type"]) => {
-    setNotifications((prev) => [{ id: crypto.randomUUID(), message, type, read: false }, ...prev].slice(0, 25));
-  };
+  const pushNotification = useCallback((message: string, type: NotificationItem["type"], stableId?: string) => {
+    setNotifications((prev) => {
+      if (stableId && prev.some((n) => n.id === stableId)) return prev;
+      const id = stableId ?? crypto.randomUUID();
+      return [{ id, message, type, read: false }, ...prev].slice(0, 50);
+    });
+  }, []);
+  const notifyProjectComment = useCallback(
+    (input: { commentId: string; authorName: string; projectName: string; ownerNames: string[] }) => {
+      if (!sessionUserId || currentUser.id === GUEST_USER.id) return;
+      const me = currentUser.name.trim();
+      if (!me) return;
+      if (!input.ownerNames.some((o) => String(o).trim() === me)) return;
+      if (input.authorName.trim() === me) return;
+      pushNotification(`${input.authorName} commented on ${input.projectName}`, "comment", `proj-comment:${input.commentId}`);
+    },
+    [sessionUserId, currentUser.id, currentUser.name, pushNotification],
+  );
   const tagsFromText = (text: string) =>
     text
       .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean);
+
+  useEffect(() => {
+    if (!sessionUserId) {
+      setNotifications([]);
+    }
+  }, [sessionUserId]);
+
+  useEffect(() => {
+    if (!sessionUserId || currentUser.id === GUEST_USER.id || !currentUser.name.trim()) {
+      return;
+    }
+    if (projectsLoading || tasksLoading) return;
+
+    const me = currentUser.name.trim();
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+    const parseYmdTime = (s: string | null | undefined): number | null => {
+      if (!s) return null;
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+      if (!m) return null;
+      return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+    };
+
+    const desired = new Map<string, { message: string }>();
+
+    const cols: KanbanColumnId[] = ["planning", "in_progress", "paused", "done", "cancelled"];
+    for (const col of cols) {
+      for (const p of projectsByColumn[col]) {
+        for (const task of p.tasks) {
+          if ((task.owner ?? "").trim() !== me) continue;
+          if (task.status === "Done" || task.status === "Published") continue;
+          const dueT = parseYmdTime(task.dueDate);
+          if (dueT === null) continue;
+          if (dueT > todayStart) continue;
+          const id = `board-due:${task.id}`;
+          desired.set(id, {
+            message: dueT === todayStart ? `Task due today: ${task.name}` : `Overdue task: ${task.name}`,
+          });
+        }
+      }
+    }
+
+    for (const task of tasks) {
+      if ((task.assignee ?? "").trim() !== me) continue;
+      if (task.status === "completed") continue;
+      const dueT = parseYmdTime(task.dueDate);
+      if (dueT === null) continue;
+      if (dueT > todayStart) continue;
+      const id = `platform-due:${task.id}`;
+      desired.set(id, {
+        message: dueT === todayStart ? `Task due today: ${task.title}` : `Overdue task: ${task.title}`,
+      });
+    }
+
+    setNotifications((prev) => {
+      const withoutDue = prev.filter(
+        (n) => !n.id.startsWith("board-due:") && !n.id.startsWith("platform-due:"),
+      );
+      const dueItems: NotificationItem[] = [];
+      for (const [id, { message }] of desired) {
+        const prevMatch = prev.find((x) => x.id === id);
+        dueItems.push({
+          id,
+          message,
+          type: "task",
+          read: prevMatch?.read ?? false,
+        });
+      }
+      return [...dueItems, ...withoutDue].slice(0, 50);
+    });
+  }, [
+    projectsLoading,
+    tasksLoading,
+    projectsByColumn,
+    tasks,
+    currentUser.name,
+    currentUser.id,
+    sessionUserId,
+  ]);
+
+  useEffect(() => {
+    if (!sessionUserId || currentUser.id === GUEST_USER.id || !currentUser.name.trim()) return;
+    let cancelled = false;
+    const syncMarketingReminders = () => {
+      const nowIso = new Date().toISOString();
+      void supabase
+        .from("marketing_tasks")
+        .select("id,title,reminder_note,assigned_to")
+        .not("reminder_at", "is", null)
+        .lte("reminder_at", nowIso)
+        .eq("assigned_to", currentUser.name.trim())
+        .then(({ data, error }) => {
+          if (cancelled || error) return;
+          const rows =
+            (data as Array<{ id?: string; title?: string | null; reminder_note?: string | null }> | null) ?? [];
+          setNotifications((prev) => {
+            const wantIds = new Set(
+              rows
+                .map((r) => `mkt-reminder:${String(r.id ?? "")}`)
+                .filter((id) => id !== "mkt-reminder:"),
+            );
+            const base = prev.filter((n) => {
+              if (!n.id.startsWith("mkt-reminder:")) return true;
+              return wantIds.has(n.id);
+            });
+            const existing = new Set(base.map((n) => n.id));
+            const additions: NotificationItem[] = [];
+            for (const row of rows) {
+              const id = `mkt-reminder:${String(row.id ?? "")}`;
+              if (id === "mkt-reminder:" || existing.has(id)) continue;
+              const title = String(row.title ?? "");
+              const note = String(row.reminder_note ?? "");
+              additions.push({
+                id,
+                message: `Reminder: ${title} — ${note}`,
+                type: "task",
+                read: false,
+              });
+            }
+            return [...additions, ...base].slice(0, 50);
+          });
+        });
+    };
+    syncMarketingReminders();
+    const interval = window.setInterval(syncMarketingReminders, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [sessionUserId, currentUser.id, currentUser.name]);
 
   useEffect(() => {
     let mounted = true;
@@ -588,7 +740,6 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           if (error) console.error("[supabase] task status update failed:", error.message);
         });
         registerActivity(`Task moved to ${status}`);
-        createNotification("Task status was updated.", "task");
       },
       addTask: (input) => {
         const nextId = crypto.randomUUID();
@@ -617,10 +768,29 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             if (error) console.error("[supabase] task insert failed:", error.message);
           });
         registerActivity(`Task created: ${input.title}`);
-        createNotification(`New task created: ${input.title}`, "task");
+        if (currentUser.name && (input.assignee ?? "").trim() === currentUser.name.trim()) {
+          pushNotification(`You were assigned to task: ${input.title}`, "task");
+        }
       },
       updateTask: (id, updates) => {
-        setTasks((prev) => prev.map((task) => (task.id === id ? { ...task, ...updates } : task)));
+        let assignedTitle: string | null = null;
+        setTasks((prev) => {
+          const prevTask = prev.find((task) => task.id === id);
+          if (!prevTask) return prev;
+          const nextAssignee = updates.assignee !== undefined ? updates.assignee : prevTask.assignee;
+          const title = updates.title !== undefined ? updates.title : prevTask.title;
+          if (
+            currentUser.name &&
+            nextAssignee.trim() === currentUser.name.trim() &&
+            (prevTask.assignee ?? "").trim() !== nextAssignee.trim()
+          ) {
+            assignedTitle = title;
+          }
+          return prev.map((task) => (task.id === id ? { ...task, ...updates } : task));
+        });
+        if (assignedTitle) {
+          pushNotification(`You were assigned to task: ${assignedTitle}`, "task");
+        }
         void supabase
           .from("tasks")
           .update({
@@ -651,7 +821,6 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           ),
         );
         registerActivity("Comment added to task");
-        createNotification("A task received a new comment.", "comment");
       },
       addTaskFile: (taskId, fileName) => {
         setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, files: [...task.files, fileName] } : task)));
@@ -664,7 +833,6 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           ...prev,
         ]);
         registerActivity(`Event created: ${input.title}`);
-        createNotification(`New event: ${input.title}`, "event");
       },
       updateEvent: (id, updates) => setEvents((prev) => prev.map((event) => (event.id === id ? { ...event, ...updates } : event))),
       deleteEvent: (id) => {
@@ -693,7 +861,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         ]);
         setEvents((prev) => prev.map((item) => (item.id === eventId ? { ...item, linkedTaskIds: [...item.linkedTaskIds, taskId] } : item)));
         registerActivity(`Task created from event: ${event.title}`);
-        createNotification(`Task created from event: ${event.title}`, "task");
+        if (currentUser.name) {
+          pushNotification(`You were assigned to task: From event: ${event.title}`, "task");
+        }
       },
       ideas,
       addIdea: (input) => {
@@ -723,6 +893,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         ]);
         setIdeas((prev) => prev.filter((item) => item.id !== ideaId));
         registerActivity(`Idea converted to task: ${idea.title}`);
+        if (currentUser.name) {
+          pushNotification(`You were assigned to task: ${idea.title}`, "task");
+        }
       },
       files,
       filesLoading,
@@ -746,7 +919,6 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, files: [...task.files, input.name] } : task)));
         }
         registerActivity(`File uploaded: ${input.name}`);
-        createNotification(`New file uploaded: ${input.name}`, "file");
       },
       updateFile: (id, updates) => {
         setFiles((prev) => prev.map((file) => (file.id === id ? { ...file, ...updates } : file)));
@@ -894,6 +1066,8 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       markAllAsRead: () => setNotifications((prev) => prev.map((item) => ({ ...item, read: true }))),
       markNotificationRead: (id) =>
         setNotifications((prev) => prev.map((item) => (item.id === id ? { ...item, read: true } : item))),
+      dismissNotification: (id) => setNotifications((prev) => prev.filter((item) => item.id !== id)),
+      notifyProjectComment,
       query,
       setQuery,
       projectsByColumn,
@@ -938,6 +1112,27 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         registerActivity(`New project created: ${name}`);
       },
       updateBoardProjectTask: (projectId, taskId, updates) => {
+        const cols: KanbanColumnId[] = ["planning", "in_progress", "paused", "done", "cancelled"];
+        let prevTask: ProjectTaskRow | undefined;
+        outer: for (const col of cols) {
+          for (const p of projectsByColumn[col]) {
+            if (p.id === projectId) {
+              prevTask = p.tasks.find((t) => t.id === taskId);
+              break outer;
+            }
+          }
+        }
+        const nextOwner = updates.owner !== undefined ? updates.owner : (prevTask?.owner ?? "");
+        const prevOwner = prevTask?.owner ?? "";
+        const taskTitle = updates.name !== undefined ? updates.name : (prevTask?.name ?? "");
+        if (
+          currentUser.name &&
+          taskTitle &&
+          nextOwner.trim() === currentUser.name.trim() &&
+          prevOwner.trim() !== nextOwner.trim()
+        ) {
+          pushNotification(`You were assigned to task: ${taskTitle}`, "task");
+        }
         setProjectsByColumn((prev) => {
           const mapProject = (p: Project): Project => {
             if (p.id !== projectId) return p;
@@ -1007,6 +1202,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
       },
       addBoardProjectTask: (projectId, task) => {
+        if (currentUser.name && task.owner.trim() === currentUser.name.trim()) {
+          pushNotification(`You were assigned to task: ${task.name}`, "task");
+        }
         setProjectsByColumn((prev) => {
           const mapProject = (p: Project): Project =>
             p.id === projectId ? { ...p, tasks: [...p.tasks, task] } : p;
@@ -1141,6 +1339,8 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       activityLoading,
       notifications,
       unreadCount,
+      pushNotification,
+      notifyProjectComment,
       query,
       projectsByColumn,
       projectsLoading,

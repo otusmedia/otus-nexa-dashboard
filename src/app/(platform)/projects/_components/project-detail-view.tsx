@@ -163,8 +163,14 @@ const BOARD_TASK_KEYS = new Set<keyof ProjectTaskRow>([
 
 export function ProjectDetailView({ project }: { project: Project }) {
   const searchParams = useSearchParams();
-  const { updateBoardProjectTask, addBoardProjectTask, deleteBoardProjectTask, updateBoardProject, currentUser } =
-    useAppContext();
+  const {
+    updateBoardProjectTask,
+    addBoardProjectTask,
+    deleteBoardProjectTask,
+    updateBoardProject,
+    currentUser,
+    notifyProjectComment,
+  } = useAppContext();
   const { t: lt } = useLanguage();
   const [description, setDescription] = useState(project.description);
   const [savedDescription, setSavedDescription] = useState(project.description);
@@ -390,13 +396,19 @@ export function ProjectDetailView({ project }: { project: Project }) {
             if (prev.some((c) => c.id === comment.id)) return prev;
             return [comment, ...prev];
           });
+          notifyProjectComment({
+            commentId: comment.id,
+            authorName: comment.user_name,
+            projectName: project.name,
+            ownerNames: project.owners,
+          });
         },
       )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [project.id]);
+  }, [project.id, project.name, project.owners.join("|"), notifyProjectComment]);
 
   const updateTask = async (taskId: string, updates: Partial<LocalTask>) => {
     const dbPatch: Record<string, unknown> = {};

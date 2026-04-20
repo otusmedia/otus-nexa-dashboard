@@ -101,11 +101,7 @@ export const invoices: InvoiceItem[] = [];
 
 export const activityLog: ActivityLogItem[] = [];
 
-export const notificationsSeed: NotificationItem[] = [
-  { id: "n1", message: "Task 'Launch Q2 Meta campaign' was updated.", type: "task", read: false },
-  { id: "n2", message: "New comment added on content calendar.", type: "comment", read: false },
-  { id: "n3", message: "Invoice May 2026 is now pending.", type: "invoice", read: true },
-];
+export const notificationsSeed: NotificationItem[] = [];
 
 export const ideasSeed: IdeaItem[] = [
   {

@@ -17,11 +17,11 @@ import {
   Megaphone,
   Settings,
   Wallet,
+  X,
 } from "lucide-react";
 import type { ModuleKey } from "@/types";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
-import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/modal";
 
@@ -110,6 +110,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     markAllAsRead,
     notifications,
     markNotificationRead,
+    dismissNotification,
     allowedModules,
     t,
     td,
@@ -120,10 +121,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [openSettingsModal, setOpenSettingsModal] = useState(false);
   const [marketingMenuOpen, setMarketingMenuOpen] = useState(false);
   const [crmMenuOpen, setCrmMenuOpen] = useState(false);
-  const [marketingReminders, setMarketingReminders] = useState<
-    Array<{ id: string; title: string; note: string; projectId: string; reminderAt: string }>
-  >([]);
-  const [readReminderIds, setReadReminderIds] = useState<string[]>([]);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const langMenuRef = useRef<HTMLDivElement>(null);
   const [profileName, setProfileName] = useState(currentUser.name);
@@ -139,9 +136,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     link.key === "marketing" ? allowedModules.includes(link.key) && canAccessMarketing : allowedModules.includes(link.key),
   );
   const avatarInitial = profileName.trim().slice(0, 1).toUpperCase() || "U";
-  const unreadReminderCount = marketingReminders.filter((item) => !readReminderIds.includes(item.id)).length;
-  const totalUnreadCount = unreadCount + unreadReminderCount;
-
   useEffect(() => {
     setProfileName(currentUser.name);
     setProfileEmail(`${currentUser.name.toLowerCase().replace(/\s+/g, ".")}@rocketride.com`);
@@ -154,47 +148,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (pathname.startsWith("/crm")) setCrmMenuOpen(true);
   }, [pathname]);
-
-  useEffect(() => {
-    if (!canAccessMarketing) {
-      setMarketingReminders([]);
-      setReadReminderIds([]);
-      return;
-    }
-    let cancelled = false;
-    const loadDueReminders = () => {
-      const nowIso = new Date().toISOString();
-      void supabase
-        .from("marketing_tasks")
-        .select("id,title,reminder_note,project_id,reminder_at")
-        .not("reminder_at", "is", null)
-        .lte("reminder_at", nowIso)
-        .order("reminder_at", { ascending: false })
-        .then(({ data, error }) => {
-          if (cancelled) return;
-          if (error) {
-            console.error("[supabase] reminder fetch failed:", error.message);
-            setMarketingReminders([]);
-            return;
-          }
-          const reminders =
-            ((data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
-              id: String(row.id ?? ""),
-              title: String(row.title ?? ""),
-              note: String(row.reminder_note ?? ""),
-              projectId: String(row.project_id ?? ""),
-              reminderAt: String(row.reminder_at ?? ""),
-            })) ?? [];
-          setMarketingReminders(reminders);
-        });
-    };
-    loadDueReminders();
-    const interval = window.setInterval(loadDueReminders, 5 * 60 * 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [canAccessMarketing]);
 
   useEffect(() => {
     if (!langMenuOpen) return;
@@ -521,9 +474,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   aria-label={t("notifications")}
                 >
                   <Bell className="h-5 w-5" strokeWidth={1.5} />
-                  {totalUnreadCount > 0 ? (
+                  {unreadCount > 0 ? (
                     <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[10px] font-medium text-white">
-                      {totalUnreadCount > 99 ? "99+" : totalUnreadCount}
+                      {unreadCount > 99 ? "99+" : unreadCount}
                     </span>
                   ) : null}
                 </button>
@@ -537,42 +490,35 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </button>
                   </div>
                   <div className="max-h-72 space-y-2 overflow-auto">
-                    {marketingReminders.map((item) => {
-                      const reminderRead = readReminderIds.includes(item.id);
-                      return (
-                        <Link
-                          key={`reminder-${item.id}`}
-                          href={`/marketing/campaigns?campaignId=${encodeURIComponent(item.projectId)}&taskId=${encodeURIComponent(item.id)}`}
-                          onClick={() =>
-                            setReadReminderIds((prev) =>
-                              prev.includes(item.id) ? prev : [...prev, item.id],
-                            )
-                          }
-                          className={cn(
-                            "block w-full rounded-lg border px-3 py-2 text-left text-xs",
-                            reminderRead
-                              ? "border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--muted)]"
-                              : "border-[var(--border-strong)] bg-[var(--primary)]/10 text-white",
-                          )}
-                        >
-                          {item.title} — {item.note || lt("Reminder due")}
-                        </Link>
-                      );
-                    })}
                     {notifications.map((item) => (
-                      <button
+                      <div
                         key={item.id}
-                        type="button"
-                        onClick={() => markNotificationRead(item.id)}
                         className={cn(
-                          "block w-full rounded-lg border px-3 py-2 text-left text-xs",
+                          "flex min-w-0 items-stretch gap-1 rounded-lg border text-xs",
                           item.read
                             ? "border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--muted)]"
                             : "border-[var(--border-strong)] bg-[var(--primary)]/10 text-white",
                         )}
                       >
-                        {td(item.message)}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => markNotificationRead(item.id)}
+                          className="min-w-0 flex-1 px-3 py-2 text-left font-light"
+                        >
+                          {td(item.message)}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            dismissNotification(item.id);
+                          }}
+                          className="shrink-0 px-2 text-[rgba(255,255,255,0.45)] transition hover:text-white"
+                          aria-label="Dismiss notification"
+                        >
+                          <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
