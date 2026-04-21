@@ -236,6 +236,7 @@ export function FinancialModule() {
   const [projects, setProjects] = useState<DbProject[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [savingGenerated, setSavingGenerated] = useState(false);
   const [generatorCollapsed, setGeneratorCollapsed] = useState(true);
   const [deleteInvoice, setDeleteInvoice] = useState<DbInvoice | null>(null);
@@ -508,6 +509,11 @@ export function FinancialModule() {
       {saveSuccess ? (
         <p className="mb-4 rounded-[8px] border px-3 py-2 text-sm text-[#86efac]" style={{ background: "rgba(34,197,94,0.15)", borderColor: "rgba(34,197,94,0.3)" }}>
           Invoice saved successfully
+        </p>
+      ) : null}
+      {saveError ? (
+        <p className="mb-4 rounded-[8px] border px-3 py-2 text-sm text-[#fca5a5]" style={{ background: "rgba(239,68,68,0.12)", borderColor: "rgba(239,68,68,0.35)" }}>
+          {saveError}
         </p>
       ) : null}
 
@@ -954,44 +960,96 @@ export function FinancialModule() {
             type="button"
             disabled={savingGenerated}
             onClick={async () => {
-              const invoiceHtml = buildInvoiceHtmlString(getInvoiceHtmlFormData(), { previewChrome: false });
-              const blob = new Blob([invoiceHtml], { type: "text/html" });
-              const fileName = `invoice-${invoiceNumber}-${Date.now()}.html`;
+              console.log("Starting invoice save...");
+              setSaveError(null);
+              setSaveSuccess(null);
               setSavingGenerated(true);
-              const uploadRes = await supabase.storage.from("invoices").upload(fileName, blob, {
-                contentType: "text/html; charset=utf-8",
-                upsert: false,
-              });
-              if (uploadRes.error) {
-                console.error("[financial] upload generated invoice", uploadRes.error.message);
-                setSavingGenerated(false);
-                return;
+
+              const trimmedInvoiceNumber = invoiceNumber.trim();
+              const validationSnapshot = {
+                invoiceNumber: trimmedInvoiceNumber || "(empty — will auto-generate)",
+                issueDate,
+                dueDateGen,
+                billedTo,
+                purchaseOrder,
+                linkedProjectIds,
+                lineItemsCount: lineItems.length,
+                invoiceTotal,
+                taxRate,
+                shipping,
+              };
+              console.log("[financial] Save validation — fields checked:", validationSnapshot);
+
+              const resolvedInvoiceNumber = trimmedInvoiceNumber || `INV-${Date.now()}`;
+              if (!trimmedInvoiceNumber) {
+                console.log("[financial] Auto-generated invoice number:", resolvedInvoiceNumber);
+                setInvoiceNumber(resolvedInvoiceNumber);
               }
-              const pub = supabase.storage.from("invoices").getPublicUrl(fileName);
-              const publicUrl = pub.data.publicUrl;
-              const insRes = await supabase.from("invoices").insert([
-                {
-                  invoice_number: invoiceNumber || null,
+
+              const formForHtml: InvoiceHtmlFormData = {
+                ...getInvoiceHtmlFormData(),
+                invoiceNumber: resolvedInvoiceNumber,
+              };
+              const invoiceHtml = buildInvoiceHtmlString(formForHtml, { previewChrome: false });
+              const blob = new Blob([invoiceHtml], { type: "text/html;charset=utf-8" });
+              console.log("[financial] HTML blob size (bytes):", blob.size, "type:", blob.type);
+
+              const storageBucket = "invoices";
+              const fileName = `invoice-${resolvedInvoiceNumber.replace(/[^\w.-]+/g, "_")}-${Date.now()}.html`;
+
+              try {
+                const { data: uploadData, error: uploadError } = await supabase.storage.from(storageBucket).upload(fileName, blob, {
+                  contentType: "text/html; charset=utf-8",
+                  upsert: false,
+                });
+                console.log("Upload result:", uploadData, uploadError);
+
+                if (uploadError) {
+                  const msg = uploadError.message || String(uploadError);
+                  console.error("[financial] Storage upload failed:", msg);
+                  setSaveError(`Storage upload failed: ${msg}`);
+                  return;
+                }
+
+                const pub = supabase.storage.from(storageBucket).getPublicUrl(fileName);
+                const publicUrl = pub.data.publicUrl;
+                console.log("Public URL:", publicUrl);
+
+                const invoicePayload = {
                   filename: fileName,
                   amount: invoiceTotal,
-                  status: "pending",
+                  status: "pending" as const,
                   issue_date: issueDate,
                   due_date: dueDateGen || null,
-                  project_ids: linkedProjectIds.length > 0 ? linkedProjectIds : [],
+                  project_name: billedTo.trim() || null,
                   project_id: linkedProjectIds[0] ?? null,
-                  project_name: billedTo || null,
+                  project_ids: linkedProjectIds.length > 0 ? linkedProjectIds : null,
+                  invoice_number: resolvedInvoiceNumber,
                   file_url: publicUrl,
-                },
-              ]);
-              setSavingGenerated(false);
-              if (insRes.error) {
-                console.error("[financial] insert generated invoice", insRes.error.message);
-                return;
+                };
+                console.log("Inserting invoice:", invoicePayload);
+
+                const { data: insertData, error: insertError } = await supabase.from("invoices").insert([invoicePayload]);
+                console.log("Insert result:", insertData, insertError);
+
+                if (insertError) {
+                  const msg = insertError.message || String(insertError);
+                  console.error("[financial] Supabase insert failed:", msg, insertError);
+                  setSaveError(`Could not save invoice: ${msg}`);
+                  return;
+                }
+
+                setGeneratorCollapsed(true);
+                setSaveSuccess("Invoice saved successfully");
+                window.setTimeout(() => setSaveSuccess(null), 3000);
+                await loadFinancialData();
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.error("[financial] Unexpected save error:", err);
+                setSaveError(`Save failed: ${msg}`);
+              } finally {
+                setSavingGenerated(false);
               }
-              setGeneratorCollapsed(true);
-              setSaveSuccess("Invoice saved successfully");
-              window.setTimeout(() => setSaveSuccess(null), 3000);
-              await loadFinancialData();
             }}
             className="rounded-lg border border-[var(--border-strong)] px-4 py-2 text-xs text-white disabled:opacity-50"
           >
