@@ -21,6 +21,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Eye,
+  EyeOff,
   Heart,
   ImageIcon,
   Info,
@@ -565,7 +567,7 @@ function HeroDigitalClockTime({ date, timeZone }: { date: Date; timeZone: string
   }).formatToParts(date);
 
   return (
-    <p className="min-w-0 max-w-full text-center font-[family-name:var(--font-mono)] text-[2rem] font-light tabular-nums leading-none text-white">
+    <p className="whitespace-nowrap font-[family-name:var(--font-mono)] text-[1.75rem] font-light tabular-nums leading-none text-white">
       {parts.map((part, i) =>
         part.type === "dayPeriod" ? (
           <span key={i} className="ml-0.5 align-baseline text-[0.55em] font-normal uppercase leading-none tracking-wide">
@@ -587,6 +589,24 @@ function timeOfDayGreeting(): string {
 }
 
 const HERO_CLOCK_MODE_KEY = "clock-mode";
+const HERO_BG_VISIBLE_KEY = "hero-bg-visible";
+const HERO_HEIGHT_KEY = "hero-height";
+const HERO_HEIGHT_MIN_PX = 200;
+
+function clampHeroHeightPx(px: number): number {
+  if (typeof window === "undefined") return Math.max(HERO_HEIGHT_MIN_PX, px);
+  const max = window.innerHeight * 0.95;
+  return Math.round(Math.min(max, Math.max(HERO_HEIGHT_MIN_PX, px)));
+}
+
+const heroBgToggleButtonStyle: CSSProperties = {
+  background: "rgba(255, 255, 255, 0.05)",
+  backdropFilter: "blur(11px) saturate(110%)",
+  WebkitBackdropFilter: "blur(11px) saturate(110%)",
+  border: "1px solid rgba(255, 255, 255, 0.08)",
+  borderRadius: 8,
+  padding: 8,
+};
 
 const heroClockCardGlassStyle: CSSProperties = {
   background: "rgba(255, 255, 255, 0.05)",
@@ -595,9 +615,6 @@ const heroClockCardGlassStyle: CSSProperties = {
   border: "1px solid rgba(255, 255, 255, 0.08)",
   borderRadius: 8,
   boxSizing: "border-box",
-  width: 180,
-  height: 160,
-  minHeight: 160,
 };
 
 const heroClockToggleShellStyle: CSSProperties = {
@@ -632,7 +649,7 @@ function HeroAnalogClock({ date, timeZone }: { date: Date; timeZone: string }) {
   const secondDeg = second * 6;
 
   return (
-    <svg viewBox="0 0 100 100" className="block h-full max-h-[72px] w-full max-w-[72px] shrink-0" preserveAspectRatio="xMidYMid meet" aria-hidden>
+    <svg width="100" height="100" viewBox="0 0 100 100" className="block shrink-0" aria-hidden>
       <circle cx="50" cy="50" r="49" fill="rgba(0, 0, 0, 0.45)" />
       <g transform={`rotate(${hourDeg} 50 50)`}>
         <line x1="50" y1="50" x2="50" y2="32" stroke="white" strokeWidth="4" strokeLinecap="round" />
@@ -651,6 +668,36 @@ function HeroAnalogClock({ date, timeZone }: { date: Date; timeZone: string }) {
 function DashboardHeroSection() {
   const { currentUser } = useAppContext();
   const [, setTick] = useState(0);
+  const sectionRef = useRef<HTMLElement>(null);
+  const handleRef = useRef<HTMLDivElement>(null);
+  const dragActiveRef = useRef(false);
+  const latestHeightRef = useRef(320);
+
+  const [heroHeightPx, setHeroHeightPx] = useState(() => {
+    if (typeof window === "undefined") return Math.round(800 * 0.4);
+    try {
+      const raw = localStorage.getItem(HERO_HEIGHT_KEY);
+      if (raw != null) {
+        const n = Number.parseFloat(raw);
+        if (Number.isFinite(n)) return clampHeroHeightPx(n);
+      }
+    } catch {
+      /* ignore */
+    }
+    const initialHeight = window.innerHeight * 0.4;
+    return Math.round(initialHeight);
+  });
+
+  latestHeightRef.current = heroHeightPx;
+
+  const [heroBgVisible, setHeroBgVisible] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return localStorage.getItem(HERO_BG_VISIBLE_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
   const [clockMode, setClockMode] = useState<HeroClockMode>(() => {
     if (typeof window === "undefined") return "digital";
     try {
@@ -670,30 +717,139 @@ function DashboardHeroSection() {
     }
   };
 
+  const toggleHeroBgVisible = () => {
+    setHeroBgVisible((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(HERO_BG_VISIBLE_KEY, next ? "true" : "false");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
   useEffect(() => {
     const id = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, []);
+
+  const startMouseResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragActiveRef.current = true;
+    document.body.style.cursor = "ns-resize";
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragActiveRef.current) return;
+      const el = sectionRef.current;
+      if (!el) return;
+      const h = clampHeroHeightPx(ev.clientY - el.getBoundingClientRect().top);
+      latestHeightRef.current = h;
+      setHeroHeightPx(h);
+    };
+
+    const onUp = () => {
+      dragActiveRef.current = false;
+      document.body.style.cursor = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      try {
+        localStorage.setItem(HERO_HEIGHT_KEY, String(latestHeightRef.current));
+      } catch {
+        /* ignore */
+      }
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    onMove(e.nativeEvent);
+  };
+
+  const startTouchResize = (e: React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragActiveRef.current = true;
+
+    const onMove = (ev: TouchEvent) => {
+      if (!dragActiveRef.current) return;
+      ev.preventDefault();
+      const t = ev.touches[0];
+      if (!t) return;
+      const el = sectionRef.current;
+      if (!el) return;
+      const h = clampHeroHeightPx(t.clientY - el.getBoundingClientRect().top);
+      latestHeightRef.current = h;
+      setHeroHeightPx(h);
+    };
+
+    const onEnd = () => {
+      dragActiveRef.current = false;
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onEnd);
+      document.removeEventListener("touchcancel", onEnd);
+      try {
+        localStorage.setItem(HERO_HEIGHT_KEY, String(latestHeightRef.current));
+      } catch {
+        /* ignore */
+      }
+    };
+
+    document.addEventListener("touchmove", onMove, { passive: false });
+    document.addEventListener("touchend", onEnd);
+    document.addEventListener("touchcancel", onEnd);
+    if (e.touches[0]) {
+      const el = sectionRef.current;
+      if (el) {
+        const h = clampHeroHeightPx(e.touches[0].clientY - el.getBoundingClientRect().top);
+        latestHeightRef.current = h;
+        setHeroHeightPx(h);
+      }
+    }
+  };
+
   const now = new Date();
   const firstName = currentUser.name.trim().split(/\s+/)[0] ?? "";
 
   return (
     <section
-      className="relative -mx-4 -mt-6 mb-12 flex w-[calc(100%+2rem)] max-w-none flex-col items-start justify-start overflow-hidden py-10 md:flex-row md:items-start md:justify-between lg:-mx-8 lg:w-[calc(100%+4rem)]"
+      ref={sectionRef}
+      className={cn(
+        "relative -mx-4 -mt-6 mb-12 box-border flex min-h-0 w-[calc(100%+2rem)] max-w-none flex-col items-start justify-start overflow-hidden lg:-mx-8 lg:w-[calc(100%+4rem)]",
+        !heroBgVisible && "bg-transparent",
+      )}
+      style={{ height: heroHeightPx }}
       aria-label="Dashboard hero"
     >
-      <img
-        src="/Biotecc%20-%202026-159.jpg"
-        alt=""
-        decoding="async"
-        className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover object-center"
-        aria-hidden
-      />
-      <div
-        className="absolute inset-0 z-[1] bg-gradient-to-br from-[#111111]/88 via-[#0a0a0a]/72 to-[#111111]/80"
-        aria-hidden
-      />
-      <div className="relative z-10 flex w-full flex-col items-start justify-start gap-10 px-4 md:flex-row md:items-start md:justify-between lg:px-8">
+      {heroBgVisible ? (
+        <>
+          <img
+            src="/Biotecc%20-%202026-159.jpg"
+            alt=""
+            decoding="async"
+            className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover object-center"
+            aria-hidden
+          />
+          <div
+            className="absolute inset-0 z-[1] bg-gradient-to-br from-[#111111]/88 via-[#0a0a0a]/72 to-[#111111]/80"
+            aria-hidden
+          />
+        </>
+      ) : null}
+      <button
+        type="button"
+        onClick={toggleHeroBgVisible}
+        aria-label={heroBgVisible ? "Hide hero background" : "Show hero background"}
+        className="absolute right-4 top-4 z-20 text-[rgba(255,255,255,0.4)]"
+        style={heroBgToggleButtonStyle}
+      >
+        {heroBgVisible ? (
+          <Eye className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
+        ) : (
+          <EyeOff className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
+        )}
+      </button>
+      <div className="relative z-10 flex h-full min-h-0 min-w-0 w-full flex-1 flex-row items-end justify-between gap-10 overflow-hidden px-4 pb-10 lg:px-8">
         <div className="flex min-w-0 flex-col">
           <p className="text-[0.8rem] font-light tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
             {formatHeroLongDate(now)}
@@ -707,7 +863,7 @@ function DashboardHeroSection() {
             </span>
           </h1>
         </div>
-        <div className="flex shrink-0 flex-col items-start justify-start md:self-start">
+        <div className="flex shrink-0 flex-col items-start justify-start">
           <div className="flex flex-col items-center">
             <div className="mb-4 inline-flex shrink-0" style={heroClockToggleShellStyle} role="group" aria-label="Clock display mode">
               <button
@@ -735,31 +891,27 @@ function DashboardHeroSection() {
                 <Watch className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
               </button>
             </div>
-            <div className="flex flex-row flex-wrap items-start justify-center gap-4">
-            <div className="min-w-0 shrink-0" style={heroClockCardGlassStyle}>
-              <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-1.5 p-[24px] text-center">
+            <div className="flex flex-row flex-wrap items-stretch justify-center gap-4">
+            <div className="flex min-h-0 w-[200px] min-w-[200px] max-w-[200px] shrink-0 flex-col" style={heroClockCardGlassStyle}>
+              <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center gap-2 p-[24px] text-center">
                 <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
                   San Francisco
                 </p>
                 {clockMode === "digital" ? (
                   <HeroDigitalClockTime date={now} timeZone="America/Los_Angeles" />
                 ) : (
-                  <div className="flex shrink-0 items-center justify-center">
-                    <HeroAnalogClock date={now} timeZone="America/Los_Angeles" />
-                  </div>
+                  <HeroAnalogClock date={now} timeZone="America/Los_Angeles" />
                 )}
                 <p className="text-[0.7rem] font-light text-[rgba(255,255,255,0.3)]">PT</p>
               </div>
             </div>
-            <div className="min-w-0 shrink-0" style={heroClockCardGlassStyle}>
-              <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-1.5 p-[24px] text-center">
+            <div className="flex min-h-0 w-[200px] min-w-[200px] max-w-[200px] shrink-0 flex-col" style={heroClockCardGlassStyle}>
+              <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center gap-2 p-[24px] text-center">
                 <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">Curitiba</p>
                 {clockMode === "digital" ? (
                   <HeroDigitalClockTime date={now} timeZone="America/Sao_Paulo" />
                 ) : (
-                  <div className="flex shrink-0 items-center justify-center">
-                    <HeroAnalogClock date={now} timeZone="America/Sao_Paulo" />
-                  </div>
+                  <HeroAnalogClock date={now} timeZone="America/Sao_Paulo" />
                 )}
                 <p className="text-[0.7rem] font-light text-[rgba(255,255,255,0.3)]">BRT</p>
               </div>
@@ -767,6 +919,17 @@ function DashboardHeroSection() {
           </div>
           </div>
         </div>
+      </div>
+      <div
+        ref={handleRef}
+        className="group absolute bottom-0 left-0 right-0 z-30 flex h-2 shrink-0 cursor-ns-resize touch-none items-center justify-center bg-transparent"
+        onMouseDown={startMouseResize}
+        onTouchStart={startTouchResize}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize hero height"
+      >
+        <div className="pointer-events-none h-0.5 w-10 rounded-sm bg-[rgba(255,255,255,0.2)] opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100" />
       </div>
     </section>
   );
