@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -47,6 +48,27 @@ function statusBadgeClass(status: DbInvoice["status"]) {
   return "border-[#ef4444]/35 bg-[#ef4444]/12 text-[#fca5a5]";
 }
 
+const INVOICE_STATUS_DROPDOWN_EST_HEIGHT_PX = 120;
+
+function getInvoiceStatusDropdownPosition(triggerRect: DOMRect) {
+  const gap = 6;
+  let top = triggerRect.bottom + gap;
+  if (top + INVOICE_STATUS_DROPDOWN_EST_HEIGHT_PX > window.innerHeight) {
+    top = triggerRect.top - INVOICE_STATUS_DROPDOWN_EST_HEIGHT_PX - gap;
+  }
+  const minTop = gap;
+  const maxTop = window.innerHeight - INVOICE_STATUS_DROPDOWN_EST_HEIGHT_PX - gap;
+  const upper = Math.max(minTop, maxTop);
+  top = Math.min(Math.max(top, minTop), upper);
+  return { top, left: triggerRect.left };
+}
+
+const INVOICE_STATUS_OPTIONS: Array<{ value: DbInvoice["status"]; dotClass: string; label: string }> = [
+  { value: "paid", dotClass: "bg-[#22c55e]", label: "paid" },
+  { value: "pending", dotClass: "bg-[#eab308]", label: "pending" },
+  { value: "overdue", dotClass: "bg-[#ef4444]", label: "overdue" },
+];
+
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -64,6 +86,9 @@ export function FinancialModule() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [deleteInvoice, setDeleteInvoice] = useState<DbInvoice | null>(null);
+  const [invoiceStatusMenu, setInvoiceStatusMenu] = useState<{ invoiceId: string; top: number; left: number } | null>(
+    null,
+  );
 
   const [activeKpiIndex, setActiveKpiIndex] = useState(0);
   const [pdfModal, setPdfModal] = useState<{ fileName: string; url: string } | null>(null);
@@ -109,6 +134,24 @@ export function FinancialModule() {
   }, [generatorCollapsed]);
 
   useEffect(() => {
+    if (!invoiceStatusMenu) return;
+    const closeMenu = () => setInvoiceStatusMenu(null);
+    const onEsc = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    document.addEventListener("mousedown", closeMenu);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+      document.removeEventListener("mousedown", closeMenu);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [invoiceStatusMenu]);
+
+  useEffect(() => {
     if (!linkedProjectId) return;
     const p = projects.find((proj) => proj.id === linkedProjectId);
     if (p) setBilledTo(p.name);
@@ -150,6 +193,16 @@ export function FinancialModule() {
   useEffect(() => {
     void loadFinancialData();
   }, [loadFinancialData]);
+
+  const applyInvoiceStatusChange = async (invoiceId: string, newStatus: DbInvoice["status"], previousStatus: DbInvoice["status"]) => {
+    setInvoices((list) => list.map((inv) => (inv.id === invoiceId ? { ...inv, status: newStatus } : inv)));
+    setInvoiceStatusMenu(null);
+    const { error } = await supabase.from("invoices").update({ status: newStatus }).eq("id", invoiceId);
+    if (error) {
+      console.error("[supabase] invoice status update failed:", error.message);
+      setInvoices((list) => list.map((inv) => (inv.id === invoiceId ? { ...inv, status: previousStatus } : inv)));
+    }
+  };
 
   const kpiDefs = useMemo(
     () => [
@@ -489,15 +542,59 @@ export function FinancialModule() {
                     {invoice.issue_date ?? "—"}
                   </td>
                   <td className="mono-num px-3 py-2.5 text-sm font-light tabular-nums text-white">{formatCurrency(invoice.amount)}</td>
-                  <td className="px-3 py-2.5">
-                    <span
-                      className={cn(
-                        "inline-flex rounded-full border px-2 py-0.5 text-[0.68rem] font-normal",
-                        statusBadgeClass(invoice.status),
-                      )}
+                  <td className="relative px-3 py-2.5">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        const { top, left } = getInvoiceStatusDropdownPosition(rect);
+                        setInvoiceStatusMenu((prev) =>
+                          prev?.invoiceId === invoice.id ? null : { invoiceId: invoice.id, top, left },
+                        );
+                      }}
+                      className="text-left"
+                      aria-haspopup="listbox"
+                      aria-expanded={invoiceStatusMenu?.invoiceId === invoice.id}
                     >
-                      {invoice.status}
-                    </span>
+                      <span
+                        className={cn(
+                          "inline-flex cursor-pointer rounded-full border px-2 py-0.5 text-[0.68rem] font-normal",
+                          statusBadgeClass(invoice.status),
+                        )}
+                      >
+                        {invoice.status}
+                      </span>
+                    </button>
+                    {invoiceStatusMenu?.invoiceId === invoice.id
+                      ? createPortal(
+                          <div
+                            className="w-44 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2"
+                            style={{ position: "fixed", top: invoiceStatusMenu.top, left: invoiceStatusMenu.left, zIndex: 9999 }}
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onClick={(event) => event.stopPropagation()}
+                            role="listbox"
+                          >
+                            {INVOICE_STATUS_OPTIONS.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                role="option"
+                                aria-selected={invoice.status === option.value}
+                                onClick={() => void applyInvoiceStatusChange(invoice.id, option.value, invoice.status)}
+                                className={cn(
+                                  "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
+                                  invoice.status === option.value && "bg-[rgba(255,255,255,0.04)]",
+                                )}
+                              >
+                                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", option.dotClass)} aria-hidden />
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>,
+                          document.body,
+                        )
+                      : null}
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <div className="flex flex-wrap justify-end gap-2">
