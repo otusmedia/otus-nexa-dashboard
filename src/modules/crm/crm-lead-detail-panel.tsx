@@ -55,10 +55,12 @@ export function CrmLeadDetailPanel({
   lead,
   onClose,
   onLeadUpdated,
+  onLeadDeleted,
 }: {
   lead: CrmLead;
   onClose: () => void;
   onLeadUpdated: (lead: CrmLead) => void;
+  onLeadDeleted: (leadId: string) => void;
 }) {
   const { currentUser } = useAppContext();
   const [nameDraft, setNameDraft] = useState(lead.name);
@@ -87,6 +89,9 @@ export function CrmLeadDetailPanel({
   });
   const [deleteApptId, setDeleteApptId] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [deleteLeadModalOpen, setDeleteLeadModalOpen] = useState(false);
+  const [deletePasskey, setDeletePasskey] = useState("");
+  const [deletingLead, setDeletingLead] = useState(false);
 
   const syncFromLead = useCallback((l: CrmLead) => {
     setNameDraft(l.name);
@@ -319,6 +324,32 @@ export function CrmLeadDetailPanel({
     if (calDelErr) console.error("[crm] calendar delete", calDelErr.message);
     setAppointments((prev) => prev.filter((a) => a.id !== apptId));
     setDeleteApptId(null);
+  };
+
+  const canConfirmDeleteLead = deletePasskey === "DELETE";
+
+  const confirmDeleteLead = async () => {
+    if (!canConfirmDeleteLead || deletingLead) return;
+    setDeletingLead(true);
+    const leadId = lead.id;
+
+    const { error: calErr } = await supabase.from("calendar_events").delete().eq("lead_id", leadId);
+    if (calErr) console.error("[crm] delete lead calendar events", calErr.message);
+
+    const { error: apptErr } = await supabase.from("crm_appointments").delete().eq("lead_id", leadId);
+    if (apptErr) console.error("[crm] delete lead appointments", apptErr.message);
+
+    const { error: leadErr } = await supabase.from("crm_leads").delete().eq("id", leadId);
+    setDeletingLead(false);
+    if (leadErr) {
+      console.error("[crm] delete lead", leadErr.message);
+      return;
+    }
+
+    setDeleteLeadModalOpen(false);
+    setDeletePasskey("");
+    onLeadDeleted(leadId);
+    onClose();
   };
 
   const currentStatus = normalizeLeadStatus(lead.status);
@@ -652,6 +683,17 @@ export function CrmLeadDetailPanel({
               </ul>
             )}
           </section>
+
+          <section className="mt-10">
+            <button
+              type="button"
+              onClick={() => setDeleteLeadModalOpen(true)}
+              className="w-full rounded-[8px] border px-3 py-2 text-sm text-[#fca5a5] transition-colors hover:bg-[rgba(239,68,68,0.08)]"
+              style={{ borderColor: "rgba(239,68,68,0.3)" }}
+            >
+              Delete Lead
+            </button>
+          </section>
         </div>
       </aside>
 
@@ -664,6 +706,46 @@ export function CrmLeadDetailPanel({
         onCancel={() => setDeleteApptId(null)}
         onConfirm={() => void confirmDeleteAppointment()}
       />
+
+      {deleteLeadModalOpen ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-[8px] border border-[var(--border)] bg-[#161616] p-5">
+            <h3 className="section-title">Delete Lead</h3>
+            <p className="mt-2 text-sm font-light leading-relaxed text-[rgba(255,255,255,0.55)]">
+              This action is permanent and cannot be undone. All appointments linked to this lead will also be deleted.
+            </p>
+            <label className="mt-4 block space-y-1">
+              <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Passkey</span>
+              <input
+                value={deletePasskey}
+                onChange={(e) => setDeletePasskey(e.target.value)}
+                placeholder="Type DELETE to confirm"
+                className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteLeadModalOpen(false);
+                  setDeletePasskey("");
+                }}
+                className="btn-ghost rounded-[8px] px-3 py-1.5 text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!canConfirmDeleteLead || deletingLead}
+                onClick={() => void confirmDeleteLead()}
+                className="rounded-[8px] bg-[#ef4444] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#dc2626] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deletingLead ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

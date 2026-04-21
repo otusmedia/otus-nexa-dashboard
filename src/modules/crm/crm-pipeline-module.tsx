@@ -36,6 +36,7 @@ export function CrmPipelineModule() {
   const [owner, setOwner] = useState("");
   const [description, setDescription] = useState("");
   const [nameError, setNameError] = useState("");
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -135,7 +136,48 @@ export function CrmPipelineModule() {
       return;
     }
     if (data) {
-      setLeads((prev) => [mapCrmLeadRow(data as Record<string, unknown>), ...prev]);
+      const createdLead = mapCrmLeadRow(data as Record<string, unknown>);
+      setLeads((prev) => [createdLead, ...prev]);
+      const leadEmail = (createdLead.email ?? "").trim();
+      if (leadEmail) {
+        const { data: existing, error: existingErr } = await supabase
+          .from("crm_contacts")
+          .select("id")
+          .eq("email", leadEmail)
+          .maybeSingle();
+        if (existingErr) {
+          console.error("[crm] check existing contact", existingErr.message);
+        }
+        if (existing?.id) {
+          console.log("Contact already exists");
+        } else {
+          const { error: contactErr } = await supabase.from("crm_contacts").insert([
+            {
+              name: createdLead.name,
+              company: createdLead.company ?? "",
+              email: createdLead.email ?? "",
+              phone: createdLead.phone ?? "",
+              role: "",
+              source: createdLead.source ?? "",
+              notes: `Auto-created from lead: ${createdLead.name}`,
+            },
+          ]);
+          if (contactErr) console.error("[crm] auto-create contact", contactErr.message);
+        }
+      } else {
+        const { error: contactErr } = await supabase.from("crm_contacts").insert([
+          {
+            name: createdLead.name,
+            company: createdLead.company ?? "",
+            email: "",
+            phone: createdLead.phone ?? "",
+            role: "",
+            source: createdLead.source ?? "",
+            notes: `Auto-created from lead: ${createdLead.name}`,
+          },
+        ]);
+        if (contactErr) console.error("[crm] auto-create contact", contactErr.message);
+      }
     }
     closeAddModal();
   };
@@ -144,11 +186,23 @@ export function CrmPipelineModule() {
     setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
   };
 
+  const onLeadDeleted = (leadId: string) => {
+    setLeads((prev) => prev.filter((l) => l.id !== leadId));
+    setSelectedId(null);
+    setSuccessMessage("Lead deleted successfully.");
+    window.setTimeout(() => setSuccessMessage(null), 2500);
+  };
+
   const leadCount = leads.length;
 
   return (
     <div className="w-full min-w-0">
       <PageHeader title="Pipeline" subtitle="Kanban pipeline" />
+      {successMessage ? (
+        <p className="mb-3 rounded-md border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.12)] px-3 py-2 text-sm text-[#86efac]">
+          {successMessage}
+        </p>
+      ) : null}
       {loading ? (
         <p className="text-sm text-[rgba(255,255,255,0.45)]">Loading pipeline…</p>
       ) : (
@@ -179,6 +233,7 @@ export function CrmPipelineModule() {
           lead={selectedLead}
           onClose={() => setSelectedId(null)}
           onLeadUpdated={onLeadUpdated}
+          onLeadDeleted={onLeadDeleted}
         />
       ) : null}
 
