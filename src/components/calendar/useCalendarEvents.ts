@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAppContext } from "@/components/providers/app-providers";
+import { CALENDAR_INVITABLE_USERS } from "@/components/calendar/calendar-invite-users";
 import { supabase } from "@/lib/supabase";
 import type { CalendarEvent, CalendarEventInvitee, CalendarEventType } from "@/types/calendar";
 import { defaultColorForType } from "./calendar-utils";
@@ -83,12 +85,39 @@ function inRange(ev: CalendarEvent, rangeStart: Date, rangeEnd: Date): boolean {
 }
 
 export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
+  const { currentUser } = useAppContext();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const startIso = rangeStart.toISOString();
   const endIso = rangeEnd.toISOString();
+
+  const currentEmail = useMemo(() => {
+    const byName = CALENDAR_INVITABLE_USERS.find((u) => u.name === currentUser.name);
+    if (byName) return byName.email.toLowerCase();
+    return "";
+  }, [currentUser.name]);
+
+  const canSeeEvent = useCallback(
+    (event: CalendarEvent): boolean => {
+      if (event.is_task_deadline) return true;
+      if (event.source === "crm") {
+        if (currentUser.role === "admin") return true;
+        const invitees = (event.calendar_event_invitees ?? []).map((i) => (i.email ?? "").toLowerCase());
+        return currentEmail ? invitees.includes(currentEmail) : false;
+      }
+      if (event.type === "meeting") {
+        const invitees = (event.calendar_event_invitees ?? []).map((i) => (i.email ?? "").toLowerCase());
+        if (currentEmail && invitees.includes(currentEmail)) return true;
+        const createdBy = (event.created_by ?? "").toLowerCase();
+        if (!createdBy) return false;
+        return createdBy === currentUser.id.toLowerCase() || createdBy === currentUser.name.toLowerCase();
+      }
+      return true;
+    },
+    [currentEmail, currentUser.id, currentUser.name, currentUser.role],
+  );
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -100,8 +129,14 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
         .select("*, calendar_event_invitees (*)")
         .gte("end_at", startIso)
         .lte("start_at", endIso),
-      supabase.from("tasks").select("id, title, due_date, status, projects(name)").not("due_date", "is", null),
-      supabase.from("marketing_tasks").select("id, title, due_date, project_id").not("due_date", "is", null),
+      supabase
+        .from("tasks")
+        .select("id, title, due_date, status, assigned_to, projects(name)")
+        .not("due_date", "is", null),
+      supabase
+        .from("marketing_tasks")
+        .select("id, title, due_date, status, assigned_to, project_id")
+        .not("due_date", "is", null),
     ]);
 
     if (calRes.error) {
@@ -115,7 +150,7 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
     if (projTasksRes.error) console.error("[calendar] project tasks:", projTasksRes.error.message);
     if (mktTasksRes.error) console.error("[calendar] marketing_tasks:", mktTasksRes.error.message);
 
-    const calEvents = ((calRes.data as Record<string, unknown>[]) ?? []).map(mapRow);
+    const calEvents = ((calRes.data as Record<string, unknown>[]) ?? []).map(mapRow).filter(canSeeEvent);
 
     const virtual: CalendarEvent[] = [];
 
@@ -123,6 +158,8 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
     for (const row of projRows) {
       const status = String(row.status ?? "");
       if (EXCLUDED_TASK_STATUSES.has(status)) continue;
+      const assignedTo = String(row.assigned_to ?? "").trim();
+      if (!assignedTo || assignedTo !== currentUser.name) continue;
       const due = row.due_date != null ? String(row.due_date).slice(0, 10) : "";
       if (!due) continue;
       const proj = row.projects as { name?: string } | null | undefined;
@@ -140,6 +177,10 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
 
     const mktRows = (mktTasksRes.data as Record<string, unknown>[] | null) ?? [];
     for (const row of mktRows) {
+      const status = String(row.status ?? "");
+      if (EXCLUDED_TASK_STATUSES.has(status)) continue;
+      const assignedTo = String(row.assigned_to ?? "").trim();
+      if (!assignedTo || assignedTo !== currentUser.name) continue;
       const due = row.due_date != null ? String(row.due_date).slice(0, 10) : "";
       if (!due) continue;
       const projectLabel = "Marketing";
@@ -156,7 +197,7 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
 
     setEvents([...calEvents, ...virtual]);
     setLoading(false);
-  }, [startIso, endIso, rangeStart, rangeEnd]);
+  }, [startIso, endIso, rangeStart, rangeEnd, canSeeEvent, currentUser.name]);
 
   useEffect(() => {
     void fetchEvents();
@@ -288,10 +329,7 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
     [fetchEvents],
   );
 
-  const value = useMemo(
-    () => ({ events, loading, error, refetch: fetchEvents, createEvent, updateEvent, deleteEvent }),
-    [events, loading, error, fetchEvents, createEvent, updateEvent, deleteEvent],
-  );
+  const value = useMemo(() => ({ events, loading, error, refetch: fetchEvents, createEvent, updateEvent, deleteEvent }), [events, loading, error, fetchEvents, createEvent, updateEvent, deleteEvent]);
 
   return value;
 }

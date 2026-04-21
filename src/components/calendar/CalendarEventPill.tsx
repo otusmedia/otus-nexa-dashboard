@@ -28,7 +28,7 @@ export function CalendarEventPill({
         onClick?.(e);
       }}
       className={cn(
-        "flex max-w-full items-center gap-1 truncate rounded-md px-2 py-0.5 text-left text-xs font-medium transition-opacity hover:opacity-90",
+        "flex max-w-full items-center gap-1 truncate rounded-md px-2 py-0.5 text-left text-xs font-medium",
         className,
       )}
       style={{

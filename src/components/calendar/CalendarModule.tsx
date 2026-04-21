@@ -63,7 +63,7 @@ export function CalendarModule() {
           onToday={goToday}
         />
 
-        <div className="mt-6 transition-opacity duration-200 ease-out" key={view}>
+        <div className="mt-6">
           {view === "month" ? (
             <CalendarGrid
               anchorDate={currentDate}

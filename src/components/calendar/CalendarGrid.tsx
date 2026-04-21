@@ -52,7 +52,7 @@ export function CalendarGrid({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[rgba(255,255,255,0.06)] bg-[#161616] transition-opacity duration-200">
+    <div className="overflow-hidden rounded-xl border border-[rgba(255,255,255,0.06)] bg-[#161616]">
       <div className="grid grid-cols-7 border-b border-[rgba(255,255,255,0.06)] bg-[#161616]">
         {WEEKDAYS.map((d) => (
           <div
@@ -77,7 +77,7 @@ export function CalendarGrid({
             <div
               key={day.toISOString()}
               className={cn(
-                "group relative min-h-[100px] border-b border-r border-[rgba(255,255,255,0.06)] p-1.5 transition-colors duration-150 last:border-r-0 md:min-h-[120px]",
+                "group relative min-h-[100px] border-b border-r border-[rgba(255,255,255,0.06)] p-1.5 last:border-r-0 md:min-h-[120px]",
                 "bg-[#161616]",
                 !inMonth && "opacity-45",
                 today && "ring-1 ring-inset ring-[rgba(255,69,0,0.45)]",
@@ -101,7 +101,7 @@ export function CalendarGrid({
                     onAddOnDay(day);
                   }}
                   className={cn(
-                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.1)] text-[rgba(255,255,255,0.5)] opacity-0 transition hover:border-[rgba(255,69,0,0.4)] hover:text-[#ff4500] group-hover:opacity-100",
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.1)] text-[rgba(255,255,255,0.5)] opacity-0 hover:border-[rgba(255,69,0,0.4)] hover:text-[#ff4500] group-hover:opacity-100",
                   )}
                   aria-label="Add event"
                 >

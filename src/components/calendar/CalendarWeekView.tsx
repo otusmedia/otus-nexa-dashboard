@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@/types/calendar";
 import {
@@ -69,11 +68,6 @@ export function CalendarWeekView({
   onEventClick: (event: CalendarEvent, e: React.MouseEvent) => void;
 }) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const t = window.setInterval(() => setTick((x) => x + 1), 60_000);
-    return () => window.clearInterval(t);
-  }, []);
 
   const allDayByDay = days.map((day) =>
     events.filter((e) => e.all_day && eventOverlapsLocalDay(e, day)),
@@ -92,7 +86,7 @@ export function CalendarWeekView({
             type="button"
             onClick={() => onDayClick(startOfDay(day))}
             className={cn(
-              "border-r border-[rgba(255,255,255,0.06)] px-1 py-2 text-center last:border-r-0 transition hover:bg-[rgba(255,255,255,0.03)]",
+              "border-r border-[rgba(255,255,255,0.06)] px-1 py-2 text-center last:border-r-0 hover:bg-[rgba(255,255,255,0.03)]",
               isToday(day) && "ring-1 ring-[rgba(255,69,0,0.35)] ring-inset",
             )}
           >
@@ -173,7 +167,7 @@ export function CalendarWeekView({
                       d.setHours(h, 0, 0, 0);
                       onDayClick(d);
                     }}
-                    className="w-full border-b border-[rgba(255,255,255,0.04)] transition hover:bg-[rgba(255,255,255,0.02)]"
+                    className="w-full border-b border-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.02)]"
                     style={{ height: PX_PER_HOUR }}
                     aria-label={`${day.toDateString()} ${h}:00`}
                   />
@@ -200,7 +194,7 @@ export function CalendarWeekView({
                           e.stopPropagation();
                           onEventClick(ev, e);
                         }}
-                        className="absolute left-0.5 right-0.5 z-10 overflow-hidden rounded-md px-1 py-0.5 text-left text-[0.65rem] font-medium leading-tight shadow-sm transition hover:brightness-110"
+                        className="absolute left-0.5 right-0.5 z-10 overflow-hidden rounded-md px-1 py-0.5 text-left text-[0.65rem] font-medium leading-tight shadow-sm"
                         style={{
                           top: pos.top,
                           height: pos.height,
