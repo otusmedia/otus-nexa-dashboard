@@ -1,52 +1,43 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ModuleGuard } from "@/components/layout/module-guard";
-import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { cn, formatCurrency } from "@/lib/utils";
-import type { InvoiceItem } from "@/types";
+import { supabase } from "@/lib/supabase";
 import "./invoice-print.css";
 
 const DEMO_PDF_URL =
   "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
 
-const invoiceIssueDate: Record<string, string> = {
-  i1: "2026-04-01",
-  i2: "2026-05-01",
-  i3: "2026-03-15",
+const INVOICE_COLLAPSED_KEY = "invoice-generator-collapsed";
+
+type DbInvoice = {
+  id: string;
+  filename: string | null;
+  amount: number;
+  status: "paid" | "pending" | "overdue";
+  issue_date: string | null;
+  project_name: string | null;
+  file_url: string | null;
 };
 
 type ProjectInvestRow = {
   name: string;
   total: number;
   paid: number;
-  monthlySpend: number[];
+  completion: number;
+  projectLink: string | null;
 };
 
-const projectInvestData: ProjectInvestRow[] = [];
-
 type LineItem = { id: string; description: string; unitCost: number; qty: number };
+type DbProject = { id: string; name: string };
 
-function MiniSpendSparkline({ values }: { values: number[] }) {
-  const max = Math.max(...values, 1);
-  return (
-    <div className="flex h-8 items-end gap-px" aria-hidden>
-      {values.map((v, i) => (
-        <div
-          key={i}
-          className="w-1.5 min-w-[4px] rounded-[1px] bg-[rgba(255,255,255,0.22)]"
-          style={{ height: `${Math.max(8, (v / max) * 100)}%` }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function statusBadgeClass(status: InvoiceItem["status"]) {
+function statusBadgeClass(status: DbInvoice["status"]) {
   if (status === "paid") return "border-[#22c55e]/35 bg-[#22c55e]/12 text-[#86efac]";
   if (status === "pending") return "border-[#f59e0b]/35 bg-[#f59e0b]/12 text-[#fcd34d]";
   return "border-[#ef4444]/35 bg-[#ef4444]/12 text-[#fca5a5]";
@@ -57,16 +48,22 @@ function todayIso() {
 }
 
 export function FinancialModule() {
-  const { invoices, t, td, ts, uploadInvoice } = useAppContext();
   const { t: lt } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const printRef = useRef<HTMLDivElement>(null);
+  const [invoices, setInvoices] = useState<DbInvoice[]>([]);
+  const [projects, setProjects] = useState<DbProject[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [savingGenerated, setSavingGenerated] = useState(false);
+  const [generatorCollapsed, setGeneratorCollapsed] = useState(true);
 
   const [activeKpiIndex, setActiveKpiIndex] = useState(0);
   const [pdfModal, setPdfModal] = useState<{ fileName: string; url: string } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [printMode, setPrintMode] = useState(false);
 
-  const totalInvested = invoices.reduce((acc, item) => acc + item.amount, 0);
+  const totalInvested = invoices.filter((item) => item.status === "paid").reduce((acc, item) => acc + item.amount, 0);
   const paidCount = invoices.filter((i) => i.status === "paid").length;
 
   const [invoiceNumber, setInvoiceNumber] = useState("INV-2026-1042");
@@ -80,11 +77,62 @@ export function FinancialModule() {
   const [taxRate, setTaxRate] = useState(0);
   const [shipping, setShipping] = useState(0);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(INVOICE_COLLAPSED_KEY);
+      setGeneratorCollapsed(raw !== "false");
+    } catch {
+      setGeneratorCollapsed(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(INVOICE_COLLAPSED_KEY, generatorCollapsed ? "true" : "false");
+    } catch {
+      /* ignore */
+    }
+  }, [generatorCollapsed]);
+
+  const loadFinancialData = useCallback(async () => {
+    setLoadingData(true);
+    const [invRes, projRes] = await Promise.all([
+      supabase.from("invoices").select("*").order("created_at", { ascending: false }),
+      supabase.from("projects").select("id,name"),
+    ]);
+    if (invRes.error) console.error("[financial] invoices fetch", invRes.error.message);
+    if (projRes.error) console.error("[financial] projects fetch", projRes.error.message);
+
+    const mappedInvoices: DbInvoice[] = ((invRes.data as Record<string, unknown>[] | null) ?? []).map((row) => ({
+      id: String(row.id ?? ""),
+      filename: row.filename != null ? String(row.filename) : row.file_name != null ? String(row.file_name) : null,
+      amount: Number(row.amount ?? 0) || 0,
+      status:
+        row.status === "paid" || row.status === "pending" || row.status === "overdue"
+          ? (row.status as DbInvoice["status"])
+          : "pending",
+      issue_date: row.issue_date != null ? String(row.issue_date) : row.due_date != null ? String(row.due_date) : null,
+      project_name: row.project_name != null ? String(row.project_name) : row.description != null ? String(row.description) : null,
+      file_url: row.file_url != null ? String(row.file_url) : null,
+    }));
+    const mappedProjects: DbProject[] = ((projRes.data as Record<string, unknown>[] | null) ?? []).map((row) => ({
+      id: String(row.id ?? ""),
+      name: String(row.name ?? ""),
+    }));
+    setInvoices(mappedInvoices);
+    setProjects(mappedProjects);
+    setLoadingData(false);
+  }, []);
+
+  useEffect(() => {
+    void loadFinancialData();
+  }, [loadFinancialData]);
+
   const kpiDefs = useMemo(
     () => [
-      { label: "Invoices", value: String(invoices.length), fraction: `${invoices.length} / 20` },
+      { label: "Invoices", value: String(invoices.length), fraction: `${invoices.length} total` },
       { label: "Paid", value: String(paidCount), fraction: `${paidCount} / ${invoices.length || 1}` },
-      { label: "Total Invested", value: formatCurrency(totalInvested), fraction: "This month" },
+      { label: "Total Invested", value: formatCurrency(totalInvested), fraction: "Paid invoices" },
     ],
     [invoices.length, paidCount, totalInvested],
   );
@@ -92,24 +140,39 @@ export function FinancialModule() {
   const kpiProgressWidths = useMemo(() => {
     const invPct = Math.min(100, (invoices.length / 20) * 100);
     const paidPct = invoices.length ? Math.min(100, (paidCount / invoices.length) * 100) : 0;
-    const investPct = 62;
+    const investPct = invoices.length > 0 ? Math.min(100, (totalInvested / Math.max(1, invoices.reduce((a, i) => a + i.amount, 0))) * 100) : 0;
     return [invPct, paidPct, investPct];
-  }, [invoices.length, paidCount]);
+  }, [invoices.length, paidCount, invoices, totalInvested]);
 
   const projectRows = useMemo(
-    () =>
-      projectInvestData.map((row) => {
-        const remaining = row.total - row.paid;
-        const completion = row.total > 0 ? Math.round((row.paid / row.total) * 100) : 0;
-        return { ...row, remaining, completion };
-      }),
-    [],
+    () => {
+      const grouped = new Map<string, { total: number; paid: number }>();
+      for (const inv of invoices) {
+        const key = (inv.project_name ?? "").trim() || "Unassigned";
+        const cur = grouped.get(key) ?? { total: 0, paid: 0 };
+        cur.total += inv.amount;
+        if (inv.status === "paid") cur.paid += inv.amount;
+        grouped.set(key, cur);
+      }
+      return Array.from(grouped.entries()).map(([name, agg]) => {
+        const completion = agg.total > 0 ? Math.round((agg.paid / agg.total) * 100) : 0;
+        const project = projects.find((p) => p.name.trim().toLowerCase() === name.trim().toLowerCase());
+        return {
+          name,
+          total: agg.total,
+          paid: agg.paid,
+          completion,
+          projectLink: project ? `/projects/${project.id}` : null,
+        };
+      });
+    },
+    [invoices, projects],
   );
 
   const summaryTotals = useMemo(() => {
     const total = projectRows.reduce((a, r) => a + r.total, 0);
     const paid = projectRows.reduce((a, r) => a + r.paid, 0);
-    const remaining = projectRows.reduce((a, r) => a + r.remaining, 0);
+    const remaining = total - paid;
     const completion = total > 0 ? Math.round((paid / total) * 100) : 0;
     return { total, paid, remaining, completion };
   }, [projectRows]);
@@ -139,13 +202,7 @@ export function FinancialModule() {
     const files = e.target.files;
     if (!files?.length) return;
     Array.from(files).forEach((file) => {
-      uploadInvoice({
-        amount: 0,
-        status: "pending",
-        dueDate: todayIso(),
-        fileName: file.name,
-        description: "Uploaded invoice",
-      });
+      console.log("[financial] uploaded file selected:", file.name);
     });
     e.target.value = "";
   };
@@ -155,43 +212,12 @@ export function FinancialModule() {
   };
 
   const triggerPrintInvoice = useCallback(() => {
-    const el = printRef.current;
-    if (!el) return;
-    const w = window.open("", "_blank");
-    if (!w) return;
-    w.document.write(`<!DOCTYPE html><html><head><title>Invoice ${invoiceNumber}</title>`);
-    w.document.write(
-      '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
-    );
-    w.document.write(
-      '<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">',
-    );
-    w.document.write(`<style>
-      @page { margin: 16mm; }
-      body { margin:0; font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif; background:#fff; color:#111; font-weight:300; }
-      .mono-num, .num, .tnum { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-      .inv { max-width: 720px; margin: 0 auto; padding: 24px; text-align: left; color: #111; }
-      h1 { font-size: 1.5rem; font-weight: 300; margin: 0 0 8px; }
-      .muted { color: #555; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; }
-      .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; font-size: 0.875rem; font-weight: 300; }
-      table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.85rem; }
-      th, td { border-bottom: 1px solid #e5e5e5; padding: 8px 6px; text-align: left; }
-      th { font-weight: 500; }
-      .num { text-align: right; }
-      .totals { margin-top: 16px; width: 280px; margin-left: auto; font-size: 0.9rem; }
-      .totals-row { display: flex; justify-content: space-between; padding: 4px 0; }
-      .grand { font-size: 1.25rem; font-weight: 400; border-top: 1px solid #ccc; margin-top: 8px; padding-top: 8px; }
-      .bank { margin-top: 24px; padding: 12px; background: #f6f6f6; font-size: 0.8rem; }
-      .bank .muted { display: block; margin-bottom: 8px; }
-      .from-line { margin-top: 24px; font-size: 0.875rem; color: #555; font-weight: 300; }
-    </style></head><body>`);
-    w.document.write(el.innerHTML);
-    w.document.write("</body></html>");
-    w.document.close();
-    w.focus();
-    w.print();
-    w.close();
-  }, [invoiceNumber]);
+    setPrintMode(true);
+    window.setTimeout(() => {
+      window.print();
+      setPrintMode(false);
+    }, 80);
+  }, []);
 
   const invoicePrintBody = (
     <div className="financial-invoice-print">
@@ -289,7 +315,13 @@ export function FinancialModule() {
 
   return (
     <ModuleGuard module="financial">
-      <PageHeader title={t("financial")} subtitle={lt("Payment tracking, invoice files, and total invested per project.")} />
+      <PageHeader title={lt("Financial")} subtitle={lt("Payment tracking, invoice files, and total invested per project.")} />
+      {loadingData ? <p className="mb-4 text-sm text-[rgba(255,255,255,0.45)]">{lt("Loading financial data...")}</p> : null}
+      {saveSuccess ? (
+        <p className="mb-4 rounded-[8px] border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.1)] px-3 py-2 text-sm text-[#86efac]">
+          {saveSuccess}
+        </p>
+      ) : null}
 
       {/* Section 1 — KPI */}
       <div className="grid gap-3 xl:grid-cols-3">
@@ -327,7 +359,6 @@ export function FinancialModule() {
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
               <th className="px-4 py-3 font-normal">{lt("Project")}</th>
-              <th className="px-4 py-3 font-normal">{lt("6-mo trend")}</th>
               <th className="px-4 py-3 font-normal">{lt("Total")}</th>
               <th className="px-4 py-3 font-normal">{lt("Paid")}</th>
               <th className="px-4 py-3 font-normal">{lt("Remaining")}</th>
@@ -335,19 +366,31 @@ export function FinancialModule() {
             </tr>
           </thead>
           <tbody>
+            {projectRows.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-sm text-[rgba(255,255,255,0.5)]">
+                  No invoices yet — generate your first invoice above
+                </td>
+              </tr>
+            ) : null}
             {projectRows.map((row, i) => (
               <tr
                 key={row.name}
                 className={cn("border-b border-[var(--border)]", i % 2 === 1 ? "bg-[rgba(255,255,255,0.02)]" : "")}
               >
-                <td className="px-4 py-3 text-sm font-light text-white">{row.name}</td>
-                <td className="px-4 py-3">
-                  <MiniSpendSparkline values={row.monthlySpend} />
+                <td className="px-4 py-3 text-sm font-light text-white">
+                  {row.projectLink ? (
+                    <Link href={row.projectLink} className="text-[#ff9a66] hover:underline">
+                      {row.name}
+                    </Link>
+                  ) : (
+                    row.name
+                  )}
                 </td>
                 <td className="mono-num px-4 py-3 text-sm font-light tabular-nums text-white">{formatCurrency(row.total)}</td>
                 <td className="mono-num px-4 py-3 text-sm font-light tabular-nums text-white">{formatCurrency(row.paid)}</td>
                 <td className="mono-num px-4 py-3 text-sm font-light tabular-nums text-[rgba(255,255,255,0.65)]">
-                  {formatCurrency(row.remaining)}
+                  {formatCurrency(row.total - row.paid)}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -367,7 +410,6 @@ export function FinancialModule() {
             ))}
             <tr className="bg-[rgba(255,255,255,0.04)]">
               <td className="px-4 py-3 text-sm font-semibold text-white">{lt("Total")}</td>
-              <td className="px-4 py-3" />
               <td className="mono-num px-4 py-3 text-sm font-semibold tabular-nums text-white">{formatCurrency(summaryTotals.total)}</td>
               <td className="mono-num px-4 py-3 text-sm font-semibold tabular-nums text-white">{formatCurrency(summaryTotals.paid)}</td>
               <td className="mono-num px-4 py-3 text-sm font-semibold tabular-nums text-white">
@@ -405,9 +447,9 @@ export function FinancialModule() {
             <tbody>
               {invoices.map((invoice, i) => (
                 <tr key={invoice.id} className={cn("border-b border-[var(--border)]", i % 2 === 1 ? "bg-[rgba(255,255,255,0.02)]" : "")}>
-                  <td className="px-3 py-2.5 text-sm font-light text-white">{td(invoice.fileName)}</td>
+                  <td className="px-3 py-2.5 text-sm font-light text-white">{invoice.filename ?? "—"}</td>
                   <td className="mono-num px-3 py-2.5 text-xs font-light tabular-nums text-[rgba(255,255,255,0.5)]">
-                    {invoiceIssueDate[invoice.id] ?? invoice.dueDate}
+                    {invoice.issue_date ?? "—"}
                   </td>
                   <td className="px-3 py-2.5">
                     <span
@@ -416,20 +458,20 @@ export function FinancialModule() {
                         statusBadgeClass(invoice.status),
                       )}
                     >
-                      {ts(invoice.status)}
+                      {invoice.status}
                     </span>
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <div className="flex flex-wrap justify-end gap-2">
                       <button
                         type="button"
-                        onClick={() => openPdfModal(td(invoice.fileName))}
+                        onClick={() => openPdfModal(invoice.filename ?? "Invoice")}
                         className="rounded-lg border border-[var(--border-strong)] bg-transparent px-3 py-1 text-xs font-light text-[rgba(255,255,255,0.75)]"
                       >
                         {lt("View PDF")}
                       </button>
                       <a
-                        href={DEMO_PDF_URL}
+                        href={invoice.file_url ?? DEMO_PDF_URL}
                         download
                         className="inline-flex items-center rounded-lg border border-[var(--border-strong)] bg-transparent px-3 py-1 text-xs font-light text-[rgba(255,255,255,0.75)]"
                       >
@@ -446,11 +488,26 @@ export function FinancialModule() {
 
       {/* Section 4 — Generator */}
       <Card className="mt-6 rounded-[8px] border-[rgba(255,255,255,0.06)] bg-[#161616]">
-        <h2 className="text-[0.7rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">{lt("Invoice generator")}</h2>
-        <p className="mt-2 text-xs font-light text-[rgba(255,255,255,0.35)]">
-          {lt("Only available to users with invoice permissions.")}
-        </p>
-
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-[0.7rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">{lt("Invoice generator")}</h2>
+          <button
+            type="button"
+            onClick={() => setGeneratorCollapsed((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs text-[rgba(255,255,255,0.75)]"
+          >
+            {generatorCollapsed ? (
+              <>
+                Generate Invoice <ChevronDown className="h-3.5 w-3.5" />
+              </>
+            ) : (
+              <>
+                Collapse <ChevronUp className="h-3.5 w-3.5" />
+              </>
+            )}
+          </button>
+        </div>
+        {!generatorCollapsed ? (
+          <>
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <label className="block space-y-1">
             <span className="text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">{lt("Invoice number")}</span>
@@ -605,7 +662,48 @@ export function FinancialModule() {
           <button type="button" onClick={triggerPrintInvoice} className="btn-primary rounded-lg px-4 py-2 text-xs">
             {lt("Download Invoice")}
           </button>
+          <button
+            type="button"
+            disabled={savingGenerated}
+            onClick={async () => {
+              const htmlSource = printRef.current?.innerHTML ?? "";
+              const blob = new Blob([htmlSource], { type: "text/html" });
+              const fileName = `invoice-${invoiceNumber}-${Date.now()}.html`;
+              setSavingGenerated(true);
+              const uploadRes = await supabase.storage.from("invoices").upload(fileName, blob);
+              if (uploadRes.error) {
+                console.error("[financial] upload generated invoice", uploadRes.error.message);
+                setSavingGenerated(false);
+                return;
+              }
+              const pub = supabase.storage.from("invoices").getPublicUrl(fileName);
+              const publicUrl = pub.data.publicUrl;
+              const insRes = await supabase.from("invoices").insert([
+                {
+                  filename: fileName,
+                  amount: invoiceTotal,
+                  status: "pending",
+                  issue_date: issueDate,
+                  project_name: billedTo || null,
+                  file_url: publicUrl,
+                },
+              ]);
+              setSavingGenerated(false);
+              if (insRes.error) {
+                console.error("[financial] insert generated invoice", insRes.error.message);
+                return;
+              }
+              setSaveSuccess("Invoice saved to Financial Records.");
+              window.setTimeout(() => setSaveSuccess(null), 2500);
+              await loadFinancialData();
+            }}
+            className="rounded-lg border border-[var(--border-strong)] px-4 py-2 text-xs text-white disabled:opacity-50"
+          >
+            {savingGenerated ? "Saving..." : "Save to Financial Records"}
+          </button>
         </div>
+        </>
+        ) : null}
       </Card>
 
       {/* View PDF modal */}
@@ -662,6 +760,25 @@ export function FinancialModule() {
       <div ref={printRef} className="sr-only" aria-hidden>
         {invoicePrintBody}
       </div>
+      <style media="print">{`
+        body * { visibility: hidden !important; }
+        #financial-print-root, #financial-print-root * { visibility: visible !important; }
+        #financial-print-root {
+          display: block !important;
+          position: fixed !important;
+          inset: 0 !important;
+          background: #fff !important;
+          color: #000 !important;
+          padding: 24px !important;
+          z-index: 999999 !important;
+        }
+      `}</style>
+      {printMode ? (
+        <div id="financial-print-root">
+          <div className="financial-invoice-print">{invoicePrintBody}</div>
+        </div>
+      ) : null}
+      <p className="mt-3 text-xs text-[rgba(255,255,255,0.35)]">-- Create a public bucket called 'invoices' in Supabase Storage</p>
     </ModuleGuard>
   );
 }
