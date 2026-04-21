@@ -205,6 +205,19 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function invoiceUrlLooksHtml(fileName: string, url: string): boolean {
+  const f = fileName.toLowerCase();
+  const path = url.split("?")[0]?.toLowerCase() ?? "";
+  return f.endsWith(".html") || f.endsWith(".htm") || path.endsWith(".html") || path.endsWith(".htm");
+}
+
+type InvoicePreviewModalState = {
+  fileName: string;
+  url: string;
+  srcDoc: string | null;
+  loadingPreview: boolean;
+};
+
 export function FinancialModule() {
   const { t: lt } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -222,7 +235,7 @@ export function FinancialModule() {
   );
 
   const [activeKpiIndex, setActiveKpiIndex] = useState(0);
-  const [pdfModal, setPdfModal] = useState<{ fileName: string; url: string } | null>(null);
+  const [pdfModal, setPdfModal] = useState<InvoicePreviewModalState | null>(null);
 
   const totalInvested = invoices.filter((item) => item.status === "paid").reduce((acc, item) => acc + item.amount, 0);
   const paidCount = invoices.filter((i) => i.status === "paid").length;
@@ -414,7 +427,27 @@ export function FinancialModule() {
   };
 
   const openPdfModal = (fileName: string, url?: string | null) => {
-    setPdfModal({ fileName, url: url || DEMO_PDF_URL });
+    const resolvedUrl = url || DEMO_PDF_URL;
+    if (invoiceUrlLooksHtml(fileName, resolvedUrl) && resolvedUrl !== DEMO_PDF_URL) {
+      setPdfModal({ fileName, url: resolvedUrl, srcDoc: null, loadingPreview: true });
+      void fetch(resolvedUrl)
+        .then((res) => res.text())
+        .then((text) => {
+          setPdfModal((prev) =>
+            prev && prev.url === resolvedUrl && prev.fileName === fileName
+              ? { ...prev, srcDoc: text, loadingPreview: false }
+              : prev,
+          );
+        })
+        .catch((err) => {
+          console.error("[financial] invoice HTML preview fetch failed:", err);
+          setPdfModal((prev) =>
+            prev && prev.url === resolvedUrl ? { ...prev, srcDoc: null, loadingPreview: false } : prev,
+          );
+        });
+      return;
+    }
+    setPdfModal({ fileName, url: resolvedUrl, srcDoc: null, loadingPreview: false });
   };
 
   const getInvoiceHtmlFormData = (): InvoiceHtmlFormData => ({
@@ -889,7 +922,10 @@ export function FinancialModule() {
               const blob = new Blob([invoiceHtml], { type: "text/html" });
               const fileName = `invoice-${invoiceNumber}-${Date.now()}.html`;
               setSavingGenerated(true);
-              const uploadRes = await supabase.storage.from("invoices").upload(fileName, blob);
+              const uploadRes = await supabase.storage.from("invoices").upload(fileName, blob, {
+                contentType: "text/html; charset=utf-8",
+                upsert: false,
+              });
               if (uploadRes.error) {
                 console.error("[financial] upload generated invoice", uploadRes.error.message);
                 setSavingGenerated(false);
@@ -949,7 +985,20 @@ export function FinancialModule() {
                 </button>
               </div>
             </div>
-            <iframe title={lt("PDF preview")} src={pdfModal.url} className="min-h-0 flex-1 w-full bg-[#0a0a0a]" />
+            {pdfModal.loadingPreview ? (
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-[#0a0a0a] text-sm font-light text-[rgba(255,255,255,0.45)]">
+                {lt("Loading preview...")}
+              </div>
+            ) : pdfModal.srcDoc ? (
+              <iframe
+                title={lt("Invoice preview")}
+                srcDoc={pdfModal.srcDoc}
+                sandbox="allow-same-origin"
+                className="min-h-0 flex-1 w-full bg-white"
+              />
+            ) : (
+              <iframe title={lt("Invoice preview")} src={pdfModal.url} className="min-h-0 flex-1 w-full bg-[#0a0a0a]" />
+            )}
           </div>
         </div>
       ) : null}
@@ -1017,7 +1066,10 @@ export function FinancialModule() {
                   const file = files[0];
                   setUploading(true);
                   const fileName = `invoice-upload-${Date.now()}-${file.name}`;
-                  const up = await supabase.storage.from("invoices").upload(fileName, file, { upsert: false });
+                  const up = await supabase.storage.from("invoices").upload(fileName, file, {
+                    contentType: file.type || "application/pdf",
+                    upsert: false,
+                  });
                   if (up.error) {
                     console.error("[financial] upload modal file", up.error.message);
                     setUploading(false);
