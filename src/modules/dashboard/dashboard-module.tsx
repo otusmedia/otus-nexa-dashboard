@@ -129,6 +129,10 @@ function normalizeMetaCreativeApiRow(raw: unknown): MetaCreativeApiRow | null {
 
 const META_ADS_MANAGER_URL = "https://www.facebook.com/adsmanager";
 
+function metaAdsManagerAdDeepLink(accountId: string, adId: string): string {
+  return `https://www.facebook.com/adsmanager/manage/ads?act=${accountId}&selected_ad_ids=${adId}`;
+}
+
 function mapMetaApiRowToCampaign(c: MetaApiCampaignRow): MetaAdsCampaign {
   return {
     campaignName: c.campaignName,
@@ -968,6 +972,7 @@ export function DashboardModule() {
   const [creativesApiLoading, setCreativesApiLoading] = useState(true);
   const [creativesLive, setCreativesLive] = useState<MetaCreativeApiRow[] | null>(null);
   const [creativesApiError, setCreativesApiError] = useState<string | null>(null);
+  const [metaCreativesAdAccountId, setMetaCreativesAdAccountId] = useState<string | null>(null);
   const [instagramFeedLoading, setInstagramFeedLoading] = useState(true);
   const [instagramFeedSource, setInstagramFeedSource] = useState<"live" | "manual" | null>(null);
   const [instagramFeedError, setInstagramFeedError] = useState<string | null>(null);
@@ -1607,6 +1612,7 @@ export function DashboardModule() {
     setIgLive(null);
     setIgMonthlyBars(null);
     setCreativesLive(null);
+    setMetaCreativesAdAccountId(null);
     setIgInsightsError(null);
     setMetaInsightsError(null);
     setIgMonthlyError(null);
@@ -1700,6 +1706,9 @@ export function DashboardModule() {
 
         const cErr = typeof crJson.error === "string" ? crJson.error : null;
         const creatives = crJson.creatives;
+        const rawAcct = crJson.metaAdAccountId;
+        const acctStr =
+          typeof rawAcct === "string" ? rawAcct.trim() : rawAcct != null ? String(rawAcct).trim() : "";
         if (!cErr && Array.isArray(creatives) && creatives.length > 0) {
           const normalized = creatives
             .map((row) => normalizeMetaCreativeApiRow(row))
@@ -1707,9 +1716,11 @@ export function DashboardModule() {
           console.log("[dashboard] Meta creatives normalized sample:", normalized.slice(0, 3));
           setCreativesLive(normalized.length > 0 ? normalized : null);
           setCreativesApiError(null);
+          setMetaCreativesAdAccountId(acctStr || null);
         } else {
           setCreativesLive(null);
           setCreativesApiError(cErr ?? "Creatives unavailable");
+          setMetaCreativesAdAccountId(null);
           if (cErr) console.error("[dashboard] Meta creatives API:", cErr);
         }
       })
@@ -1720,6 +1731,7 @@ export function DashboardModule() {
           setIgLive(null);
           setIgMonthlyBars(null);
           setCreativesLive(null);
+          setMetaCreativesAdAccountId(null);
           setMetaInsightsError("Network error");
           setIgInsightsError("Network error");
           setIgMonthlyError("Network error");
@@ -2624,92 +2636,93 @@ export function DashboardModule() {
               </button>
             ) : null}
           </div>
-          <div className="mt-3 grid gap-3 xl:grid-cols-3">
+          <div className="mt-3 flex w-full flex-col gap-2">
             {creativesApiLoading
               ? [0, 1, 2].map((i) => (
                   <div
                     key={`cr-sk-${i}`}
-                    className="flex min-w-0 flex-col overflow-hidden rounded-b-[8px] rounded-t-none border border-[rgba(255,255,255,0.06)] bg-[#161616]"
+                    className="flex h-[72px] w-full shrink-0 items-center gap-3 rounded-md border border-[rgba(255,255,255,0.06)] bg-[#161616] px-3"
                   >
-                    <div className="relative aspect-[4/3] w-full animate-pulse bg-[rgba(255,255,255,0.06)]" />
-                    <div className="space-y-2 p-[14px]">
-                      <div className="h-4 w-[70%] animate-pulse rounded bg-[rgba(255,255,255,0.08)]" />
-                      <div className="h-6 w-16 animate-pulse rounded bg-[rgba(255,255,255,0.06)]" />
-                      <div className="h-5 w-24 animate-pulse rounded bg-[rgba(255,255,255,0.06)]" />
-                      <div className="h-8 w-full animate-pulse rounded-md bg-[rgba(255,255,255,0.06)]" />
+                    <div className="h-[72px] w-[72px] shrink-0 animate-pulse rounded-md bg-[rgba(255,255,255,0.06)]" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="h-3.5 w-[55%] animate-pulse rounded bg-[rgba(255,255,255,0.08)]" />
+                      <div className="h-3 w-[85%] animate-pulse rounded bg-[rgba(255,255,255,0.06)]" />
                     </div>
                   </div>
                 ))
               : topCreativesDisplay.length === 0
                 ? (
-                    <div className="xl:col-span-3 flex min-h-[180px] items-center justify-center rounded-b-[8px] rounded-t-none border border-[rgba(255,255,255,0.06)] bg-[#161616] p-[14px] text-center">
+                    <div className="flex min-h-[180px] w-full items-center justify-center rounded-md border border-[rgba(255,255,255,0.06)] bg-[#161616] p-[14px] text-center">
                       <p className="text-[0.8rem] text-[rgba(255,255,255,0.45)]">{lt("No creatives data available")}</p>
                     </div>
                   )
                 : topCreativesDisplay.map((creative) => {
                   const hasUrl = creative.adUrl.trim().length > 0;
                   const useAdsmanager = creative.isFromApi === true;
+                  const deepLink =
+                    useAdsmanager && metaCreativesAdAccountId && creative.id
+                      ? metaAdsManagerAdDeepLink(metaCreativesAdAccountId, creative.id)
+                      : null;
+                  const thumbHref = deepLink ?? (hasUrl ? creative.adUrl : null);
+                  const viewHref = deepLink ?? (hasUrl ? creative.adUrl : null);
+                  const thumbInner = (
+                    <>
+                      {creative.imageUrl && creative.imageUrl.length > 0 ? (
+                        <img src={creative.imageUrl} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-[#1a1a1a]">
+                          <ImageIcon className="h-5 w-5 text-[rgba(255,255,255,0.12)]" strokeWidth={1.5} />
+                        </div>
+                      )}
+                    </>
+                  );
                   return (
                     <div
                       key={creative.id}
-                      className="flex min-w-0 flex-col overflow-hidden rounded-b-[8px] rounded-t-none border border-[rgba(255,255,255,0.06)] bg-[#161616]"
+                      className="flex h-[72px] w-full shrink-0 items-center gap-3 overflow-hidden rounded-md border border-[rgba(255,255,255,0.06)] bg-[#161616] px-3"
                     >
-                      <div className="relative aspect-[4/3] w-full overflow-hidden bg-[#0d0d0d]">
-                        {creative.imageUrl && creative.imageUrl.length > 0 ? (
-                          <img
-                            src={creative.imageUrl}
-                            alt=""
-                            className="absolute inset-0 h-full w-full object-cover object-top"
-                          />
-                        ) : (
-                          <div className="absolute inset-0 flex items-center justify-center bg-[#0d0d0d]">
-                            <ImageIcon className="h-8 w-8 text-[rgba(255,255,255,0.12)]" strokeWidth={1.5} />
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-[14px]">
-                        <p className="truncate text-[0.9rem] font-normal text-white">{creative.name}</p>
-                        <span
-                          className={cn(
-                            "mt-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-normal uppercase tracking-[0.08em] text-white",
-                            creative.platform === "Meta" ? "bg-[#1877F2]" : "bg-[#EA4335]",
-                          )}
+                      {thumbHref ? (
+                        <a
+                          href={thumbHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="h-[72px] w-[72px] shrink-0 overflow-hidden rounded-md bg-[#1a1a1a]"
                         >
-                          {creative.platform}
-                        </span>
-                        <p className="mt-3 text-[1.1rem] font-light text-white">
-                          <span className="mono-num">{creative.ctr.toFixed(1)}%</span> {lt("CTR")}
-                        </p>
-                        <p className="mt-1 text-[0.75rem] text-[rgba(255,255,255,0.4)]">
-                          <span className="mono-num">{creative.impressions.toLocaleString("en-US")}</span> {lt("impressions")}
-                        </p>
-                        {typeof creative.spend === "number" && creative.spend > 0 ? (
-                          <p className="mt-1 text-[0.75rem] text-[rgba(255,255,255,0.45)]">
-                            <span className="mono-num">${creative.spend.toFixed(2)}</span> {lt("spend")}
-                          </p>
-                        ) : null}
-                        {useAdsmanager || hasUrl ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              window.open(
-                                useAdsmanager ? META_ADS_MANAGER_URL : creative.adUrl,
-                                "_blank",
-                                "noopener,noreferrer",
-                              )
-                            }
-                            className="btn-ghost mt-[10px] w-full rounded-md border border-white/35 px-2.5 py-1.5 text-xs text-white"
+                          {thumbInner}
+                        </a>
+                      ) : (
+                        <div className="h-[72px] w-[72px] shrink-0 overflow-hidden rounded-md bg-[#1a1a1a]">{thumbInner}</div>
+                      )}
+                      <div className="flex min-h-0 min-w-0 flex-1 flex-col justify-center gap-1">
+                        <p className="truncate text-[0.8rem] font-normal text-white">{creative.name}</p>
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span
+                            className={cn(
+                              "inline-flex shrink-0 rounded-full px-1.5 py-px text-[9px] font-normal uppercase tracking-[0.08em] text-white",
+                              creative.platform === "Meta" ? "bg-[#1877F2]" : "bg-[#EA4335]",
+                            )}
+                          >
+                            {creative.platform}
+                          </span>
+                          <span className="text-[0.72rem] font-light text-[rgba(255,255,255,0.5)]">
+                            <span className="mono-num tabular-nums">{creative.ctr.toFixed(2)}%</span>
+                            <span> {lt("CTR")}</span>
+                            <span className="mx-1.5 text-[rgba(255,255,255,0.25)]">·</span>
+                            <span className="mono-num tabular-nums">{creative.impressions.toLocaleString("en-US")}</span>
+                            <span> {lt("impressions")}</span>
+                          </span>
+                        </div>
+                        {viewHref ? (
+                          <a
+                            href={viewHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[0.72rem] font-light text-[#1877F2] hover:underline"
                           >
                             {lt("View Ad")}
-                          </button>
+                          </a>
                         ) : (
-                          <button
-                            type="button"
-                            disabled
-                            className="btn-ghost mt-[10px] w-full cursor-not-allowed rounded-md border border-white/20 px-2.5 py-1.5 text-xs text-[rgba(255,255,255,0.35)] opacity-80"
-                          >
-                            {lt("No link")}
-                          </button>
+                          <span className="text-[0.72rem] text-[rgba(255,255,255,0.35)]">{lt("No link")}</span>
                         )}
                       </div>
                     </div>

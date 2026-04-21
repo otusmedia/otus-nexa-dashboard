@@ -30,6 +30,84 @@ type GraphAd = {
   insights?: { data?: GraphInsights[] };
 };
 
+type InsightApiRow = Record<string, unknown>;
+
+function parseCreativeImageUrl(cr: GraphCreative | undefined): string | null {
+  if (!cr) return null;
+  const thumb = (cr.thumbnail_url ?? "").trim();
+  const full = (cr.image_url ?? "").trim();
+  return thumb || full || null;
+}
+
+function parseMetricsFromInsightObject(ins: GraphInsights | undefined) {
+  const impressions = parseInt(String(ins?.impressions ?? "0"), 10) || 0;
+  const clicks = parseInt(String(ins?.clicks ?? "0"), 10) || 0;
+  let ctr = parseFloat(String(ins?.ctr ?? "0")) || 0;
+  if (ctr > 0 && ctr <= 1) ctr *= 100;
+  if (ctr <= 0 && impressions > 0 && clicks > 0) {
+    ctr = (clicks / impressions) * 100;
+  }
+  const spend = parseFloat(String(ins?.spend ?? "0")) || 0;
+  return { impressions, clicks, ctr, spend };
+}
+
+function pickCreativeFromInsightRow(row: InsightApiRow): GraphCreative | undefined {
+  const ac = row.adcreatives as { data?: GraphCreative[] } | undefined;
+  if (Array.isArray(ac?.data) && ac.data.length > 0) return ac.data[0];
+  const single = row.adcreatives as GraphCreative | undefined;
+  if (single && typeof single === "object" && ("thumbnail_url" in single || "image_url" in single)) {
+    return single;
+  }
+  return undefined;
+}
+
+function mapInsightRowsToCreatives(rows: InsightApiRow[]) {
+  return rows.map((row) => {
+    const id = String(row.ad_id ?? "");
+    const name = String(row.ad_name ?? "Ad");
+    const metrics = parseMetricsFromInsightObject(row as unknown as GraphInsights);
+    const cr = pickCreativeFromInsightRow(row);
+    const imageUrl = parseCreativeImageUrl(cr) ?? "";
+    return {
+      id,
+      name,
+      imageUrl,
+      ctr: metrics.ctr,
+      impressions: metrics.impressions,
+      spend: metrics.spend,
+      platform: "Meta" as const,
+    };
+  });
+}
+
+function mapAdsToCreatives(ads: GraphAd[]) {
+  return ads.map((ad) => {
+    const ins = ad.insights?.data?.[0];
+    const impressions = parseInt(String(ins?.impressions ?? "0"), 10) || 0;
+    const clicks = parseInt(String(ins?.clicks ?? "0"), 10) || 0;
+    let ctr = parseFloat(String(ins?.ctr ?? "0")) || 0;
+    if (ctr > 0 && ctr <= 1) ctr *= 100;
+    if (ctr <= 0 && impressions > 0 && clicks > 0) {
+      ctr = (clicks / impressions) * 100;
+    }
+    const spend = parseFloat(String(ins?.spend ?? "0")) || 0;
+    const cr = ad.creative;
+    const imageUrl =
+      (cr?.thumbnail_url && String(cr.thumbnail_url).trim()) ||
+      (cr?.image_url && String(cr.image_url).trim()) ||
+      "";
+    return {
+      id: String(ad.id ?? ""),
+      name: String(ad.name ?? cr?.title ?? "Ad"),
+      imageUrl,
+      ctr,
+      impressions,
+      spend,
+      platform: "Meta" as const,
+    };
+  });
+}
+
 export async function GET() {
   if (!ACCESS_TOKEN || !AD_ACCOUNT_ID_RAW?.trim()) {
     return NextResponse.json(
@@ -43,71 +121,83 @@ export async function GET() {
     return NextResponse.json({ error: "META_AD_ACCOUNT_ID is empty." }, { status: 503 });
   }
 
-  const fields = encodeURIComponent(
-    "name,creative{title,body,image_url,thumbnail_url},insights.date_preset(last_30d){impressions,clicks,ctr,spend}",
-  );
-  const base = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/ads?fields=${fields}&limit=50&access_token=${ACCESS_TOKEN}`;
-
   try {
-    let res = await fetch(`${base}&sort=impressions_descending`, { next: { revalidate: 300 } });
-    let payload = (await res.json()) as { data?: GraphAd[]; error?: { message?: string } };
+    // 1) Insights-first (account insights, level=ad)
+    const insightFields = encodeURIComponent(
+      "ad_id,ad_name,impressions,clicks,ctr,spend,adcreatives{thumbnail_url,image_url,body,title}",
+    );
+    const insightsUrl = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${insightFields}&date_preset=last_30d&level=ad&sort=impressions_descending&limit=3&access_token=${ACCESS_TOKEN}`;
 
-    if (payload.error?.message?.toLowerCase().includes("sort")) {
-      res = await fetch(base, { next: { revalidate: 300 } });
-      payload = (await res.json()) as { data?: GraphAd[]; error?: { message?: string } };
-    }
-
-    if (payload.error) {
-      return NextResponse.json({ error: payload.error.message ?? "Meta creatives API error" }, { status: 400 });
-    }
-
-    const rows = Array.isArray(payload.data) ? payload.data : [];
-
-    const num = (v: unknown): number => {
-      if (typeof v === "number" && Number.isFinite(v)) return v;
-      const s = String(v ?? "").trim().replace(/,/g, "");
-      if (!s) return 0;
-      const n = Number(s);
-      return Number.isFinite(n) ? n : 0;
+    let insightPayload = (await (await fetch(insightsUrl, { next: { revalidate: 300 } })).json()) as {
+      data?: InsightApiRow[];
+      error?: { message?: string };
     };
 
-    const pickInsightRow = (ad: GraphAd): GraphInsights | undefined => {
-      const arr = ad.insights?.data;
-      if (Array.isArray(arr) && arr.length > 0) return arr[0];
-      return undefined;
-    };
+    if (insightPayload.error) {
+      console.warn("[meta-creatives] insights-first error:", insightPayload.error.message);
+    }
 
-    const scored = rows
-      .map((ad, adIndex) => {
-        const ins = pickInsightRow(ad);
-        if (adIndex < 2) {
-          console.log("[meta-creatives] RAW ad insights sample:", JSON.stringify({ adId: ad.id, insights: ad.insights }));
-        }
-        const impressions = Math.max(0, Math.round(num(ins?.impressions)));
-        let ctr = num(ins?.ctr);
-        if (ctr > 0 && ctr <= 1) ctr *= 100;
-        const clicks = num(ins?.clicks);
-        if (ctr <= 0 && impressions > 0 && clicks > 0) {
-          ctr = (clicks / impressions) * 100;
-        }
-        const spend = num(ins?.spend);
-        const cr = ad.creative;
-        const imageUrl = (cr?.image_url || cr?.thumbnail_url || "").trim();
-        return {
-          id: String(ad.id ?? ""),
-          name: String(ad.name ?? cr?.title ?? "Ad"),
-          imageUrl,
-          ctr,
-          impressions,
-          spend,
-          platform: "Meta" as const,
-        };
-      })
+    let insightRows = Array.isArray(insightPayload.data) ? insightPayload.data : [];
+
+    // Retry insights without nested adcreatives if the first call failed on field errors
+    if (insightPayload.error?.message && insightRows.length === 0) {
+      const simpleFields = encodeURIComponent("ad_id,ad_name,impressions,clicks,ctr,spend");
+      const simpleUrl = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${simpleFields}&date_preset=last_30d&level=ad&sort=impressions_descending&limit=3&access_token=${ACCESS_TOKEN}`;
+      insightPayload = (await (await fetch(simpleUrl, { next: { revalidate: 300 } })).json()) as {
+        data?: InsightApiRow[];
+        error?: { message?: string };
+      };
+      if (insightPayload.error) {
+        console.warn("[meta-creatives] insights (simple fields) error:", insightPayload.error.message);
+      }
+      insightRows = Array.isArray(insightPayload.data) ? insightPayload.data : [];
+    }
+
+    if (insightRows.length > 0) {
+      console.log("[meta-creatives] first raw insights row:", JSON.stringify(insightRows[0]));
+      const creatives = mapInsightRowsToCreatives(insightRows)
+        .filter((c) => c.id.length > 0)
+        .slice(0, 3);
+      if (creatives.length > 0) {
+        return NextResponse.json({
+          creatives,
+          source: "api",
+          metaAdAccountId: AD_ACCOUNT_ID,
+        });
+      }
+    }
+
+    // 2) Ads + nested insights, sort client-side, top 3
+    const adsFields = encodeURIComponent(
+      "id,name,creative{thumbnail_url,image_url,effective_object_story_id},insights.date_preset(last_30d){impressions,clicks,ctr,spend}",
+    );
+    const adsUrl = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/ads?fields=${adsFields}&limit=20&access_token=${ACCESS_TOKEN}`;
+    const adsRes = await fetch(adsUrl, { next: { revalidate: 300 } });
+    const adsPayload = (await adsRes.json()) as { data?: GraphAd[]; error?: { message?: string } };
+
+    if (adsPayload.error) {
+      return NextResponse.json(
+        { error: adsPayload.error.message ?? "Meta creatives API error" },
+        { status: 400 },
+      );
+    }
+
+    const adsRows = Array.isArray(adsPayload.data) ? adsPayload.data : [];
+    if (adsRows.length > 0) {
+      console.log("[meta-creatives] first raw ad (ads+insights fallback):", JSON.stringify(adsRows[0]));
+    }
+
+    const scored = mapAdsToCreatives(adsRows)
+      .filter((c) => c.id.length > 0)
       .sort((a, b) => b.impressions - a.impressions);
 
     const creatives = scored.slice(0, 3);
 
-    return NextResponse.json({ creatives, source: "api" });
+    return NextResponse.json({
+      creatives,
+      source: "api",
+      metaAdAccountId: AD_ACCOUNT_ID,
+    });
   } catch (error) {
     console.error("Meta creatives API error:", error);
     return NextResponse.json({ error: "Failed to fetch Meta creatives" }, { status: 500 });
