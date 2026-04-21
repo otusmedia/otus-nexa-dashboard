@@ -6,6 +6,7 @@ import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ModuleGuard } from "@/components/layout/module-guard";
+import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { useLanguage } from "@/context/language-context";
 import { cn, formatCurrency } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -18,10 +19,13 @@ const INVOICE_COLLAPSED_KEY = "invoice-generator-collapsed";
 
 type DbInvoice = {
   id: string;
+  invoice_number: string | null;
   filename: string | null;
   amount: number;
   status: "paid" | "pending" | "overdue";
   issue_date: string | null;
+  due_date: string | null;
+  project_id: string | null;
   project_name: string | null;
   file_url: string | null;
 };
@@ -57,6 +61,9 @@ export function FinancialModule() {
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [savingGenerated, setSavingGenerated] = useState(false);
   const [generatorCollapsed, setGeneratorCollapsed] = useState(true);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [deleteInvoice, setDeleteInvoice] = useState<DbInvoice | null>(null);
 
   const [activeKpiIndex, setActiveKpiIndex] = useState(0);
   const [pdfModal, setPdfModal] = useState<{ fileName: string; url: string } | null>(null);
@@ -69,6 +76,7 @@ export function FinancialModule() {
   const [invoiceNumber, setInvoiceNumber] = useState("INV-2026-1042");
   const [issueDate, setIssueDate] = useState(todayIso);
   const [dueDateGen, setDueDateGen] = useState("2026-05-15");
+  const [linkedProjectId, setLinkedProjectId] = useState("");
   const [billedTo, setBilledTo] = useState("");
   const [purchaseOrder, setPurchaseOrder] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([
@@ -76,6 +84,12 @@ export function FinancialModule() {
   ]);
   const [taxRate, setTaxRate] = useState(0);
   const [shipping, setShipping] = useState(0);
+  const [uploadInvoiceNumber, setUploadInvoiceNumber] = useState("");
+  const [uploadProjectId, setUploadProjectId] = useState("");
+  const [uploadAmount, setUploadAmount] = useState("0");
+  const [uploadStatus, setUploadStatus] = useState<DbInvoice["status"]>("pending");
+  const [uploadIssueDate, setUploadIssueDate] = useState(todayIso);
+  const [uploadDueDate, setUploadDueDate] = useState(todayIso);
 
   useEffect(() => {
     try {
@@ -94,6 +108,12 @@ export function FinancialModule() {
     }
   }, [generatorCollapsed]);
 
+  useEffect(() => {
+    if (!linkedProjectId) return;
+    const p = projects.find((proj) => proj.id === linkedProjectId);
+    if (p) setBilledTo(p.name);
+  }, [linkedProjectId, projects]);
+
   const loadFinancialData = useCallback(async () => {
     setLoadingData(true);
     const [invRes, projRes] = await Promise.all([
@@ -105,6 +125,7 @@ export function FinancialModule() {
 
     const mappedInvoices: DbInvoice[] = ((invRes.data as Record<string, unknown>[] | null) ?? []).map((row) => ({
       id: String(row.id ?? ""),
+      invoice_number: row.invoice_number != null ? String(row.invoice_number) : null,
       filename: row.filename != null ? String(row.filename) : row.file_name != null ? String(row.file_name) : null,
       amount: Number(row.amount ?? 0) || 0,
       status:
@@ -112,6 +133,8 @@ export function FinancialModule() {
           ? (row.status as DbInvoice["status"])
           : "pending",
       issue_date: row.issue_date != null ? String(row.issue_date) : row.due_date != null ? String(row.due_date) : null,
+      due_date: row.due_date != null ? String(row.due_date) : null,
+      project_id: row.project_id != null ? String(row.project_id) : null,
       project_name: row.project_name != null ? String(row.project_name) : row.description != null ? String(row.description) : null,
       file_url: row.file_url != null ? String(row.file_url) : null,
     }));
@@ -146,23 +169,24 @@ export function FinancialModule() {
 
   const projectRows = useMemo(
     () => {
-      const grouped = new Map<string, { total: number; paid: number }>();
+      const grouped = new Map<string, { total: number; paid: number; name: string; projectId: string | null }>();
       for (const inv of invoices) {
-        const key = (inv.project_name ?? "").trim() || "Unassigned";
-        const cur = grouped.get(key) ?? { total: 0, paid: 0 };
+        const projectById = inv.project_id ? projects.find((p) => p.id === inv.project_id) : null;
+        const name = (projectById?.name ?? (inv.project_name ?? "").trim()) || "Unassigned";
+        const key = inv.project_id ? `id:${inv.project_id}` : `name:${name.toLowerCase()}`;
+        const cur = grouped.get(key) ?? { total: 0, paid: 0, name, projectId: inv.project_id ?? null };
         cur.total += inv.amount;
         if (inv.status === "paid") cur.paid += inv.amount;
         grouped.set(key, cur);
       }
-      return Array.from(grouped.entries()).map(([name, agg]) => {
+      return Array.from(grouped.values()).map((agg) => {
         const completion = agg.total > 0 ? Math.round((agg.paid / agg.total) * 100) : 0;
-        const project = projects.find((p) => p.name.trim().toLowerCase() === name.trim().toLowerCase());
         return {
-          name,
+          name: agg.name,
           total: agg.total,
           paid: agg.paid,
           completion,
-          projectLink: project ? `/projects/${project.id}` : null,
+          projectLink: agg.projectId ? `/projects/${agg.projectId}` : null,
         };
       });
     },
@@ -207,8 +231,8 @@ export function FinancialModule() {
     e.target.value = "";
   };
 
-  const openPdfModal = (fileName: string) => {
-    setPdfModal({ fileName, url: DEMO_PDF_URL });
+  const openPdfModal = (fileName: string, url?: string | null) => {
+    setPdfModal({ fileName, url: url || DEMO_PDF_URL });
   };
 
   const triggerPrintInvoice = useCallback(() => {
@@ -318,8 +342,8 @@ export function FinancialModule() {
       <PageHeader title={lt("Financial")} subtitle={lt("Payment tracking, invoice files, and total invested per project.")} />
       {loadingData ? <p className="mb-4 text-sm text-[rgba(255,255,255,0.45)]">{lt("Loading financial data...")}</p> : null}
       {saveSuccess ? (
-        <p className="mb-4 rounded-[8px] border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.1)] px-3 py-2 text-sm text-[#86efac]">
-          {saveSuccess}
+        <p className="mb-4 rounded-[8px] border px-3 py-2 text-sm text-[#86efac]" style={{ background: "rgba(34,197,94,0.15)", borderColor: "rgba(34,197,94,0.3)" }}>
+          Invoice saved successfully
         </p>
       ) : null}
 
@@ -421,15 +445,12 @@ export function FinancialModule() {
         </table>
       </div>
 
-      {/* Section 3 — Upload / list */}
+      {/* Section 3 — Invoices list */}
       <Card className="mt-6 rounded-[8px] border-[rgba(255,255,255,0.06)] bg-[#161616]">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-[0.7rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
-            {lt("Invoice upload / download")}
-          </h2>
+          <h2 className="text-[0.7rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">INVOICES</h2>
           <div>
-            <input ref={fileInputRef} type="file" accept="application/pdf,.pdf" className="hidden" multiple onChange={handleUploadFiles} />
-            <button type="button" onClick={handleUploadClick} className="btn-primary rounded-lg px-3 py-1.5 text-xs">
+            <button type="button" onClick={() => setUploadOpen(true)} className="btn-ghost rounded-lg px-3 py-1.5 text-xs">
               {lt("Upload Invoice")}
             </button>
           </div>
@@ -438,19 +459,36 @@ export function FinancialModule() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-                <th className="px-3 py-2.5 font-normal">{lt("Filename")}</th>
+                <th className="px-3 py-2.5 font-normal">Filename / Invoice</th>
+                <th className="px-3 py-2.5 font-normal">Project</th>
                 <th className="px-3 py-2.5 font-normal">{lt("Issue date")}</th>
+                <th className="px-3 py-2.5 font-normal">Amount</th>
                 <th className="px-3 py-2.5 font-normal">{lt("Status")}</th>
                 <th className="px-3 py-2.5 font-normal text-right">{lt("Actions")}</th>
               </tr>
             </thead>
             <tbody>
+              {invoices.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-8 text-center text-sm text-[rgba(255,255,255,0.5)]">No invoices yet</td>
+                </tr>
+              ) : null}
               {invoices.map((invoice, i) => (
                 <tr key={invoice.id} className={cn("border-b border-[var(--border)]", i % 2 === 1 ? "bg-[rgba(255,255,255,0.02)]" : "")}>
-                  <td className="px-3 py-2.5 text-sm font-light text-white">{invoice.filename ?? "—"}</td>
+                  <td className="px-3 py-2.5 text-sm font-light text-white">{invoice.invoice_number ?? invoice.filename ?? "—"}</td>
+                  <td className="px-3 py-2.5 text-sm font-light text-white">
+                    {invoice.project_id ? (
+                      <Link href={`/projects/${invoice.project_id}`} className="text-[#ff9a66] hover:underline">
+                        {projects.find((p) => p.id === invoice.project_id)?.name ?? invoice.project_name ?? "—"}
+                      </Link>
+                    ) : (
+                      invoice.project_name ?? "—"
+                    )}
+                  </td>
                   <td className="mono-num px-3 py-2.5 text-xs font-light tabular-nums text-[rgba(255,255,255,0.5)]">
                     {invoice.issue_date ?? "—"}
                   </td>
+                  <td className="mono-num px-3 py-2.5 text-sm font-light tabular-nums text-white">{formatCurrency(invoice.amount)}</td>
                   <td className="px-3 py-2.5">
                     <span
                       className={cn(
@@ -463,20 +501,15 @@ export function FinancialModule() {
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <div className="flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openPdfModal(invoice.filename ?? "Invoice")}
-                        className="rounded-lg border border-[var(--border-strong)] bg-transparent px-3 py-1 text-xs font-light text-[rgba(255,255,255,0.75)]"
-                      >
-                        {lt("View PDF")}
-                      </button>
+                      <button type="button" onClick={() => openPdfModal(invoice.filename ?? "Invoice", invoice.file_url)} className="rounded-lg border border-[var(--border-strong)] bg-transparent px-3 py-1 text-xs font-light text-[rgba(255,255,255,0.75)]">View</button>
                       <a
                         href={invoice.file_url ?? DEMO_PDF_URL}
                         download
                         className="inline-flex items-center rounded-lg border border-[var(--border-strong)] bg-transparent px-3 py-1 text-xs font-light text-[rgba(255,255,255,0.75)]"
                       >
-                        {lt("Download PDF")}
+                        Download
                       </a>
+                      <button type="button" onClick={() => setDeleteInvoice(invoice)} className="rounded-lg border border-[rgba(239,68,68,0.35)] px-3 py-1 text-xs text-[#fca5a5]">Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -485,6 +518,11 @@ export function FinancialModule() {
           </table>
         </div>
       </Card>
+      <div className="mt-3">
+        <button type="button" onClick={() => setUploadOpen(true)} className="btn-ghost rounded-lg px-3 py-1.5 text-xs">
+          Upload Invoice
+        </button>
+      </div>
 
       {/* Section 4 — Generator */}
       <Card className="mt-6 rounded-[8px] border-[rgba(255,255,255,0.06)] bg-[#161616]">
@@ -524,6 +562,17 @@ export function FinancialModule() {
           <label className="block space-y-1">
             <span className="text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">{lt("Billed to")}</span>
             <input className={inputClass} value={billedTo} onChange={(e) => setBilledTo(e.target.value)} placeholder={lt("Company name")} />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">LINKED PROJECT</span>
+            <select value={linkedProjectId} onChange={(e) => setLinkedProjectId(e.target.value)} className={inputClass}>
+              <option value="">Unlinked</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="block space-y-1 md:col-span-2">
             <span className="text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">{lt("Purchase order")}</span>
@@ -680,10 +729,13 @@ export function FinancialModule() {
               const publicUrl = pub.data.publicUrl;
               const insRes = await supabase.from("invoices").insert([
                 {
+                  invoice_number: invoiceNumber || null,
                   filename: fileName,
                   amount: invoiceTotal,
                   status: "pending",
                   issue_date: issueDate,
+                  due_date: dueDateGen || null,
+                  project_id: linkedProjectId || null,
                   project_name: billedTo || null,
                   file_url: publicUrl,
                 },
@@ -693,8 +745,9 @@ export function FinancialModule() {
                 console.error("[financial] insert generated invoice", insRes.error.message);
                 return;
               }
-              setSaveSuccess("Invoice saved to Financial Records.");
-              window.setTimeout(() => setSaveSuccess(null), 2500);
+              setGeneratorCollapsed(true);
+              setSaveSuccess("Invoice saved successfully");
+              window.setTimeout(() => setSaveSuccess(null), 3000);
               await loadFinancialData();
             }}
             className="rounded-lg border border-[var(--border-strong)] px-4 py-2 text-xs text-white disabled:opacity-50"
@@ -778,7 +831,139 @@ export function FinancialModule() {
           <div className="financial-invoice-print">{invoicePrintBody}</div>
         </div>
       ) : null}
+      {uploadOpen ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-xl rounded-[8px] border border-[var(--border)] bg-[#161616] p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-normal uppercase tracking-[0.08em] text-white">Upload Invoice</h3>
+              <button type="button" onClick={() => setUploadOpen(false)} className="btn-ghost rounded-lg px-2 py-1 text-xs">
+                Close
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <label className="block space-y-1 md:col-span-2">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">File (PDF)</span>
+                <input ref={fileInputRef} type="file" accept="application/pdf,.pdf" className={inputClass} />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Invoice number</span>
+                <input value={uploadInvoiceNumber} onChange={(e) => setUploadInvoiceNumber(e.target.value)} className={inputClass} />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Project</span>
+                <select value={uploadProjectId} onChange={(e) => setUploadProjectId(e.target.value)} className={inputClass}>
+                  <option value="">Unlinked</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Amount</span>
+                <input value={uploadAmount} onChange={(e) => setUploadAmount(e.target.value)} type="number" className={inputClass} />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Status</span>
+                <select value={uploadStatus} onChange={(e) => setUploadStatus(e.target.value as DbInvoice["status"])} className={inputClass}>
+                  <option value="pending">pending</option>
+                  <option value="paid">paid</option>
+                  <option value="overdue">overdue</option>
+                </select>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Issue date</span>
+                <input value={uploadIssueDate} onChange={(e) => setUploadIssueDate(e.target.value)} type="date" className={inputClass} />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Due date</span>
+                <input value={uploadDueDate} onChange={(e) => setUploadDueDate(e.target.value)} type="date" className={inputClass} />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setUploadOpen(false)} className="btn-ghost rounded-lg px-3 py-1.5 text-xs">
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={uploading}
+                onClick={async () => {
+                  const files = fileInputRef.current?.files;
+                  if (!files || files.length === 0) return;
+                  const file = files[0];
+                  setUploading(true);
+                  const fileName = `invoice-upload-${Date.now()}-${file.name}`;
+                  const up = await supabase.storage.from("invoices").upload(fileName, file, { upsert: false });
+                  if (up.error) {
+                    console.error("[financial] upload modal file", up.error.message);
+                    setUploading(false);
+                    return;
+                  }
+                  const pub = supabase.storage.from("invoices").getPublicUrl(fileName);
+                  const project = uploadProjectId ? projects.find((p) => p.id === uploadProjectId) : null;
+                  const ins = await supabase.from("invoices").insert([
+                    {
+                      invoice_number: uploadInvoiceNumber.trim() || null,
+                      filename: file.name,
+                      amount: Number(uploadAmount) || 0,
+                      status: uploadStatus,
+                      issue_date: uploadIssueDate || null,
+                      due_date: uploadDueDate || null,
+                      project_id: uploadProjectId || null,
+                      project_name: project?.name ?? null,
+                      file_url: pub.data.publicUrl,
+                    },
+                  ]);
+                  setUploading(false);
+                  if (ins.error) {
+                    console.error("[financial] upload modal insert", ins.error.message);
+                    return;
+                  }
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                  setUploadOpen(false);
+                  setSaveSuccess("Invoice saved successfully");
+                  window.setTimeout(() => setSaveSuccess(null), 3000);
+                  await loadFinancialData();
+                }}
+                className="btn-primary rounded-lg px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                {uploading ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <DeleteConfirmModal
+        open={deleteInvoice != null}
+        title="Delete Invoice"
+        message="This will permanently delete the invoice record and file."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onCancel={() => setDeleteInvoice(null)}
+        onConfirm={async () => {
+          if (!deleteInvoice) return;
+          const url = deleteInvoice.file_url ?? "";
+          const idx = url.indexOf("/invoices/");
+          if (idx >= 0) {
+            const path = url.slice(idx + "/invoices/".length);
+            const { error: storageErr } = await supabase.storage.from("invoices").remove([path]);
+            if (storageErr) console.error("[financial] storage delete", storageErr.message);
+          }
+          const { error } = await supabase.from("invoices").delete().eq("id", deleteInvoice.id);
+          if (error) {
+            console.error("[financial] invoice delete", error.message);
+            setDeleteInvoice(null);
+            return;
+          }
+          setDeleteInvoice(null);
+          setSaveSuccess("Invoice saved successfully");
+          window.setTimeout(() => setSaveSuccess(null), 3000);
+          await loadFinancialData();
+        }}
+      />
       <p className="mt-3 text-xs text-[rgba(255,255,255,0.35)]">-- Create a public bucket called 'invoices' in Supabase Storage</p>
+      <p className="text-xs text-[rgba(255,255,255,0.35)]">alter table invoices add column if not exists project_id uuid references projects(id);</p>
     </ModuleGuard>
   );
 }
