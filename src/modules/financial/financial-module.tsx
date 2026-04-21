@@ -11,7 +11,6 @@ import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { useLanguage } from "@/context/language-context";
 import { cn, formatCurrency } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import "./invoice-print.css";
 
 const DEMO_PDF_URL =
   "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
@@ -41,6 +40,139 @@ type ProjectInvestRow = {
 
 type LineItem = { id: string; description: string; unitCost: number; qty: number };
 type DbProject = { id: string; name: string };
+
+type InvoiceHtmlFormData = {
+  from: string;
+  invoiceNumber: string;
+  dateOfIssue: string;
+  dueDate: string;
+  billedTo: string;
+  purchaseOrder: string;
+  lineItems: Array<{ description: string; unitCost: number; qty: number }>;
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  shipping: number;
+  invoiceTotal: number;
+};
+
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildInvoiceHtmlString(formData: InvoiceHtmlFormData, options?: { previewChrome?: boolean }): string {
+  const fromDisplay = escapeHtml(formData.from || "Nexa Media Ltda | Otus Media");
+  const lineRows = formData.lineItems
+    .map(
+      (item) => `
+        <tr>
+          <td>${escapeHtml(item.description)}</td>
+          <td class="text-right">$${parseFloat(String(item.unitCost || 0)).toFixed(2)}</td>
+          <td class="text-right">${item.qty}</td>
+          <td class="text-right">$${(parseFloat(String(item.unitCost || 0)) * parseFloat(String(item.qty || 0))).toFixed(2)}</td>
+        </tr>`,
+    )
+    .join("");
+  const poBlock = formData.purchaseOrder.trim() ? `<p>PO: ${escapeHtml(formData.purchaseOrder)}</p>` : "";
+  const previewChrome = options?.previewChrome
+    ? `<div class="invoice-preview-toolbar" style="position:sticky;top:0;left:0;right:0;z-index:1000;background:#fff;border-bottom:1px solid #eee;padding:12px 40px;margin:-40px -40px 24px -40px;display:flex;gap:10px;align-items:center;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+  <button type="button" onclick="window.print()" style="padding:8px 16px;font-size:13px;cursor:pointer;border:1px solid #ccc;border-radius:4px;background:#f5f5f5;">Print</button>
+  <button type="button" onclick="window.print()" style="padding:8px 16px;font-size:13px;cursor:pointer;border:1px solid #222;border-radius:4px;background:#222;color:#fff;">Download</button>
+</div>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; font-size: 12px; color: #000; background: #fff; padding: 40px; }
+    .header { display: flex; justify-content: space-between; margin-bottom: 40px; }
+    .title { font-size: 28px; font-weight: bold; color: #000; }
+    .invoice-meta { text-align: right; }
+    .invoice-meta p { margin-bottom: 4px; }
+    .label { color: #666; font-size: 11px; text-transform: uppercase; }
+    .section { margin-bottom: 32px; }
+    .section-title { font-size: 11px; text-transform: uppercase; color: #666; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+    .from-to { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 32px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+    th { text-align: left; padding: 8px 12px; background: #f5f5f5; font-size: 11px; text-transform: uppercase; color: #666; }
+    td { padding: 10px 12px; border-bottom: 1px solid #eee; }
+    .text-right { text-align: right; }
+    .totals { width: 300px; margin-left: auto; }
+    .totals tr td { border: none; padding: 4px 12px; }
+    .totals tr.total td { font-weight: bold; font-size: 14px; border-top: 2px solid #000; padding-top: 8px; }
+    .bank-details { background: #f9f9f9; padding: 16px; border-radius: 4px; font-size: 11px; }
+    .bank-details p { margin-bottom: 4px; }
+    @media print {
+      .invoice-preview-toolbar { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  ${previewChrome}
+  <div class="header">
+    <div>
+      <div class="title">INVOICE</div>
+      <p style="margin-top:8px;color:#666;">From: ${fromDisplay}</p>
+    </div>
+    <div class="invoice-meta">
+      <p><span class="label">Invoice Number</span></p>
+      <p><strong>${escapeHtml(formData.invoiceNumber)}</strong></p>
+      <p style="margin-top:8px;"><span class="label">Date of Issue</span></p>
+      <p>${escapeHtml(formData.dateOfIssue)}</p>
+      <p style="margin-top:8px;"><span class="label">Due Date</span></p>
+      <p>${escapeHtml(formData.dueDate)}</p>
+    </div>
+  </div>
+
+  <div class="from-to">
+    <div>
+      <div class="section-title">Billed To</div>
+      <p><strong>${escapeHtml(formData.billedTo)}</strong></p>
+      ${poBlock}
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th class="text-right">Unit Cost</th>
+        <th class="text-right">QTY</th>
+        <th class="text-right">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${lineRows}
+    </tbody>
+  </table>
+
+  <table class="totals">
+    <tr><td>Subtotal</td><td class="text-right">$${formData.subtotal.toFixed(2)}</td></tr>
+    <tr><td>Tax (${formData.taxRate}%)</td><td class="text-right">$${formData.taxAmount.toFixed(2)}</td></tr>
+    <tr><td>Shipping</td><td class="text-right">$${parseFloat(String(formData.shipping || 0)).toFixed(2)}</td></tr>
+    <tr class="total"><td>TOTAL</td><td class="text-right">US$ ${formData.invoiceTotal.toFixed(2)}</td></tr>
+  </table>
+
+  <div class="bank-details">
+    <div class="section-title" style="margin-bottom:12px;">Bank Account Details</div>
+    <p>Bank: Community Federal Savings Bank</p>
+    <p>Account Number: 889037781-7</p>
+    <p>ACH Routing: 026073150</p>
+    <p>Wire Routing: 026073008</p>
+    <p>SWIFT: CMFGUS33</p>
+    <p>Account Holder: Inter & Co Global Account — Matheus Jeovane / Nexa Media Ltda.</p>
+  </div>
+</body>
+</html>`;
+}
 
 function statusBadgeClass(status: DbInvoice["status"]) {
   if (status === "paid") return "border-[#22c55e]/35 bg-[#22c55e]/12 text-[#86efac]";
@@ -76,7 +208,6 @@ function todayIso() {
 export function FinancialModule() {
   const { t: lt } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const printRef = useRef<HTMLDivElement>(null);
   const [invoices, setInvoices] = useState<DbInvoice[]>([]);
   const [projects, setProjects] = useState<DbProject[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -92,8 +223,6 @@ export function FinancialModule() {
 
   const [activeKpiIndex, setActiveKpiIndex] = useState(0);
   const [pdfModal, setPdfModal] = useState<{ fileName: string; url: string } | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [printMode, setPrintMode] = useState(false);
 
   const totalInvested = invoices.filter((item) => item.status === "paid").reduce((acc, item) => acc + item.amount, 0);
   const paidCount = invoices.filter((i) => i.status === "paid").length;
@@ -288,104 +417,48 @@ export function FinancialModule() {
     setPdfModal({ fileName, url: url || DEMO_PDF_URL });
   };
 
-  const triggerPrintInvoice = useCallback(() => {
-    setPrintMode(true);
-    window.setTimeout(() => {
-      window.print();
-      setPrintMode(false);
-    }, 80);
-  }, []);
+  const getInvoiceHtmlFormData = (): InvoiceHtmlFormData => ({
+    from: "Nexa Media Ltda | Otus Media",
+    invoiceNumber,
+    dateOfIssue: issueDate,
+    dueDate: dueDateGen,
+    billedTo,
+    purchaseOrder,
+    lineItems: lineItems.map((li) => ({
+      description: li.description,
+      unitCost: li.unitCost,
+      qty: li.qty,
+    })),
+    subtotal,
+    taxRate,
+    taxAmount,
+    shipping,
+    invoiceTotal,
+  });
 
-  const invoicePrintBody = (
-    <div className="financial-invoice-print">
-    <div className="inv">
-      <p className="muted">{lt("Invoice")}</p>
-      <h1>{invoiceNumber}</h1>
-      <div className="meta-grid">
-        <div>
-          <p className="muted">{lt("Date of issue")}</p>
-          <p className="mono-num">{issueDate}</p>
-        </div>
-        <div>
-          <p className="muted">{lt("Due date")}</p>
-          <p className="mono-num">{dueDateGen}</p>
-        </div>
-        <div>
-          <p className="muted">{lt("Billed to")}</p>
-          <p>{billedTo || "—"}</p>
-        </div>
-        <div>
-          <p className="muted">{lt("Purchase order")}</p>
-          <p>{purchaseOrder || "—"}</p>
-        </div>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>{lt("Description")}</th>
-            <th className="num">{lt("Unit cost")}</th>
-            <th className="num">{lt("Qty")}</th>
-            <th className="num">{lt("Amount")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lineItems.map((li) => (
-            <tr key={li.id}>
-              <td>{li.description || "—"}</td>
-              <td className="num">{formatCurrency(li.unitCost)}</td>
-              <td className="num">{li.qty}</td>
-              <td className="num">{formatCurrency(li.unitCost * li.qty)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="totals">
-        <div className="totals-row">
-          <span>{lt("Subtotal")}</span>
-          <span className="tnum">{formatCurrency(subtotal)}</span>
-        </div>
-        <div className="totals-row">
-          <span>
-            {lt("Tax")} (<span className="mono-num">{taxRate}%</span>)
-          </span>
-          <span className="tnum">{formatCurrency(taxAmount)}</span>
-        </div>
-        <div className="totals-row">
-          <span>{lt("Shipping")}</span>
-          <span className="tnum">{formatCurrency(shipping)}</span>
-        </div>
-        <div className="totals-row grand">
-          <span>{lt("Total")}</span>
-          <span className="tnum">{formatCurrency(invoiceTotal)}</span>
-        </div>
-      </div>
-      <div className="bank">
-        <p className="muted">{lt("Bank details")}</p>
-        <p>
-          {lt("Bank:")} Community Federal Savings Bank
-        </p>
-        <p>
-          {lt("Account Number:")} <span className="mono-num">889037781-7</span>
-        </p>
-        <p>
-          {lt("ACH Routing:")} <span className="mono-num">026073150</span>
-        </p>
-        <p>
-          {lt("Wire Routing:")} <span className="mono-num">026073008</span>
-        </p>
-        <p>
-          {lt("SWIFT:")} <span className="mono-num">CMFGUS33</span>
-        </p>
-        <p>
-          {lt("Account Holder:")} Inter &amp; Co Global Account — Matheus Jeovane / Nexa Media Ltda.
-        </p>
-      </div>
-      <p className="from-line">
-        {lt("From:")} Nexa Media Ltda | Otus Media
-      </p>
-    </div>
-    </div>
-  );
+  const openInvoicePreviewWindow = () => {
+    const invoiceHtml = buildInvoiceHtmlString(getInvoiceHtmlFormData(), { previewChrome: true });
+    const printWindow = window.open("", "_blank", "width=800,height=600");
+    if (printWindow) {
+      printWindow.document.write(invoiceHtml);
+      printWindow.document.close();
+      printWindow.focus();
+    }
+  };
+
+  const openInvoiceDownloadWindow = () => {
+    const invoiceHtml = buildInvoiceHtmlString(getInvoiceHtmlFormData(), { previewChrome: false });
+    const printWindow = window.open("", "_blank", "width=800,height=600");
+    if (printWindow) {
+      printWindow.document.write(invoiceHtml);
+      printWindow.document.close();
+      printWindow.focus();
+      window.setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 500);
+    }
+  };
 
   const inputClass =
     "w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white outline-none";
@@ -802,18 +875,18 @@ export function FinancialModule() {
         </div>
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <button type="button" onClick={() => setPreviewOpen(true)} className="btn-primary rounded-lg px-4 py-2 text-xs">
+          <button type="button" onClick={openInvoicePreviewWindow} className="btn-primary rounded-lg px-4 py-2 text-xs">
             {lt("Preview Invoice")}
           </button>
-          <button type="button" onClick={triggerPrintInvoice} className="btn-primary rounded-lg px-4 py-2 text-xs">
+          <button type="button" onClick={openInvoiceDownloadWindow} className="btn-primary rounded-lg px-4 py-2 text-xs">
             {lt("Download Invoice")}
           </button>
           <button
             type="button"
             disabled={savingGenerated}
             onClick={async () => {
-              const htmlSource = printRef.current?.innerHTML ?? "";
-              const blob = new Blob([htmlSource], { type: "text/html" });
+              const invoiceHtml = buildInvoiceHtmlString(getInvoiceHtmlFormData(), { previewChrome: false });
+              const blob = new Blob([invoiceHtml], { type: "text/html" });
               const fileName = `invoice-${invoiceNumber}-${Date.now()}.html`;
               setSavingGenerated(true);
               const uploadRes = await supabase.storage.from("invoices").upload(fileName, blob);
@@ -881,53 +954,6 @@ export function FinancialModule() {
         </div>
       ) : null}
 
-      {/* Preview modal — print uses ref duplicate */}
-      {previewOpen ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
-          <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-[8px] border border-[var(--border)] bg-[#161616]">
-            <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
-              <p className="text-sm font-light text-white">{lt("Invoice preview")}</p>
-              <div className="flex gap-2">
-                <button type="button" onClick={triggerPrintInvoice} className="btn-primary rounded-lg px-3 py-1.5 text-xs">
-                  {lt("Print / Save PDF")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPreviewOpen(false)}
-                  className="rounded-lg border border-[var(--border-strong)] px-3 py-1.5 text-xs font-light text-[rgba(255,255,255,0.75)]"
-                >
-                  {lt("Close")}
-                </button>
-              </div>
-            </div>
-            <div className="overflow-auto bg-white p-6">
-              <div>{invoicePrintBody}</div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      <div ref={printRef} className="sr-only" aria-hidden>
-        {invoicePrintBody}
-      </div>
-      <style media="print">{`
-        body * { visibility: hidden !important; }
-        #financial-print-root, #financial-print-root * { visibility: visible !important; }
-        #financial-print-root {
-          display: block !important;
-          position: fixed !important;
-          inset: 0 !important;
-          background: #fff !important;
-          color: #000 !important;
-          padding: 24px !important;
-          z-index: 999999 !important;
-        }
-      `}</style>
-      {printMode ? (
-        <div id="financial-print-root">
-          <div className="financial-invoice-print">{invoicePrintBody}</div>
-        </div>
-      ) : null}
       {uploadOpen ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-xl rounded-[8px] border border-[var(--border)] bg-[#161616] p-4">
