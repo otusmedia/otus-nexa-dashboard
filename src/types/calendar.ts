@@ -26,6 +26,13 @@ export interface CalendarEvent {
   organization: string | null;
   created_at: string;
   calendar_event_invitees?: CalendarEventInvitee[];
+  source?: string | null;
+  source_id?: string | null;
+  lead_id?: string | null;
+  lead_name?: string | null;
+  /** True for auto-populated project / marketing task due dates (read-only on calendar). */
+  is_task_deadline?: boolean;
+  task_meta?: CalendarTaskMeta | null;
 }
 
 export type CalendarView = "month" | "week" | "day";
@@ -34,4 +41,10 @@ export interface CalendarInvitableUser {
   id: string;
   name: string;
   email: string;
+}
+
+/** Synthetic task deadlines shown on calendar (not persisted in calendar_events). */
+export interface CalendarTaskMeta {
+  projectLabel: string;
+  source: "project" | "marketing";
 }

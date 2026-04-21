@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { ExternalLink, Pencil, Trash2, Video, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent, CalendarEventType } from "@/types/calendar";
@@ -25,9 +26,15 @@ function hue(name: string) {
 const TYPE_LABEL: Record<CalendarEventType, string> = {
   event: "Event",
   meeting: "Meeting",
-  deadline: "Deadline",
-  other: "Other",
+  deadline: "Task deadline",
+  other: "Reminder",
 };
+
+function typeBadgeLabel(event: CalendarEvent): string {
+  if (event.is_task_deadline) return "Task deadline";
+  if (event.source === "crm") return "CRM";
+  return TYPE_LABEL[event.type];
+}
 
 export function CalendarEventPopover({
   event,
@@ -71,6 +78,10 @@ export function CalendarEventPopover({
     });
 
   const invitees = event.calendar_event_invitees ?? [];
+  const taskReadOnly = Boolean(event.is_task_deadline);
+  const crmReadOnly = event.source === "crm";
+  const canEdit = !taskReadOnly && !crmReadOnly;
+  const canDelete = !taskReadOnly;
 
   return createPortal(
     <div
@@ -84,12 +95,12 @@ export function CalendarEventPopover({
             <span
               className="inline-flex rounded-full px-2 py-0.5 text-[0.65rem] font-medium"
               style={{
-                backgroundColor: `${eventDisplayColor(event)}33`,
-                color: "#fff",
+                backgroundColor: `${eventDisplayColor(event)}26`,
+                color: eventDisplayColor(event),
                 border: `1px solid ${eventDisplayColor(event)}55`,
               }}
             >
-              {TYPE_LABEL[event.type]}
+              {typeBadgeLabel(event)}
             </span>
           </div>
           <h3 className="mt-2 text-base font-medium text-white">{event.title}</h3>
@@ -110,8 +121,28 @@ export function CalendarEventPopover({
       </div>
 
       <div className="max-h-[50vh] space-y-3 overflow-y-auto p-3">
+        {taskReadOnly && event.task_meta ? (
+          <p className="text-sm font-light text-[rgba(255,255,255,0.85)]">
+            <span className="text-[var(--muted)]">Project: </span>
+            {event.task_meta.projectLabel}
+          </p>
+        ) : null}
+
         {event.description ? (
           <p className="text-sm font-light leading-relaxed text-[rgba(255,255,255,0.85)]">{event.description}</p>
+        ) : null}
+
+        {event.source === "crm" && event.lead_name ? (
+          <p className="text-sm">
+            <span className="text-[var(--muted)]">CRM Lead: </span>
+            <Link
+              href={event.lead_id ? `/crm/pipeline?lead=${encodeURIComponent(event.lead_id)}` : "/crm/pipeline"}
+              className="font-medium text-[#10b981] underline-offset-2 hover:underline"
+              onClick={() => onClose()}
+            >
+              {event.lead_name}
+            </Link>
+          </p>
         ) : null}
 
         {event.type === "meeting" && event.meet_link ? (
@@ -119,7 +150,7 @@ export function CalendarEventPopover({
             href={event.meet_link}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-lg bg-[rgba(59,130,246,0.2)] px-3 py-2 text-xs font-medium text-[#93c5fd] transition hover:bg-[rgba(59,130,246,0.3)]"
+            className="inline-flex items-center gap-2 rounded-lg bg-[rgba(24,119,242,0.2)] px-3 py-2 text-xs font-medium text-[#93c5fd] transition hover:bg-[rgba(24,119,242,0.3)]"
           >
             <Video className="h-4 w-4 shrink-0" strokeWidth={1.5} />
             Join Meeting
@@ -136,7 +167,7 @@ export function CalendarEventPopover({
 
         {invitees.length > 0 ? (
           <div>
-            <p className="mb-2 text-[0.65rem] font-medium uppercase tracking-wider text-[var(--muted)]">Invitees</p>
+            <p className="mb-2 text-[0.65rem] font-medium uppercase tracking-wider text-[var(--muted)]">Participants</p>
             <ul className="space-y-2">
               {invitees.map((inv) => {
                 const label = inv.email || inv.user_id || "Guest";
@@ -169,32 +200,50 @@ export function CalendarEventPopover({
         ) : null}
       </div>
 
-      <div className="flex gap-2 border-t border-[var(--border)] p-3">
-        <button
-          type="button"
-          onClick={() => {
-            onEdit();
-            onClose();
-          }}
-          className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border)] py-2 text-xs font-medium text-white transition hover:bg-[var(--surface-elevated)]"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          Edit
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (typeof window !== "undefined" && window.confirm("Delete this event?")) {
-              onDelete();
-              onClose();
-            }
-          }}
-          className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[rgba(239,68,68,0.35)] py-2 text-xs font-medium text-[#fca5a5] transition hover:bg-[rgba(239,68,68,0.1)]"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          Delete
-        </button>
-      </div>
+      {taskReadOnly ? (
+        <p className="border-t border-[var(--border)] p-3 text-center text-[0.65rem] text-[var(--muted)]">
+          Task deadlines are read-only on the calendar.
+        </p>
+      ) : (
+        <div className="space-y-2 border-t border-[var(--border)] p-3">
+          {crmReadOnly ? (
+            <p className="text-center text-[0.65rem] text-[var(--muted)]">Edit this appointment from the CRM pipeline.</p>
+          ) : null}
+          <div className="flex gap-2">
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onEdit();
+                  onClose();
+                }}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border)] py-2 text-xs font-medium text-white transition hover:bg-[var(--surface-elevated)]"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </button>
+            ) : null}
+            {canDelete ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof window !== "undefined" && window.confirm("Delete this event?")) {
+                    onDelete();
+                    onClose();
+                  }
+                }}
+                className={cn(
+                  "flex items-center justify-center gap-2 rounded-lg border border-[rgba(239,68,68,0.35)] py-2 text-xs font-medium text-[#fca5a5] transition hover:bg-[rgba(239,68,68,0.1)]",
+                  canEdit ? "flex-1" : "w-full",
+                )}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>,
     document.body,
   );

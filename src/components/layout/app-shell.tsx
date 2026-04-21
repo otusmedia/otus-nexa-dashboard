@@ -359,7 +359,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 if (link.key === "crm") {
                   const isCrmActive = pathname.startsWith("/crm");
                   const crmSubmenuItems = [
-                    { label: "Dashboard", href: "/crm" },
+                    { label: "Dashboard", href: "/crm/dashboard" },
                     { label: "Pipeline", href: "/crm/pipeline" },
                     { label: "Contacts", href: "/crm/contacts" },
                     { label: "Reports", href: "/crm/reports" },

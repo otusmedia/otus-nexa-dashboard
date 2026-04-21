@@ -1,14 +1,18 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import type { CSSProperties } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CalendarView } from "@/types/calendar";
-import { formatDayTitle, formatMonthYear, formatWeekRangeLabel } from "./calendar-utils";
+import { formatMonthYear, formatWeekRangeLabel } from "./calendar-utils";
 
-const VIEW_LABELS: Record<CalendarView, string> = {
-  month: "Month",
-  week: "Week",
-  day: "Day",
+const toggleShellStyle: CSSProperties = {
+  background: "rgba(255, 255, 255, 0.05)",
+  backdropFilter: "blur(11px) saturate(110%)",
+  WebkitBackdropFilter: "blur(11px) saturate(110%)",
+  border: "1px solid rgba(255, 255, 255, 0.08)",
+  borderRadius: 20,
+  padding: 4,
 };
 
 export function CalendarHeader({
@@ -19,7 +23,6 @@ export function CalendarHeader({
   onPrev,
   onNext,
   onToday,
-  onNewEvent,
   titleClassName,
 }: {
   view: CalendarView;
@@ -29,15 +32,10 @@ export function CalendarHeader({
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
-  onNewEvent: () => void;
   titleClassName?: string;
 }) {
   const title =
-    view === "month"
-      ? formatMonthYear(currentDate)
-      : view === "week"
-        ? formatWeekRangeLabel(weekStart)
-        : formatDayTitle(currentDate);
+    view === "month" ? formatMonthYear(currentDate) : view === "week" ? formatWeekRangeLabel(weekStart) : formatMonthYear(currentDate);
 
   return (
     <div className="flex flex-col gap-4 border-b border-[var(--border)] pb-4 lg:flex-row lg:items-center lg:justify-between">
@@ -70,32 +68,22 @@ export function CalendarHeader({
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg border border-[var(--border)] p-0.5">
-          {(["month", "week", "day"] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => onViewChange(v)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                view === v
-                  ? "bg-[rgba(255,69,0,0.2)] text-[#FF4500] shadow-[inset_0_0_0_1px_rgba(255,69,0,0.35)]"
-                  : "text-[var(--muted)] hover:text-white",
-              )}
-            >
-              {VIEW_LABELS[v]}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={onNewEvent}
-          className="btn-primary inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
-        >
-          <Plus className="h-4 w-4" strokeWidth={1.5} />
-          New Event
-        </button>
+      <div className="inline-flex" style={toggleShellStyle} role="group" aria-label="Calendar view">
+        {(["month", "week"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onViewChange(v)}
+            className={cn(
+              "rounded-2xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
+              view === v
+                ? "bg-[rgba(255,69,0,0.2)] text-[#FF4500] shadow-[inset_0_0_0_1px_rgba(255,69,0,0.35)]"
+                : "text-[var(--muted)] hover:text-white",
+            )}
+          >
+            {v === "month" ? "Month" : "Week"}
+          </button>
+        ))}
       </div>
     </div>
   );

@@ -2,10 +2,9 @@
 
 import { useMemo, useState } from "react";
 import type { CalendarEvent } from "@/types/calendar";
-import { CalendarDayView } from "./CalendarDayView";
+import { CalendarGrid, CalendarEmptyState } from "./CalendarGrid";
 import { CalendarEventModal } from "./CalendarEventModal";
 import { CalendarEventPopover } from "./CalendarEventPopover";
-import { CalendarGrid, CalendarEmptyState } from "./CalendarGrid";
 import { CalendarHeader } from "./CalendarHeader";
 import { CalendarWeekView } from "./CalendarWeekView";
 import { addDays, endOfDay, getMonthGridRange, startOfDay } from "./calendar-utils";
@@ -18,9 +17,7 @@ export function CalendarModule() {
   const { rangeStart, rangeEnd } = useMemo(() => {
     let r: { rangeStart: Date; rangeEnd: Date };
     if (view === "month") r = getMonthGridRange(currentDate);
-    else if (view === "week")
-      r = { rangeStart: startOfDay(weekStart), rangeEnd: endOfDay(addDays(weekStart, 6)) };
-    else r = { rangeStart: startOfDay(currentDate), rangeEnd: endOfDay(currentDate) };
+    else r = { rangeStart: startOfDay(weekStart), rangeEnd: endOfDay(addDays(weekStart, 6)) };
     return {
       rangeStart: addDays(r.rangeStart, -7),
       rangeEnd: addDays(r.rangeEnd, 7),
@@ -44,11 +41,14 @@ export function CalendarModule() {
   };
 
   const openEditFromPopover = (ev: CalendarEvent) => {
+    if (ev.is_task_deadline || ev.source === "crm") return;
     setModalMode("edit");
     setEditingEvent(ev);
     setDefaultStart(null);
     setModalOpen(true);
   };
+
+  const persistedCount = events.filter((e) => !e.is_task_deadline).length;
 
   return (
     <div className="min-h-[calc(100vh-6rem)] w-full bg-[#0a0a0a] text-white">
@@ -61,7 +61,6 @@ export function CalendarModule() {
           onPrev={goPrev}
           onNext={goNext}
           onToday={goToday}
-          onNewEvent={() => openCreate()}
         />
 
         <div className="mt-6 transition-opacity duration-200 ease-out" key={view}>
@@ -71,6 +70,7 @@ export function CalendarModule() {
               events={events}
               loading={loading}
               onDayClick={(d) => openCreate(startOfDay(d))}
+              onAddOnDay={(d) => openCreate(startOfDay(d))}
               onEventClick={(ev, e) => setPopover({ event: ev, x: e.clientX, y: e.clientY })}
             />
           ) : null}
@@ -82,17 +82,9 @@ export function CalendarModule() {
               onEventClick={(ev, e) => setPopover({ event: ev, x: e.clientX, y: e.clientY })}
             />
           ) : null}
-          {view === "day" ? (
-            <CalendarDayView
-              day={currentDate}
-              events={events}
-              onSlotClick={(d) => openCreate(d)}
-              onEventClick={(ev, e) => setPopover({ event: ev, x: e.clientX, y: e.clientY })}
-            />
-          ) : null}
         </div>
 
-        <CalendarEmptyState show={!loading && events.length === 0} />
+        <CalendarEmptyState show={!loading && persistedCount === 0} />
 
         <CalendarEventModal
           open={modalOpen}

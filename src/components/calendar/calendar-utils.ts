@@ -1,21 +1,28 @@
 import type { CalendarEvent, CalendarEventType } from "@/types/calendar";
 
+/** Week grid: first row = 07:00, last label = 22:00 (16 hourly rows). */
+export const WEEK_VIEW_START_HOUR = 7;
+export const WEEK_VIEW_END_HOUR = 22;
+export const WEEK_VIEW_HOUR_COUNT = WEEK_VIEW_END_HOUR - WEEK_VIEW_START_HOUR + 1;
+
 export function defaultColorForType(type: CalendarEventType): string {
   switch (type) {
     case "event":
-      return "#ef4444";
+      return "#8b5cf6";
     case "meeting":
-      return "#3b82f6";
+      return "#1877F2";
     case "deadline":
-      return "#f97316";
+      return "#FF4500";
     case "other":
-      return "#6b7280";
+      return "#eab308";
     default:
-      return "#ef4444";
+      return "#8b5cf6";
   }
 }
 
 export function eventDisplayColor(event: CalendarEvent): string {
+  if (event.is_task_deadline) return "#FF4500";
+  if (event.source === "crm") return "#10b981";
   if (event.color?.trim()) return event.color;
   return defaultColorForType(event.type);
 }

@@ -7,6 +7,8 @@ import { defaultColorForType } from "./calendar-utils";
 
 type InviteRow = { email: string | null; user_id?: string | null };
 
+const EXCLUDED_TASK_STATUSES = new Set(["Done", "Published"]);
+
 function mapRow(row: Record<string, unknown>): CalendarEvent {
   const inviteesRaw = row.calendar_event_invitees;
   const invitees = Array.isArray(inviteesRaw)
@@ -35,7 +37,49 @@ function mapRow(row: Record<string, unknown>): CalendarEvent {
     organization: null,
     created_at: String(row.created_at ?? ""),
     calendar_event_invitees: invitees,
+    source: row.source != null ? String(row.source) : null,
+    source_id: row.source_id != null ? String(row.source_id) : null,
+    lead_id: row.lead_id != null ? String(row.lead_id) : null,
+    lead_name: row.lead_name != null ? String(row.lead_name) : null,
   };
+}
+
+/** Stable id for virtual task events */
+function taskDeadlineToEventStable(
+  idPrefix: string,
+  taskId: string,
+  title: string,
+  dueYmd: string,
+  projectLabel: string,
+  source: "project" | "marketing",
+): CalendarEvent {
+  const start = new Date(`${dueYmd}T09:00:00`);
+  const end = new Date(`${dueYmd}T10:00:00`);
+  return {
+    id: `${idPrefix}${taskId}`,
+    title,
+    description: projectLabel ? `Project: ${projectLabel}` : null,
+    start_at: start.toISOString(),
+    end_at: end.toISOString(),
+    all_day: false,
+    type: "deadline",
+    meet_link: null,
+    location: null,
+    color: "#FF4500",
+    created_by: null,
+    organization: null,
+    created_at: "",
+    is_task_deadline: true,
+    task_meta: { projectLabel, source },
+  };
+}
+
+function inRange(ev: CalendarEvent, rangeStart: Date, rangeEnd: Date): boolean {
+  const s = new Date(ev.start_at).getTime();
+  const e = new Date(ev.end_at).getTime();
+  const a = rangeStart.getTime();
+  const b = rangeEnd.getTime();
+  return s <= b && e >= a;
 }
 
 export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
@@ -49,23 +93,70 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
   const fetchEvents = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const { data, error: fetchError } = await supabase
-      .from("calendar_events")
-      .select("*, calendar_event_invitees (*)")
-      .gte("end_at", startIso)
-      .lte("start_at", endIso);
 
-    if (fetchError) {
-      console.error("[calendar] fetch failed:", fetchError.message);
-      setError(fetchError.message);
+    const [calRes, projTasksRes, mktTasksRes] = await Promise.all([
+      supabase
+        .from("calendar_events")
+        .select("*, calendar_event_invitees (*)")
+        .gte("end_at", startIso)
+        .lte("start_at", endIso),
+      supabase.from("tasks").select("id, title, due_date, status, projects(name)").not("due_date", "is", null),
+      supabase.from("marketing_tasks").select("id, title, due_date, project_id").not("due_date", "is", null),
+    ]);
+
+    if (calRes.error) {
+      console.error("[calendar] fetch failed:", calRes.error.message);
+      setError(calRes.error.message);
       setEvents([]);
       setLoading(false);
       return;
     }
 
-    setEvents(((data as Record<string, unknown>[]) ?? []).map(mapRow));
+    if (projTasksRes.error) console.error("[calendar] project tasks:", projTasksRes.error.message);
+    if (mktTasksRes.error) console.error("[calendar] marketing_tasks:", mktTasksRes.error.message);
+
+    const calEvents = ((calRes.data as Record<string, unknown>[]) ?? []).map(mapRow);
+
+    const virtual: CalendarEvent[] = [];
+
+    const projRows = (projTasksRes.data as Record<string, unknown>[] | null) ?? [];
+    for (const row of projRows) {
+      const status = String(row.status ?? "");
+      if (EXCLUDED_TASK_STATUSES.has(status)) continue;
+      const due = row.due_date != null ? String(row.due_date).slice(0, 10) : "";
+      if (!due) continue;
+      const proj = row.projects as { name?: string } | null | undefined;
+      const projectLabel = proj?.name ? String(proj.name) : "Project";
+      const ev = taskDeadlineToEventStable(
+        "ptask-",
+        String(row.id ?? ""),
+        String(row.title ?? "Task"),
+        due,
+        projectLabel,
+        "project",
+      );
+      if (inRange(ev, rangeStart, rangeEnd)) virtual.push(ev);
+    }
+
+    const mktRows = (mktTasksRes.data as Record<string, unknown>[] | null) ?? [];
+    for (const row of mktRows) {
+      const due = row.due_date != null ? String(row.due_date).slice(0, 10) : "";
+      if (!due) continue;
+      const projectLabel = "Marketing";
+      const ev = taskDeadlineToEventStable(
+        "mtask-",
+        String(row.id ?? ""),
+        String(row.title ?? "Task"),
+        due,
+        projectLabel,
+        "marketing",
+      );
+      if (inRange(ev, rangeStart, rangeEnd)) virtual.push(ev);
+    }
+
+    setEvents([...calEvents, ...virtual]);
     setLoading(false);
-  }, [startIso, endIso]);
+  }, [startIso, endIso, rangeStart, rangeEnd]);
 
   useEffect(() => {
     void fetchEvents();

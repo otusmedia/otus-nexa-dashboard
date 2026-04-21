@@ -1,12 +1,12 @@
 "use client";
 
 import { ModuleGuard } from "@/components/layout/module-guard";
-import { CrmContactsModule } from "@/modules/crm/crm-contacts-module";
+import { CrmDashboardModule } from "@/modules/crm/crm-dashboard-module";
 
-export default function CrmContactsPage() {
+export default function CrmDashboardPage() {
   return (
     <ModuleGuard module="crm">
-      <CrmContactsModule />
+      <CrmDashboardModule />
     </ModuleGuard>
   );
 }
