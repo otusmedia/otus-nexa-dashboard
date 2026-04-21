@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CalendarView } from "@/types/calendar";
 import { addDays, addMonths, startOfWeekSunday } from "./calendar-utils";
 
@@ -91,7 +91,7 @@ export function useCalendar() {
     });
   }, [view]);
 
-  const weekStart = startOfWeekSunday(currentDate);
+  const weekStart = useMemo(() => startOfWeekSunday(currentDate), [currentDate]);
 
   return {
     view,

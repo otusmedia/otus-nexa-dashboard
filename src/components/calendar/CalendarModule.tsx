@@ -12,6 +12,7 @@ import { useCalendar } from "./useCalendar";
 import { useCalendarEvents } from "./useCalendarEvents";
 
 export function CalendarModule() {
+  console.log("calendar render");
   const { view, setView, currentDate, weekStart, goToday, goPrev, goNext } = useCalendar();
 
   const { rangeStart, rangeEnd } = useMemo(() => {
