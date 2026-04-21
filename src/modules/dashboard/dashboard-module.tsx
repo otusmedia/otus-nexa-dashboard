@@ -565,7 +565,7 @@ function HeroDigitalClockTime({ date, timeZone }: { date: Date; timeZone: string
   }).formatToParts(date);
 
   return (
-    <p className="mt-3 min-w-0 max-w-full font-[family-name:var(--font-mono)] text-[2rem] font-light tabular-nums leading-none text-white">
+    <p className="min-w-0 max-w-full text-center font-[family-name:var(--font-mono)] text-[2rem] font-light tabular-nums leading-none text-white">
       {parts.map((part, i) =>
         part.type === "dayPeriod" ? (
           <span key={i} className="ml-0.5 align-baseline text-[0.55em] font-normal uppercase leading-none tracking-wide">
@@ -595,6 +595,9 @@ const heroClockCardGlassStyle: CSSProperties = {
   border: "1px solid rgba(255, 255, 255, 0.08)",
   borderRadius: 8,
   boxSizing: "border-box",
+  width: 180,
+  height: 160,
+  minHeight: 160,
 };
 
 const heroClockToggleShellStyle: CSSProperties = {
@@ -629,7 +632,7 @@ function HeroAnalogClock({ date, timeZone }: { date: Date; timeZone: string }) {
   const secondDeg = second * 6;
 
   return (
-    <svg width="100" height="100" viewBox="0 0 100 100" className="mt-3 block" aria-hidden>
+    <svg viewBox="0 0 100 100" className="block h-full max-h-[72px] w-full max-w-[72px] shrink-0" preserveAspectRatio="xMidYMid meet" aria-hidden>
       <circle cx="50" cy="50" r="49" fill="rgba(0, 0, 0, 0.45)" />
       <g transform={`rotate(${hourDeg} 50 50)`}>
         <line x1="50" y1="50" x2="50" y2="32" stroke="white" strokeWidth="4" strokeLinecap="round" />
@@ -733,28 +736,32 @@ function DashboardHeroSection() {
               </button>
             </div>
             <div className="flex flex-row flex-wrap items-start justify-center gap-4">
-            <div className="w-[180px] min-w-0" style={heroClockCardGlassStyle}>
-              <div className="flex min-w-0 flex-col p-[24px]">
+            <div className="min-w-0 shrink-0" style={heroClockCardGlassStyle}>
+              <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-1.5 p-[24px] text-center">
                 <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
                   San Francisco
                 </p>
                 {clockMode === "digital" ? (
                   <HeroDigitalClockTime date={now} timeZone="America/Los_Angeles" />
                 ) : (
-                  <HeroAnalogClock date={now} timeZone="America/Los_Angeles" />
+                  <div className="flex shrink-0 items-center justify-center">
+                    <HeroAnalogClock date={now} timeZone="America/Los_Angeles" />
+                  </div>
                 )}
-                <p className="mt-1 text-[0.7rem] font-light text-[rgba(255,255,255,0.3)]">PT</p>
+                <p className="text-[0.7rem] font-light text-[rgba(255,255,255,0.3)]">PT</p>
               </div>
             </div>
-            <div className="w-[180px] min-w-0" style={heroClockCardGlassStyle}>
-              <div className="flex min-w-0 flex-col p-[24px]">
+            <div className="min-w-0 shrink-0" style={heroClockCardGlassStyle}>
+              <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-1.5 p-[24px] text-center">
                 <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">Curitiba</p>
                 {clockMode === "digital" ? (
                   <HeroDigitalClockTime date={now} timeZone="America/Sao_Paulo" />
                 ) : (
-                  <HeroAnalogClock date={now} timeZone="America/Sao_Paulo" />
+                  <div className="flex shrink-0 items-center justify-center">
+                    <HeroAnalogClock date={now} timeZone="America/Sao_Paulo" />
+                  </div>
                 )}
-                <p className="mt-1 text-[0.7rem] font-light text-[rgba(255,255,255,0.3)]">BRT</p>
+                <p className="text-[0.7rem] font-light text-[rgba(255,255,255,0.3)]">BRT</p>
               </div>
             </div>
           </div>
