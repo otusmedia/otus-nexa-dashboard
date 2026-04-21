@@ -106,7 +106,11 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
       if (event.source === "crm") {
         if (currentUser.role === "admin") return true;
         const invitees = (event.calendar_event_invitees ?? []).map((i) => (i.email ?? "").toLowerCase());
-        return currentEmail ? invitees.includes(currentEmail) : false;
+        if (currentEmail && invitees.includes(currentEmail)) return true;
+        // Fallback when owner->email mapping fails: read owner name persisted in CRM description line.
+        const ownerMatch = /(?:^|\n)Owner:\s*(.+?)(?:\n|$)/i.exec(event.description ?? "");
+        const ownerName = ownerMatch?.[1]?.trim().toLowerCase() ?? "";
+        return ownerName !== "" && ownerName === currentUser.name.trim().toLowerCase();
       }
       if (event.type === "meeting") {
         const invitees = (event.calendar_event_invitees ?? []).map((i) => (i.email ?? "").toLowerCase());
@@ -153,7 +157,10 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
       if (projTasksRes.error) console.error("[calendar] project tasks:", projTasksRes.error.message);
       if (mktTasksRes.error) console.error("[calendar] marketing_tasks:", mktTasksRes.error.message);
 
-      const calEvents = ((calRes.data as Record<string, unknown>[]) ?? []).map(mapRow).filter(canSeeEvent);
+      const mappedEvents = ((calRes.data as Record<string, unknown>[]) ?? []).map(mapRow);
+      const crmEvents = mappedEvents.filter((e) => e.source === "crm");
+      console.log("CRM events found:", crmEvents);
+      const calEvents = mappedEvents.filter(canSeeEvent);
 
       const virtual: CalendarEvent[] = [];
 

@@ -42,6 +42,15 @@ function calendarTimesFromAppointment(dateStr: string | null, timeStr: string | 
   return { start_at: start.toISOString(), end_at: end.toISOString() };
 }
 
+function normalizeYmd(dateStr: string | null): string {
+  const raw = (dateStr ?? "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return new Date().toISOString().slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
+}
+
 export function CrmLeadDetailPanel({
   lead,
   onClose,
@@ -234,36 +243,42 @@ export function CrmLeadDetailPanel({
     }
     if (data) {
       const created = mapCrmAppointmentRow(data as Record<string, unknown>);
+      console.log("CRM appointment created:", created);
       setAppointments((prev) => [...prev, created]);
       const leadName = lead.name;
-      const { start_at, end_at } = calendarTimesFromAppointment(created.date, created.time);
+      const normalizedDate = normalizeYmd(created.date);
+      const { start_at, end_at } = calendarTimesFromAppointment(normalizedDate, created.time);
       const descParts = [
         `CRM Lead: ${leadName}`,
         created.description ?? "",
+        created.owner ? `Owner: ${created.owner}` : "",
         currentUser.name ? `— ${currentUser.name}` : "",
       ].filter(Boolean);
       const description = descParts.join("\n");
+      const calendarPayload = {
+        title: created.title,
+        type: "meeting",
+        description,
+        start_at,
+        end_at,
+        all_day: false,
+        meet_link: null,
+        location: null,
+        color: "#10b981",
+        created_by: null,
+        source: "crm",
+        source_id: created.id,
+        lead_id: lead.id,
+        lead_name: leadName,
+      };
+      console.log("Inserting into calendar_events:", calendarPayload);
 
       const calIns = await supabase
         .from("calendar_events")
-        .insert({
-          title: created.title,
-          type: "meeting",
-          description,
-          start_at,
-          end_at,
-          all_day: false,
-          meet_link: null,
-          location: null,
-          color: "#10b981",
-          created_by: null,
-          source: "crm",
-          source_id: created.id,
-          lead_id: lead.id,
-          lead_name: leadName,
-        })
+        .insert(calendarPayload)
         .select("id")
         .maybeSingle();
+      console.log("Calendar insert result:", calIns);
 
       if (calIns.error) {
         console.error("[crm] calendar sync insert", calIns.error.message);
