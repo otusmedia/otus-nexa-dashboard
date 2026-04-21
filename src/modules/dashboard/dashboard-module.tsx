@@ -30,6 +30,7 @@ import {
   MoreHorizontal,
   Play,
   Plus,
+  Share2,
   Upload,
   Watch,
   X,
@@ -468,6 +469,7 @@ type InstagramFeedPostStored = {
   likes: number;
   comments: number;
   caption: string;
+  shares?: number;
   permalink?: string;
   isVideo?: boolean;
 };
@@ -510,6 +512,11 @@ function parseInstagramFeedFromStorage(raw: string): InstagramFeedPostStored[] |
           ? Math.max(0, Math.round(commentsRaw))
           : Math.max(0, Math.round(Number(String(commentsRaw ?? "").replace(/,/g, ""))) || 0);
       const caption = typeof o.caption === "string" ? o.caption.slice(0, 200) : "";
+      const sharesRaw = o.shares;
+      const shares =
+        typeof sharesRaw === "number" && Number.isFinite(sharesRaw)
+          ? Math.max(0, Math.round(sharesRaw))
+          : undefined;
       const idRaw = o.id;
       const id =
         typeof idRaw === "string" && idRaw.length > 0
@@ -525,6 +532,7 @@ function parseInstagramFeedFromStorage(raw: string): InstagramFeedPostStored[] |
         likes,
         comments,
         caption,
+        ...(shares !== undefined ? { shares } : {}),
         ...(permalink ? { permalink } : {}),
         ...(isVideo ? { isVideo: true } : {}),
       });
@@ -1253,27 +1261,43 @@ export function DashboardModule() {
           console.error("[supabase] instagram_posts fetch failed:", postsRes.error.message);
           instagramFeedManualBackup.current = null;
         } else {
-          const backup: InstagramFeedPostStored[] = ((postsRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
-            id: String(row.id ?? ""),
-            imageUrl: String(row.image_url ?? ""),
-            likes: Number(row.likes ?? 0) || 0,
-            comments: Number(row.comments ?? 0) || 0,
-            caption: String(row.caption ?? ""),
-          }));
+          const backup: InstagramFeedPostStored[] = ((postsRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => {
+            const sharesRaw = row.shares;
+            const sharesNum =
+              typeof sharesRaw === "number" && Number.isFinite(sharesRaw)
+                ? Math.max(0, Math.round(sharesRaw))
+                : undefined;
+            return {
+              id: String(row.id ?? ""),
+              imageUrl: String(row.image_url ?? ""),
+              likes: Number(row.likes ?? 0) || 0,
+              comments: Number(row.comments ?? 0) || 0,
+              caption: String(row.caption ?? ""),
+              ...(sharesNum !== undefined ? { shares: sharesNum } : {}),
+            };
+          });
           instagramFeedManualBackup.current = backup.length > 0 ? backup : null;
         }
         const err = typeof json.error === "string" ? json.error : null;
         const posts = json.posts;
         if (!err && Array.isArray(posts)) {
-          const normalized: InstagramFeedPostStored[] = posts.map((p: Record<string, unknown>, idx: number) => ({
-            id: String(p.id ?? `ig-${idx}`),
-            imageUrl: String(p.imageUrl ?? ""),
-            likes: typeof p.likes === "number" ? p.likes : Number(p.likes) || 0,
-            comments: typeof p.comments === "number" ? p.comments : Number(p.comments) || 0,
-            caption: typeof p.caption === "string" ? p.caption : "",
-            permalink: typeof p.permalink === "string" && p.permalink.length > 0 ? p.permalink : undefined,
-            isVideo: p.isVideo === true,
-          }));
+          const normalized: InstagramFeedPostStored[] = posts.map((p: Record<string, unknown>, idx: number) => {
+            const sharesRaw = p.shares;
+            const shares =
+              typeof sharesRaw === "number" && Number.isFinite(sharesRaw)
+                ? Math.max(0, Math.round(sharesRaw))
+                : undefined;
+            return {
+              id: String(p.id ?? `ig-${idx}`),
+              imageUrl: String(p.imageUrl ?? ""),
+              likes: typeof p.likes === "number" ? p.likes : Number(p.likes) || 0,
+              comments: typeof p.comments === "number" ? p.comments : Number(p.comments) || 0,
+              caption: typeof p.caption === "string" ? p.caption : "",
+              ...(shares !== undefined ? { shares } : {}),
+              permalink: typeof p.permalink === "string" && p.permalink.length > 0 ? p.permalink : undefined,
+              isVideo: p.isVideo === true,
+            };
+          });
           setInstagramFeedPosts(normalized.length > 0 ? normalized : []);
           setInstagramFeedSource("live");
           return;
@@ -2920,14 +2944,15 @@ export function DashboardModule() {
           ) : null}
         </div>
 
+        <div className="mx-auto mt-3 w-full" style={{ maxWidth: "70vw" }}>
         {instagramFeedLoading ? (
-          <div className="mt-3 grid grid-cols-3 gap-[3px]">
+          <div className="grid grid-cols-3 gap-[3px]">
             {Array.from({ length: 9 }).map((_, i) => (
               <div key={`ig-feed-sk-${i}`} className="aspect-[4/5] w-full animate-pulse bg-[rgba(255,255,255,0.06)]" />
             ))}
           </div>
         ) : !instagramFeedPosts || instagramFeedPosts.length === 0 ? (
-          <div className="mt-3 flex min-h-[280px] w-full items-center justify-center px-4">
+          <div className="flex min-h-[280px] w-full items-center justify-center px-4">
             <p className="max-w-md text-center text-[0.75rem] text-[rgba(255,255,255,0.3)]">
               {instagramFeedSource === "live"
                 ? lt("No posts in this period.")
@@ -2936,7 +2961,7 @@ export function DashboardModule() {
           </div>
         ) : (
           <>
-            <div className="relative mt-3" style={{ containerType: "inline-size" }}>
+            <div className="relative" style={{ containerType: "inline-size" }}>
               <div
                 className={cn(
                   "overflow-hidden",
@@ -2968,7 +2993,7 @@ export function DashboardModule() {
                         }
                       }}
                       className={cn(
-                        "group relative aspect-[4/5] w-full overflow-hidden rounded-none bg-[#1a1a1a]",
+                        "group relative aspect-[4/5] w-full overflow-hidden rounded-[8px] bg-[#1a1a1a]",
                         post.permalink ? "cursor-pointer" : "",
                       )}
                     >
@@ -2986,7 +3011,7 @@ export function DashboardModule() {
                           </span>
                         </div>
                       ) : null}
-                      <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[rgba(0,0,0,0.6)] px-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                      <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center bg-[rgba(0,0,0,0.6)] px-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
                         <div className="flex items-center gap-4 text-[0.85rem] font-light text-white">
                           <div className="flex items-center gap-1.5">
                             <Heart className="h-4 w-4 shrink-0" strokeWidth={1.75} />
@@ -2996,12 +3021,13 @@ export function DashboardModule() {
                             <MessageCircle className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                             <span className="mono-num">{post.comments.toLocaleString("en-US")}</span>
                           </div>
+                          {typeof post.shares === "number" ? (
+                            <div className="flex items-center gap-1.5">
+                              <Share2 className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                              <span className="mono-num">{post.shares.toLocaleString("en-US")}</span>
+                            </div>
+                          ) : null}
                         </div>
-                        {post.caption.trim() ? (
-                          <p className="line-clamp-2 max-w-full text-center text-[0.72rem] font-light leading-snug text-[rgba(255,255,255,0.8)]">
-                            {post.caption}
-                          </p>
-                        ) : null}
                       </div>
                       {canImportData(currentUser) && instagramFeedSource !== "live" ? (
                         <button
@@ -3047,6 +3073,7 @@ export function DashboardModule() {
             ) : null}
           </>
         )}
+        </div>
 
         {!instagramFeedLoading && instagramFeedSource !== "live" ? (
           <div className="mt-4 flex flex-col items-center justify-center gap-2 sm:flex-row sm:gap-3">
