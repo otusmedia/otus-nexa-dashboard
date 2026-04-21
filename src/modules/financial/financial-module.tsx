@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ModuleGuard } from "@/components/layout/module-guard";
 import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
+import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { cn, formatCurrency } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -232,6 +233,8 @@ function normalizeInvoiceProjectIds(row: Record<string, unknown>): string[] {
 
 export function FinancialModule() {
   const { t: lt } = useLanguage();
+  const { currentUser } = useAppContext();
+  const canGenerateInvoice = currentUser?.company === "nexa" || currentUser?.company === "otus";
   const [invoices, setInvoices] = useState<DbInvoice[]>([]);
   const [projects, setProjects] = useState<DbProject[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -739,6 +742,7 @@ export function FinancialModule() {
       </Card>
 
       {/* Section 4 — Generator */}
+      {canGenerateInvoice ? (
       <Card className="mt-6 rounded-[8px] border-[rgba(255,255,255,0.06)] bg-[#161616]">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-[0.7rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">{lt("Invoice generator")}</h2>
@@ -1059,6 +1063,7 @@ export function FinancialModule() {
         </>
         ) : null}
       </Card>
+      ) : null}
 
       {/* View PDF modal */}
       {pdfModal ? (
