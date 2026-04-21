@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ModuleGuard } from "@/components/layout/module-guard";
@@ -20,6 +20,7 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Heart,
   ImageIcon,
   Info,
@@ -28,6 +29,7 @@ import {
   Play,
   Plus,
   Upload,
+  Watch,
   X,
 } from "lucide-react";
 import { mergeProjectsByColumn } from "@/app/(platform)/projects/data";
@@ -549,6 +551,219 @@ type HighlightSlide = {
   description: string;
   coverImage: string | null;
 };
+
+function formatHeroLongDate(d: Date): string {
+  return new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(d);
+}
+
+function HeroDigitalClockTime({ date, timeZone }: { date: Date; timeZone: string }) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).formatToParts(date);
+
+  return (
+    <p className="mt-3 min-w-0 max-w-full font-[family-name:var(--font-mono)] text-[2rem] font-light tabular-nums leading-none text-white">
+      {parts.map((part, i) =>
+        part.type === "dayPeriod" ? (
+          <span key={i} className="ml-0.5 align-baseline text-[0.55em] font-normal uppercase leading-none tracking-wide">
+            {part.value.toUpperCase()}
+          </span>
+        ) : (
+          <span key={i}>{part.value}</span>
+        ),
+      )}
+    </p>
+  );
+}
+
+function timeOfDayGreeting(): string {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 12) return "Good morning,";
+  if (h >= 12 && h < 18) return "Good afternoon,";
+  return "Good evening,";
+}
+
+const HERO_CLOCK_MODE_KEY = "clock-mode";
+
+const heroClockCardGlassStyle: CSSProperties = {
+  background: "rgba(255, 255, 255, 0.05)",
+  backdropFilter: "blur(11px) saturate(110%)",
+  WebkitBackdropFilter: "blur(11px) saturate(110%)",
+  border: "1px solid rgba(255, 255, 255, 0.08)",
+  borderRadius: 8,
+  boxSizing: "border-box",
+};
+
+const heroClockToggleShellStyle: CSSProperties = {
+  background: "rgba(255, 255, 255, 0.05)",
+  backdropFilter: "blur(11px) saturate(110%)",
+  WebkitBackdropFilter: "blur(11px) saturate(110%)",
+  border: "1px solid rgba(255, 255, 255, 0.08)",
+  borderRadius: 20,
+  padding: 4,
+};
+
+type HeroClockMode = "digital" | "analog";
+
+function getHMSInZone(date: Date, timeZone: string): { hour: number; minute: number; second: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const n = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return { hour: n("hour"), minute: n("minute"), second: n("second") };
+}
+
+function HeroAnalogClock({ date, timeZone }: { date: Date; timeZone: string }) {
+  const { hour, minute, second } = getHMSInZone(date, timeZone);
+  const h12 = hour % 12;
+  const hourDeg = (h12 + minute / 60) * 30;
+  const minuteDeg = (minute + second / 60) * 6;
+  const secondDeg = second * 6;
+
+  return (
+    <svg width="100" height="100" viewBox="0 0 100 100" className="mt-3 block" aria-hidden>
+      <circle cx="50" cy="50" r="49" fill="rgba(0, 0, 0, 0.45)" />
+      <g transform={`rotate(${hourDeg} 50 50)`}>
+        <line x1="50" y1="50" x2="50" y2="32" stroke="white" strokeWidth="4" strokeLinecap="round" />
+      </g>
+      <g transform={`rotate(${minuteDeg} 50 50)`}>
+        <line x1="50" y1="50" x2="50" y2="22" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+      </g>
+      <g transform={`rotate(${secondDeg} 50 50)`}>
+        <line x1="50" y1="50" x2="50" y2="16" stroke="#FF4500" strokeWidth="1.5" strokeLinecap="round" />
+      </g>
+      <circle cx="50" cy="50" r="4" fill="white" />
+    </svg>
+  );
+}
+
+function DashboardHeroSection() {
+  const { currentUser } = useAppContext();
+  const [, setTick] = useState(0);
+  const [clockMode, setClockMode] = useState<HeroClockMode>(() => {
+    if (typeof window === "undefined") return "digital";
+    try {
+      const v = localStorage.getItem(HERO_CLOCK_MODE_KEY);
+      return v === "analog" ? "analog" : "digital";
+    } catch {
+      return "digital";
+    }
+  });
+
+  const setClockModePersist = (mode: HeroClockMode) => {
+    setClockMode(mode);
+    try {
+      localStorage.setItem(HERO_CLOCK_MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const now = new Date();
+  const firstName = currentUser.name.trim().split(/\s+/)[0] ?? "";
+
+  return (
+    <section
+      className="relative -mx-4 -mt-6 mb-12 flex w-[calc(100%+2rem)] max-w-none flex-col items-start justify-start overflow-hidden py-10 md:flex-row md:items-start md:justify-between lg:-mx-8 lg:w-[calc(100%+4rem)]"
+      aria-label="Dashboard hero"
+    >
+      <img
+        src="/Biotecc%20-%202026-159.jpg"
+        alt=""
+        decoding="async"
+        className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover object-center"
+        aria-hidden
+      />
+      <div
+        className="absolute inset-0 z-[1] bg-gradient-to-br from-[#111111]/88 via-[#0a0a0a]/72 to-[#111111]/80"
+        aria-hidden
+      />
+      <div className="relative z-10 flex w-full flex-col items-start justify-start gap-10 px-4 md:flex-row md:items-start md:justify-between lg:px-8">
+        <div className="flex min-w-0 flex-col">
+          <p className="text-[0.8rem] font-light tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+            {formatHeroLongDate(now)}
+          </p>
+          <h1 className="mt-2 font-light">
+            <span className="block text-[clamp(3rem,6vw,5rem)] leading-none text-white opacity-[0.64]">
+              {timeOfDayGreeting()}
+            </span>
+            <span className="mt-1 block text-[clamp(3rem,6vw,5rem)] leading-none text-white opacity-100">
+              {firstName}
+            </span>
+          </h1>
+        </div>
+        <div className="flex shrink-0 flex-col items-start justify-start md:self-start">
+          <div className="flex flex-col items-center">
+            <div className="mb-4 inline-flex shrink-0" style={heroClockToggleShellStyle} role="group" aria-label="Clock display mode">
+              <button
+                type="button"
+                onClick={() => setClockModePersist("digital")}
+                aria-label="Digital clock"
+                className={cn(
+                  "inline-flex items-center justify-center rounded-[16px]",
+                  clockMode === "digital" ? "bg-white text-[#111111]" : "bg-transparent text-[rgba(255,255,255,0.4)]",
+                )}
+                style={{ padding: "4px 12px" }}
+              >
+                <Clock className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => setClockModePersist("analog")}
+                aria-label="Analog clock"
+                className={cn(
+                  "inline-flex items-center justify-center rounded-[16px]",
+                  clockMode === "analog" ? "bg-white text-[#111111]" : "bg-transparent text-[rgba(255,255,255,0.4)]",
+                )}
+                style={{ padding: "4px 12px" }}
+              >
+                <Watch className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
+              </button>
+            </div>
+            <div className="flex flex-row flex-wrap items-start justify-center gap-4">
+            <div className="w-[180px] min-w-0" style={heroClockCardGlassStyle}>
+              <div className="flex min-w-0 flex-col p-[24px]">
+                <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
+                  San Francisco
+                </p>
+                {clockMode === "digital" ? (
+                  <HeroDigitalClockTime date={now} timeZone="America/Los_Angeles" />
+                ) : (
+                  <HeroAnalogClock date={now} timeZone="America/Los_Angeles" />
+                )}
+                <p className="mt-1 text-[0.7rem] font-light text-[rgba(255,255,255,0.3)]">PT</p>
+              </div>
+            </div>
+            <div className="w-[180px] min-w-0" style={heroClockCardGlassStyle}>
+              <div className="flex min-w-0 flex-col p-[24px]">
+                <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">Curitiba</p>
+                {clockMode === "digital" ? (
+                  <HeroDigitalClockTime date={now} timeZone="America/Sao_Paulo" />
+                ) : (
+                  <HeroAnalogClock date={now} timeZone="America/Sao_Paulo" />
+                )}
+                <p className="mt-1 text-[0.7rem] font-light text-[rgba(255,255,255,0.3)]">BRT</p>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export function DashboardModule() {
   const { activity, t, td, projectsByColumn, currentUser } = useAppContext();
@@ -1392,6 +1607,7 @@ export function DashboardModule() {
 
   return (
     <ModuleGuard module="dashboard">
+      <DashboardHeroSection />
       <PageHeader
         title={t("dashboard")}
         subtitle={lt("KPI overview and multi-channel activity summary")}
