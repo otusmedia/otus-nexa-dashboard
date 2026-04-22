@@ -36,12 +36,41 @@ type ProjectInvestRow = {
   name: string;
   total: number;
   paid: number;
+  remaining: number;
   completion: number;
   projectLink: string | null;
+  installmentPaid: number;
+  installmentTotal: number;
 };
 
-type LineItem = { id: string; description: string; unitCost: number; qty: number };
+type LineItem = {
+  id: string;
+  description: string;
+  unitCost: number;
+  qty: number;
+  amount: number;
+  projectId: string | null;
+  projectName: string | null;
+  isInstallment: boolean;
+  installmentCurrent: number;
+  installmentTotal: number;
+};
 type DbProject = { id: string; name: string };
+
+type DbInvoiceLineItem = {
+  id: string;
+  invoice_id: string | null;
+  description: string;
+  unit_cost: number;
+  qty: number;
+  amount: number;
+  project_id: string | null;
+  project_name: string | null;
+  is_installment: boolean;
+  installment_current: number;
+  installment_total: number;
+  invoice_status: DbInvoice["status"];
+};
 
 type InvoiceHtmlFormData = {
   from: string;
@@ -50,7 +79,14 @@ type InvoiceHtmlFormData = {
   dueDate: string;
   billedTo: string;
   purchaseOrder: string;
-  lineItems: Array<{ description: string; unitCost: number; qty: number }>;
+  lineItems: Array<{
+    description: string;
+    unitCost: number;
+    qty: number;
+    isInstallment: boolean;
+    installmentCurrent: number;
+    installmentTotal: number;
+  }>;
   subtotal: number;
   taxRate: number;
   taxAmount: number;
@@ -71,13 +107,18 @@ function buildInvoiceHtmlString(formData: InvoiceHtmlFormData, options?: { previ
   const fromDisplay = escapeHtml(formData.from || "Nexa Media Ltda | Otus Media");
   const lineRows = formData.lineItems
     .map(
-      (item) => `
+      (item) => {
+        const installmentSuffix = item.isInstallment
+          ? ` — Installment ${item.installmentCurrent} of ${item.installmentTotal}`
+          : "";
+        return `
         <tr>
-          <td>${escapeHtml(item.description)}</td>
+          <td>${escapeHtml(`${item.description}${installmentSuffix}`)}</td>
           <td class="text-right">$${parseFloat(String(item.unitCost || 0)).toFixed(2)}</td>
           <td class="text-right">${item.qty}</td>
           <td class="text-right">$${(parseFloat(String(item.unitCost || 0)) * parseFloat(String(item.qty || 0))).toFixed(2)}</td>
-        </tr>`,
+        </tr>`;
+      },
     )
     .join("");
   const poBlock = formData.purchaseOrder.trim() ? `<p>PO: ${escapeHtml(formData.purchaseOrder)}</p>` : "";
@@ -237,6 +278,7 @@ export function FinancialModule() {
   const canGenerateInvoice = currentUser?.company === "nexa" || currentUser?.company === "otus";
   const [invoices, setInvoices] = useState<DbInvoice[]>([]);
   const [projects, setProjects] = useState<DbProject[]>([]);
+  const [invoiceLineItems, setInvoiceLineItems] = useState<DbInvoiceLineItem[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -260,7 +302,18 @@ export function FinancialModule() {
   const [billedTo, setBilledTo] = useState("RocketRide Inc");
   const [purchaseOrder, setPurchaseOrder] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([
-    { id: "li-1", description: "", unitCost: 0, qty: 1 },
+    {
+      id: "li-1",
+      description: "",
+      unitCost: 0,
+      qty: 1,
+      amount: 0,
+      projectId: null,
+      projectName: null,
+      isInstallment: false,
+      installmentCurrent: 1,
+      installmentTotal: 1,
+    },
   ]);
   const [taxRate, setTaxRate] = useState(0);
   const [shipping, setShipping] = useState(0);
@@ -302,12 +355,14 @@ export function FinancialModule() {
 
   const loadFinancialData = useCallback(async () => {
     setLoadingData(true);
-    const [invRes, projRes] = await Promise.all([
+    const [invRes, projRes, lineItemsRes] = await Promise.all([
       supabase.from("invoices").select("*").order("created_at", { ascending: false }),
       supabase.from("projects").select("id,name"),
+      supabase.from("invoice_line_items").select("*, invoices(status, amount)"),
     ]);
     if (invRes.error) console.error("[financial] invoices fetch", invRes.error.message);
     if (projRes.error) console.error("[financial] projects fetch", projRes.error.message);
+    if (lineItemsRes.error) console.error("[financial] invoice line items fetch", lineItemsRes.error.message);
 
     const mappedInvoices: DbInvoice[] = ((invRes.data as Record<string, unknown>[] | null) ?? []).map((row) => {
       const project_ids = normalizeInvoiceProjectIds(row);
@@ -334,8 +389,32 @@ export function FinancialModule() {
       id: String(row.id ?? ""),
       name: String(row.name ?? ""),
     }));
+    const mappedLineItems: DbInvoiceLineItem[] = ((lineItemsRes.data as Record<string, unknown>[] | null) ?? []).map((row) => {
+      const invoiceRelation = row.invoices as Record<string, unknown> | Record<string, unknown>[] | null | undefined;
+      const invoiceRow = Array.isArray(invoiceRelation) ? invoiceRelation[0] : invoiceRelation;
+      const statusRaw = invoiceRow?.status;
+      const invoiceStatus: DbInvoice["status"] =
+        statusRaw === "paid" || statusRaw === "pending" || statusRaw === "overdue"
+          ? (statusRaw as DbInvoice["status"])
+          : "pending";
+      return {
+        id: String(row.id ?? ""),
+        invoice_id: row.invoice_id != null ? String(row.invoice_id) : null,
+        description: String(row.description ?? ""),
+        unit_cost: Number(row.unit_cost ?? 0) || 0,
+        qty: Math.max(1, Number(row.qty ?? 1) || 1),
+        amount: Number(row.amount ?? 0) || 0,
+        project_id: row.project_id != null ? String(row.project_id) : null,
+        project_name: row.project_name != null ? String(row.project_name) : null,
+        is_installment: Boolean(row.is_installment),
+        installment_current: Math.max(1, Number(row.installment_current ?? 1) || 1),
+        installment_total: Math.max(1, Number(row.installment_total ?? 1) || 1),
+        invoice_status: invoiceStatus,
+      };
+    });
     setInvoices(mappedInvoices);
     setProjects(mappedProjects);
+    setInvoiceLineItems(mappedLineItems);
     setLoadingData(false);
   }, []);
 
@@ -371,28 +450,32 @@ export function FinancialModule() {
 
   const projectRows = useMemo(
     () => {
-      const grouped = new Map<string, { total: number; paid: number; name: string; projectId: string | null }>();
-      for (const inv of invoices) {
-        const idList =
-          inv.project_ids.length > 0 ? inv.project_ids : inv.project_id ? [inv.project_id] : [];
-        if (idList.length === 0) {
-          const name = (inv.project_name ?? "").trim() || "Unassigned";
-          const key = `name:${name.toLowerCase()}`;
-          const cur = grouped.get(key) ?? { total: 0, paid: 0, name, projectId: null };
-          cur.total += inv.amount;
-          if (inv.status === "paid") cur.paid += inv.amount;
-          grouped.set(key, cur);
-          continue;
+      const grouped = new Map<
+        string,
+        { total: number; paid: number; name: string; projectId: string | null; installmentPaid: number; installmentTotal: number }
+      >();
+      for (const item of invoiceLineItems) {
+        const fallbackName = (item.project_name ?? "").trim() || "Unassigned";
+        const projectById = item.project_id ? projects.find((p) => p.id === item.project_id) : null;
+        const name = projectById?.name ?? fallbackName;
+        const key = item.project_id ? `id:${item.project_id}` : `name:${name.toLowerCase()}`;
+        const cur = grouped.get(key) ?? {
+          total: 0,
+          paid: 0,
+          name,
+          projectId: item.project_id,
+          installmentPaid: 0,
+          installmentTotal: 0,
+        };
+        cur.total += item.amount;
+        if (item.invoice_status === "paid") cur.paid += item.amount;
+        if (item.is_installment) {
+          cur.installmentTotal += 1;
+          if (item.invoice_status === "paid") {
+            cur.installmentPaid += 1;
+          }
         }
-        for (const pid of idList) {
-          const projectById = projects.find((p) => p.id === pid);
-          const name = projectById?.name ?? "Unknown project";
-          const key = `id:${pid}`;
-          const cur = grouped.get(key) ?? { total: 0, paid: 0, name, projectId: pid };
-          cur.total += inv.amount;
-          if (inv.status === "paid") cur.paid += inv.amount;
-          grouped.set(key, cur);
-        }
+        grouped.set(key, cur);
       }
       return Array.from(grouped.values()).map((agg) => {
         const completion = agg.total > 0 ? Math.round((agg.paid / agg.total) * 100) : 0;
@@ -400,12 +483,15 @@ export function FinancialModule() {
           name: agg.name,
           total: agg.total,
           paid: agg.paid,
+          remaining: agg.total - agg.paid,
           completion,
           projectLink: agg.projectId ? `/projects/${agg.projectId}` : null,
+          installmentPaid: agg.installmentPaid,
+          installmentTotal: agg.installmentTotal,
         };
       });
     },
-    [invoices, projects],
+    [invoiceLineItems, projects],
   );
 
   const summaryTotals = useMemo(() => {
@@ -417,18 +503,52 @@ export function FinancialModule() {
   }, [projectRows]);
 
   const subtotal = useMemo(
-    () => lineItems.reduce((acc, li) => acc + li.unitCost * li.qty, 0),
+    () => lineItems.reduce((acc, li) => acc + li.amount, 0),
     [lineItems],
   );
   const taxAmount = useMemo(() => (subtotal * taxRate) / 100, [subtotal, taxRate]);
   const invoiceTotal = subtotal + taxAmount + shipping;
 
-  const updateLineItem = (id: string, patch: Partial<Pick<LineItem, "description" | "unitCost" | "qty">>) => {
-    setLineItems((prev) => prev.map((li) => (li.id === id ? { ...li, ...patch } : li)));
+  const updateLineItem = (id: string, patch: Partial<Omit<LineItem, "id">>) => {
+    setLineItems((prev) =>
+      prev.map((li) => {
+        if (li.id !== id) return li;
+        const merged = { ...li, ...patch };
+        const normalizedQty = Math.max(1, Number(merged.qty) || 1);
+        const normalizedUnitCost = Number(merged.unitCost) || 0;
+        const normalizedInstallmentTotal = Math.max(1, Number(merged.installmentTotal) || 1);
+        const normalizedInstallmentCurrent = Math.min(
+          normalizedInstallmentTotal,
+          Math.max(1, Number(merged.installmentCurrent) || 1),
+        );
+        return {
+          ...merged,
+          qty: normalizedQty,
+          unitCost: normalizedUnitCost,
+          amount: normalizedUnitCost * normalizedQty,
+          installmentCurrent: normalizedInstallmentCurrent,
+          installmentTotal: normalizedInstallmentTotal,
+        };
+      }),
+    );
   };
 
   const addLineItem = () => {
-    setLineItems((prev) => [...prev, { id: `li-${Date.now()}`, description: "", unitCost: 0, qty: 1 }]);
+    setLineItems((prev) => [
+      ...prev,
+      {
+        id: `li-${Date.now()}`,
+        description: "",
+        unitCost: 0,
+        qty: 1,
+        amount: 0,
+        projectId: null,
+        projectName: null,
+        isInstallment: false,
+        installmentCurrent: 1,
+        installmentTotal: 1,
+      },
+    ]);
   };
 
   const removeLineItem = (id: string) => {
@@ -470,6 +590,9 @@ export function FinancialModule() {
       description: li.description,
       unitCost: li.unitCost,
       qty: li.qty,
+      isInstallment: li.isInstallment,
+      installmentCurrent: li.installmentCurrent,
+      installmentTotal: li.installmentTotal,
     })),
     subtotal,
     taxRate,
@@ -560,12 +683,13 @@ export function FinancialModule() {
               <th className="px-4 py-3 font-normal">{lt("Paid")}</th>
               <th className="px-4 py-3 font-normal">{lt("Remaining")}</th>
               <th className="px-4 py-3 font-normal">{lt("Completion")}</th>
+              <th className="px-4 py-3 font-normal">Installments</th>
             </tr>
           </thead>
           <tbody>
             {projectRows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-[rgba(255,255,255,0.5)]">
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-[rgba(255,255,255,0.5)]">
                   No invoices yet — generate your first invoice above
                 </td>
               </tr>
@@ -587,7 +711,7 @@ export function FinancialModule() {
                 <td className="mono-num px-4 py-3 text-sm font-light tabular-nums text-white">{formatCurrency(row.total)}</td>
                 <td className="mono-num px-4 py-3 text-sm font-light tabular-nums text-white">{formatCurrency(row.paid)}</td>
                 <td className="mono-num px-4 py-3 text-sm font-light tabular-nums text-[rgba(255,255,255,0.65)]">
-                  {formatCurrency(row.total - row.paid)}
+                  {formatCurrency(row.remaining)}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -603,6 +727,9 @@ export function FinancialModule() {
                     <span className="mono-num text-xs font-light tabular-nums text-[rgba(255,255,255,0.5)]">{row.completion}%</span>
                   </div>
                 </td>
+                <td className="px-4 py-3 text-xs font-light text-[rgba(255,255,255,0.65)]">
+                  {row.installmentTotal > 0 ? `${row.installmentPaid} of ${row.installmentTotal} installments paid` : "—"}
+                </td>
               </tr>
             ))}
             <tr className="bg-[rgba(255,255,255,0.04)]">
@@ -613,6 +740,7 @@ export function FinancialModule() {
                 {formatCurrency(summaryTotals.remaining)}
               </td>
               <td className="mono-num px-4 py-3 text-sm font-semibold tabular-nums text-white">{summaryTotals.completion}%</td>
+              <td className="px-4 py-3 text-sm font-semibold text-white">—</td>
             </tr>
           </tbody>
         </table>
@@ -830,13 +958,15 @@ export function FinancialModule() {
         </div>
 
         <div className="mt-6 overflow-x-auto rounded-[8px] border border-[var(--border)]">
-          <table className="w-full min-w-[640px]">
+          <table className="w-full min-w-[920px]">
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
                 <th className="px-3 py-2 font-normal">{lt("Description")}</th>
                 <th className="px-3 py-2 font-normal">{lt("Unit cost")}</th>
                 <th className="px-3 py-2 font-normal">{lt("Qty")}</th>
                 <th className="px-3 py-2 font-normal">{lt("Amount")}</th>
+                <th className="px-3 py-2 font-normal">Linked Project</th>
+                <th className="px-3 py-2 font-normal">Installment?</th>
                 <th className="px-3 py-2 w-10" />
               </tr>
             </thead>
@@ -870,7 +1000,73 @@ export function FinancialModule() {
                     />
                   </td>
                   <td className="mono-num px-3 py-2 text-sm font-light tabular-nums text-[rgba(255,255,255,0.75)]">
-                    {formatCurrency(li.unitCost * li.qty)}
+                    {formatCurrency(li.amount)}
+                  </td>
+                  <td className="px-3 py-2">
+                    <select
+                      className={cn(inputClass, "w-[180px]")}
+                      value={li.projectId ?? ""}
+                      onChange={(e) => {
+                        const projectId = e.target.value || null;
+                        const projectName = projectId ? projects.find((p) => p.id === projectId)?.name ?? null : null;
+                        updateLineItem(li.id, { projectId, projectName });
+                      }}
+                    >
+                      <option value="">No project</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex items-center gap-1 text-xs text-[rgba(255,255,255,0.75)]">
+                        <input
+                          type="checkbox"
+                          checked={li.isInstallment}
+                          onChange={(e) =>
+                            updateLineItem(li.id, {
+                              isInstallment: e.target.checked,
+                              installmentCurrent: 1,
+                              installmentTotal: 1,
+                            })
+                          }
+                        />
+                        Installment?
+                      </label>
+                      {li.isInstallment ? (
+                        <div className="flex items-center gap-2 text-xs text-[rgba(255,255,255,0.65)]">
+                          <input
+                            type="number"
+                            min={1}
+                            className={cn(inputClass, "mono-num w-[60px] px-2 py-1 tabular-nums")}
+                            value={li.installmentCurrent}
+                            onChange={(e) =>
+                              updateLineItem(li.id, {
+                                installmentCurrent: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                          />
+                          <span>of</span>
+                          <input
+                            type="number"
+                            min={1}
+                            className={cn(inputClass, "mono-num w-[60px] px-2 py-1 tabular-nums")}
+                            value={li.installmentTotal}
+                            onChange={(e) =>
+                              updateLineItem(li.id, {
+                                installmentTotal: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                          />
+                          <span className="text-[rgba(255,255,255,0.55)]">
+                            {`Installment ${li.installmentCurrent} of ${li.installmentTotal}`}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-3 py-2">
                     <button
@@ -1033,13 +1229,41 @@ export function FinancialModule() {
                 };
                 console.log("Inserting invoice:", invoicePayload);
 
-                const { data: insertData, error: insertError } = await supabase.from("invoices").insert([invoicePayload]);
+                const { data: insertData, error: insertError } = await supabase
+                  .from("invoices")
+                  .insert([invoicePayload])
+                  .select("id")
+                  .single();
                 console.log("Insert result:", insertData, insertError);
 
                 if (insertError) {
                   const msg = insertError.message || String(insertError);
                   console.error("[financial] Supabase insert failed:", msg, insertError);
                   setSaveError(`Could not save invoice: ${msg}`);
+                  return;
+                }
+                const invoiceId = String(insertData?.id ?? "");
+                if (!invoiceId) {
+                  setSaveError("Could not save invoice line items: missing invoice ID.");
+                  return;
+                }
+                const lineItemsPayload = lineItems.map((item) => ({
+                  invoice_id: invoiceId,
+                  description: item.description,
+                  unit_cost: item.unitCost,
+                  qty: item.qty,
+                  amount: item.amount,
+                  project_id: item.projectId || null,
+                  project_name: item.projectName || null,
+                  is_installment: item.isInstallment,
+                  installment_current: item.installmentCurrent,
+                  installment_total: item.installmentTotal,
+                }));
+                const { error: lineItemsInsertError } = await supabase.from("invoice_line_items").insert(lineItemsPayload);
+                if (lineItemsInsertError) {
+                  const msg = lineItemsInsertError.message || String(lineItemsInsertError);
+                  console.error("[financial] invoice line items insert failed:", msg, lineItemsInsertError);
+                  setSaveError(`Could not save invoice line items: ${msg}`);
                   return;
                 }
 

@@ -38,6 +38,21 @@ create table if not exists invoices (
   created_at timestamptz default now()
 );
 
+create table if not exists invoice_line_items (
+  id uuid default gen_random_uuid() primary key,
+  invoice_id uuid references invoices(id) on delete cascade,
+  description text,
+  unit_cost numeric default 0,
+  qty integer default 1,
+  amount numeric default 0,
+  project_id uuid references projects(id),
+  project_name text,
+  is_installment boolean default false,
+  installment_current integer default 1,
+  installment_total integer default 1,
+  created_at timestamptz default now()
+);
+
 create table if not exists files (
   id uuid default gen_random_uuid() primary key,
   name text not null,
@@ -174,6 +189,7 @@ alter table marketing_projects enable row level security;
 alter table marketing_tasks enable row level security;
 alter table marketing_folders enable row level security;
 alter table marketing_files enable row level security;
+alter table invoice_line_items enable row level security;
 
 drop policy if exists "marketing_strategy_select" on marketing_strategy;
 create policy "marketing_strategy_select" on marketing_strategy for select using (true);
@@ -217,6 +233,9 @@ drop policy if exists "marketing_files_update" on marketing_files;
 create policy "marketing_files_update" on marketing_files for update using (true) with check (true);
 drop policy if exists "marketing_files_delete" on marketing_files;
 create policy "marketing_files_delete" on marketing_files for delete using (true);
+
+drop policy if exists "Allow anon invoice_line_items" on invoice_line_items;
+create policy "Allow anon invoice_line_items" on invoice_line_items for all to anon using (true) with check (true);
 
 alter table marketing_projects add column if not exists budget numeric default 0;
 alter table marketing_projects add column if not exists budget_used numeric default 0;
