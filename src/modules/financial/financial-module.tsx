@@ -1895,15 +1895,6 @@ export function FinancialModule() {
           await loadFinancialData();
         }}
       />
-      <p className="mt-3 text-xs text-[rgba(255,255,255,0.35)]">
-        {`-- Create a public bucket called 'invoices' in Supabase Storage`}
-      </p>
-      <p className="text-xs text-[rgba(255,255,255,0.35)]">
-        {`alter table invoices add column if not exists project_id uuid references projects(id);`}
-      </p>
-      <p className="text-xs text-[rgba(255,255,255,0.35)]">
-        {`alter table invoices add column if not exists project_ids uuid[] default '{}';`}
-      </p>
     </ModuleGuard>
   );
 }
