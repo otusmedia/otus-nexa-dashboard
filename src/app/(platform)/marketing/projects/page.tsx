@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
 import { MoreHorizontal, Trash2, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -52,6 +52,17 @@ type MarketingProject = {
   description: string;
   tags: string[];
   attachments: Array<{ id: string; name: string; size: number; type: string }>;
+  metaCampaignId: string | null;
+  lastSyncedAt: string | null;
+};
+
+type MetaAdsCampaignOption = {
+  id: string;
+  name: string;
+  status?: string;
+  objective?: string;
+  daily_budget?: string;
+  lifetime_budget?: string;
 };
 
 const COLUMNS: Array<{ id: MarketingColumnId; label: string }> = [
@@ -98,6 +109,69 @@ function computeMarketingProgress(taskList: MarketingTask[]): number {
   return Math.round((completed / taskList.length) * 100);
 }
 
+function marketingProjectFromRow(row: Record<string, unknown>): MarketingProject {
+  const statusStr = String(row.status ?? "Planning");
+  return {
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    type: String(row.type ?? "Other"),
+    status: statusStr,
+    column: toColumn(statusStr),
+    progress: Number(row.progress ?? 0) || 0,
+    budget: Number(row.budget ?? 0) || 0,
+    budgetUsed: Number(row.budget_used ?? 0) || 0,
+    results: Number(row.results ?? 0) || 0,
+    impressions: Number(row.impressions ?? 0) || 0,
+    clicks: Number(row.clicks ?? 0) || 0,
+    owner: String(row.owner ?? ""),
+    startDate: row.campaign_period_start ? String(row.campaign_period_start) : row.start_date ? String(row.start_date) : null,
+    endDate: row.campaign_period_end ? String(row.campaign_period_end) : row.end_date ? String(row.end_date) : null,
+    description: String(row.description ?? ""),
+    tags: Array.isArray(row.tags) ? row.tags.map((item) => String(item)) : [],
+    attachments: [],
+    metaCampaignId: row.meta_campaign_id != null && String(row.meta_campaign_id) !== "" ? String(row.meta_campaign_id) : null,
+    lastSyncedAt: row.last_synced_at != null ? String(row.last_synced_at) : null,
+  };
+}
+
+function marketingPatchToDb(patch: Partial<MarketingProject>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  if (patch.name !== undefined) o.name = patch.name;
+  if (patch.type !== undefined) o.type = patch.type;
+  if (patch.status !== undefined) o.status = patch.status;
+  if (patch.owner !== undefined) o.owner = patch.owner;
+  if (patch.progress !== undefined) o.progress = patch.progress;
+  if (patch.budget !== undefined) o.budget = patch.budget;
+  if (patch.budgetUsed !== undefined) o.budget_used = patch.budgetUsed;
+  if (patch.results !== undefined) o.results = patch.results;
+  if (patch.impressions !== undefined) o.impressions = patch.impressions;
+  if (patch.clicks !== undefined) o.clicks = patch.clicks;
+  if (patch.startDate !== undefined) {
+    o.start_date = patch.startDate;
+    o.campaign_period_start = patch.startDate;
+  }
+  if (patch.endDate !== undefined) {
+    o.end_date = patch.endDate;
+    o.campaign_period_end = patch.endDate;
+  }
+  if (patch.description !== undefined) o.description = patch.description;
+  if (patch.tags !== undefined) o.tags = patch.tags;
+  if (patch.metaCampaignId !== undefined) o.meta_campaign_id = patch.metaCampaignId;
+  return o;
+}
+
+function formatMetaCampaignBudget(c: MetaAdsCampaignOption): string {
+  const life = c.lifetime_budget != null && c.lifetime_budget !== "" ? Number(c.lifetime_budget) / 100 : NaN;
+  const daily = c.daily_budget != null && c.daily_budget !== "" ? Number(c.daily_budget) / 100 : NaN;
+  if (Number.isFinite(life) && life > 0) {
+    return `Lifetime ${life.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}`;
+  }
+  if (Number.isFinite(daily) && daily > 0) {
+    return `Daily ${daily.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}`;
+  }
+  return "—";
+}
+
 export default function MarketingProjectsPage() {
   const { t } = useAppContext();
   const { t: lt } = useLanguage();
@@ -140,6 +214,29 @@ export default function MarketingProjectsPage() {
   const [campaignDescriptionSaved, setCampaignDescriptionSaved] = useState("");
   const [campaignDescriptionSavedHint, setCampaignDescriptionSavedHint] = useState(false);
   const [campaignDescriptionError, setCampaignDescriptionError] = useState("");
+  const [campaignTitleDraft, setCampaignTitleDraft] = useState("");
+  const [metaCampaignOptions, setMetaCampaignOptions] = useState<MetaAdsCampaignOption[]>([]);
+  const [metaCampaignsLoading, setMetaCampaignsLoading] = useState(false);
+  const [metaCampaignsError, setMetaCampaignsError] = useState("");
+  const [metaSyncError, setMetaSyncError] = useState("");
+  const [metaSyncing, setMetaSyncing] = useState(false);
+
+  const persistMarketingProject = useCallback(async (projectId: string, dbPayload: Record<string, unknown>) => {
+    const keys = Object.keys(dbPayload);
+    if (keys.length === 0) return true;
+    console.log("[marketing/campaigns] persistMarketingProject", projectId, dbPayload);
+    const { data, error } = await supabase.from("marketing_projects").update(dbPayload).eq("id", projectId).select("*").single();
+    if (error) {
+      console.error("[marketing/campaigns] persist failed:", error.message);
+      return false;
+    }
+    console.log("[marketing/campaigns] persist success:", data);
+    const updated = marketingProjectFromRow((data as Record<string, unknown>) ?? {});
+    setProjects((prev) =>
+      prev.map((p) => (p.id === projectId ? { ...updated, attachments: p.attachments } : p)),
+    );
+    return true;
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -159,25 +256,7 @@ export default function MarketingProjectsPage() {
         if (projectsRes.error) console.error("[supabase] marketing_projects fetch failed:", projectsRes.error.message);
         if (tasksRes.error) console.error("[supabase] marketing_tasks fetch failed:", tasksRes.error.message);
         setProjects(
-          ((projectsRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
-            id: String(row.id ?? ""),
-            name: String(row.name ?? ""),
-            type: String(row.type ?? "Other"),
-            status: String(row.status ?? "Planning"),
-            column: toColumn(String(row.status ?? "Planning")),
-            progress: Number(row.progress ?? 0) || 0,
-            budget: Number(row.budget ?? 0) || 0,
-            budgetUsed: Number(row.budget_used ?? 0) || 0,
-            results: Number(row.results ?? 0) || 0,
-            impressions: Number(row.impressions ?? 0) || 0,
-            clicks: Number(row.clicks ?? 0) || 0,
-            owner: String(row.owner ?? ""),
-            startDate: row.campaign_period_start ? String(row.campaign_period_start) : row.start_date ? String(row.start_date) : null,
-            endDate: row.campaign_period_end ? String(row.campaign_period_end) : row.end_date ? String(row.end_date) : null,
-            description: String(row.description ?? ""),
-            tags: Array.isArray(row.tags) ? row.tags.map((item) => String(item)) : [],
-            attachments: [],
-          })),
+          ((projectsRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => marketingProjectFromRow(row)),
         );
         setTasks(
           ((tasksRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
@@ -330,25 +409,7 @@ export default function MarketingProjectsPage() {
     }
     console.log("[marketing/campaigns] insert success:", data);
     const row = (data as Record<string, unknown>) ?? {};
-    const nextCampaign: MarketingProject = {
-      id: String(row.id ?? payload.id),
-      name: String(row.name ?? payload.name),
-      type: String(row.type ?? payload.type),
-      status: String(row.status ?? payload.status),
-      column: toColumn(String(row.status ?? payload.status)),
-      progress: Number(row.progress ?? payload.progress) || 0,
-      budget: Number(row.budget ?? payload.budget) || 0,
-      budgetUsed: Number(row.budget_used ?? payload.budget_used) || 0,
-      results: Number(row.results ?? payload.results) || 0,
-      impressions: Number(row.impressions ?? payload.impressions) || 0,
-      clicks: Number(row.clicks ?? payload.clicks) || 0,
-      owner: String(row.owner ?? payload.owner),
-      startDate: row.campaign_period_start ? String(row.campaign_period_start) : row.start_date ? String(row.start_date) : null,
-      endDate: row.campaign_period_end ? String(row.campaign_period_end) : row.end_date ? String(row.end_date) : null,
-      description: String(row.description ?? payload.description),
-      tags: Array.isArray(row.tags) ? row.tags.map((item) => String(item)) : [],
-      attachments: [],
-    };
+    const nextCampaign = marketingProjectFromRow({ ...row, id: row.id ?? payload.id });
     setProjects((prev) => [nextCampaign, ...prev]);
     return true;
   };
@@ -359,7 +420,7 @@ export default function MarketingProjectsPage() {
     if (ok) setProjectModalOpen(false);
   };
 
-  const onDragEnd = (result: DropResult) => {
+  const onDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId } = result;
     if (!destination) return;
     if (destination.droppableId === source.droppableId && destination.index === source.index) return;
@@ -374,10 +435,18 @@ export default function MarketingProjectsPage() {
     };
     const [movedCampaign] = nextByColumn[sourceColumn].splice(source.index, 1);
     if (!movedCampaign || movedCampaign.id !== draggableId) return;
+    const newStatus = STATUS_BY_COLUMN[destinationColumn];
+    console.log("[marketing/campaigns] drag-drop status update", movedCampaign.id, newStatus);
+    const { error } = await supabase.from("marketing_projects").update({ status: newStatus }).eq("id", movedCampaign.id);
+    if (error) {
+      console.error("[marketing/campaigns] drag-drop update failed:", error.message);
+      return;
+    }
+    console.log("[marketing/campaigns] drag-drop update success:", movedCampaign.id);
     const nextMoved = {
       ...movedCampaign,
       column: destinationColumn,
-      status: STATUS_BY_COLUMN[destinationColumn],
+      status: newStatus,
     };
     nextByColumn[destinationColumn].splice(destination.index, 0, nextMoved);
     setProjects([
@@ -387,35 +456,10 @@ export default function MarketingProjectsPage() {
       ...nextByColumn.done,
       ...nextByColumn.cancelled,
     ]);
-    void supabase
-      .from("marketing_projects")
-      .update({ status: STATUS_BY_COLUMN[destinationColumn] })
-      .eq("id", movedCampaign.id);
   };
 
-  const updateProject = (projectId: string, patch: Partial<MarketingProject>) => {
-    setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, ...patch } : p)));
-    void supabase
-      .from("marketing_projects")
-      .update({
-        name: patch.name,
-        type: patch.type,
-        owner: patch.owner,
-        end_date: patch.endDate,
-        start_date: patch.startDate,
-        description: patch.description,
-        progress: patch.progress,
-        budget: patch.budget,
-        budget_used: patch.budgetUsed,
-        results: patch.results,
-        impressions: patch.impressions,
-        clicks: patch.clicks,
-        status: patch.status,
-        tags: patch.tags,
-        campaign_period_start: patch.startDate,
-        campaign_period_end: patch.endDate,
-      })
-      .eq("id", projectId);
+  const updateProjectAttachments = (projectId: string, attachments: MarketingProject["attachments"]) => {
+    setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, attachments } : p)));
   };
 
   const updateTask = (taskId: string, patch: Partial<MarketingTask>) => {
@@ -488,40 +532,34 @@ export default function MarketingProjectsPage() {
     setNewTaskReminderNote("");
   };
 
-  const addTag = () => {
+  const addTag = async () => {
     if (!activeProject) return;
     const nextTag = tagInput.trim();
     if (!nextTag) return;
     const next = Array.from(new Set([...activeProject.tags, nextTag]));
     setTagInput("");
-    updateProject(activeProject.id, { tags: next });
+    console.log("[marketing/campaigns] addTag save", activeProject.id, next);
+    const ok = await persistMarketingProject(activeProject.id, { tags: next });
+    if (!ok) console.error("[marketing/campaigns] addTag persist failed");
   };
 
-  const removeTag = (value: string) => {
+  const removeTag = async (value: string) => {
     if (!activeProject) return;
-    updateProject(
-      activeProject.id,
-      { tags: activeProject.tags.filter((tag) => tag !== value) },
-    );
+    const next = activeProject.tags.filter((tag) => tag !== value);
+    console.log("[marketing/campaigns] removeTag save", activeProject.id, next);
+    const ok = await persistMarketingProject(activeProject.id, { tags: next });
+    if (!ok) console.error("[marketing/campaigns] removeTag persist failed");
   };
 
   const saveCampaignDescription = async () => {
     if (!activeProject) return;
     setCampaignDescriptionError("");
-    const { error } = await supabase
-      .from("marketing_projects")
-      .update({ description: campaignDescriptionDraft })
-      .eq("id", activeProject.id);
-    if (error) {
-      console.error("[supabase] marketing campaign description update failed:", error.message);
+    console.log("[marketing/campaigns] saveCampaignDescription", activeProject.id);
+    const ok = await persistMarketingProject(activeProject.id, { description: campaignDescriptionDraft });
+    if (!ok) {
       setCampaignDescriptionError("Failed to save. Try again.");
       return;
     }
-    setProjects((prev) =>
-      prev.map((project) =>
-        project.id === activeProject.id ? { ...project, description: campaignDescriptionDraft } : project,
-      ),
-    );
     setCampaignDescriptionSaved(campaignDescriptionDraft);
     setCampaignDescriptionSavedHint(true);
     window.setTimeout(() => setCampaignDescriptionSavedHint(false), 2000);
@@ -543,7 +581,7 @@ export default function MarketingProjectsPage() {
     setCampaignDelete(null);
   };
 
-  const confirmDeleteMarketingTask = () => {
+  const confirmDeleteMarketingTask = async () => {
     if (!marketingTaskDelete) return;
     const { id: taskId } = marketingTaskDelete;
     const task = tasks.find((t) => t.id === taskId);
@@ -554,25 +592,98 @@ export default function MarketingProjectsPage() {
     const projectId = task.projectId;
     const remaining = tasks.filter((t) => t.projectId === projectId && t.id !== taskId);
     const progress = computeMarketingProgress(remaining);
+    const { error: delErr } = await supabase.from("marketing_tasks").delete().eq("id", taskId);
+    if (delErr) {
+      console.error("[marketing/campaigns] marketing_tasks delete failed:", delErr.message);
+      setMarketingTaskDelete(null);
+      return;
+    }
+    console.log("[marketing/campaigns] task deleted, updating campaign progress", projectId, progress);
+    await persistMarketingProject(projectId, { progress });
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
-    setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, progress } : p)));
-    void supabase
-      .from("marketing_tasks")
-      .delete()
-      .eq("id", taskId)
-      .then(({ error }) => {
-        if (error) console.error("[supabase] marketing_tasks delete failed:", error.message);
-      });
-    void supabase
-      .from("marketing_projects")
-      .update({ progress })
-      .eq("id", projectId)
-      .then(({ error }) => {
-        if (error) console.error("[supabase] marketing campaign progress update failed:", error.message);
-      });
     if (activeTaskId === taskId) setActiveTaskId(null);
     setMarketingTaskDelete(null);
   };
+
+  const syncMetricsFromMeta = async () => {
+    if (!activeProject?.metaCampaignId) return;
+    setMetaSyncError("");
+    setMetaSyncing(true);
+    console.log("[marketing/campaigns] sync Metrics from Meta", activeProject.metaCampaignId);
+    try {
+      const params = new URLSearchParams({ campaign_id: activeProject.metaCampaignId, date_preset: "last_30d" });
+      const res = await fetch(`/api/meta-ads?${params.toString()}`);
+      const json = (await res.json()) as {
+        error?: string;
+        campaigns?: Array<{
+          amountSpent: number;
+          impressions: number;
+          clicks: number;
+          results: number;
+        }>;
+      };
+      if (!res.ok || json.error) {
+        setMetaSyncError(json.error ?? `Request failed (${res.status})`);
+        return;
+      }
+      const c = json.campaigns?.[0];
+      if (!c) {
+        setMetaSyncError("No insights data for this campaign in the selected period.");
+        return;
+      }
+      const lastSyncedAt = new Date().toISOString();
+      console.log("[marketing/campaigns] sync metrics payload", c);
+      const ok = await persistMarketingProject(activeProject.id, {
+        budget_used: c.amountSpent,
+        impressions: c.impressions,
+        clicks: c.clicks,
+        results: c.results,
+        last_synced_at: lastSyncedAt,
+      });
+      if (!ok) setMetaSyncError("Could not save synced metrics.");
+    } catch (e) {
+      console.error("[marketing/campaigns] sync metrics error:", e);
+      setMetaSyncError("Failed to fetch metrics from Meta.");
+    } finally {
+      setMetaSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!activeProject) {
+      setCampaignTitleDraft("");
+      return;
+    }
+    setCampaignTitleDraft(activeProject.name);
+  }, [activeProject?.id, activeProject?.name]);
+
+  useEffect(() => {
+    if (!activeProjectId) {
+      setMetaCampaignOptions([]);
+      setMetaCampaignsError("");
+      return;
+    }
+    let cancelled = false;
+    setMetaCampaignsLoading(true);
+    setMetaCampaignsError("");
+    console.log("[marketing/campaigns] fetch Meta campaigns list for detail panel");
+    void fetch("/api/meta-ads-campaigns")
+      .then((r) => r.json())
+      .then((data: { campaigns?: MetaAdsCampaignOption[]; error?: string }) => {
+        if (cancelled) return;
+        if (data.error) setMetaCampaignsError(data.error);
+        else setMetaCampaignOptions(Array.isArray(data.campaigns) ? data.campaigns : []);
+      })
+      .catch(() => {
+        if (!cancelled) setMetaCampaignsError("Failed to load Meta campaigns");
+      })
+      .finally(() => {
+        if (!cancelled) setMetaCampaignsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProjectId]);
 
   return (
     <ModuleGuard module="marketing">
@@ -706,8 +817,15 @@ export default function MarketingProjectsPage() {
           <div className="fixed inset-y-0 right-0 z-[90] w-full max-w-xl overflow-y-auto border-l border-[var(--border)] bg-[#111111] p-4">
             <div className="flex items-center justify-between">
               <input
-                value={activeProject.name}
-                onChange={(e) => updateProject(activeProject.id, { name: e.target.value })}
+                value={campaignTitleDraft}
+                onChange={(e) => setCampaignTitleDraft(e.target.value)}
+                onBlur={() => {
+                  if (!activeProject) return;
+                  const trimmed = campaignTitleDraft.trim();
+                  if (trimmed === activeProject.name) return;
+                  console.log("[marketing/campaigns] campaign name save", activeProject.id, trimmed);
+                  void persistMarketingProject(activeProject.id, { name: trimmed || activeProject.name });
+                }}
                 className="w-full bg-transparent text-xl text-white outline-none"
               />
               <button type="button" onClick={() => setActiveProjectId(null)} className="ml-2 rounded-md border border-[var(--border)] p-2 text-[var(--muted)]">
@@ -722,9 +840,12 @@ export default function MarketingProjectsPage() {
                   {lt("Status")}
                   <select
                     value={activeProject.status}
-                    onChange={(e) =>
-                      updateProject(activeProject.id, { status: e.target.value, column: toColumn(e.target.value) })
-                    }
+                    onChange={async (e) => {
+                      const status = e.target.value;
+                      const column = toColumn(status);
+                      console.log("[marketing/campaigns] status change", activeProject.id, status);
+                      await persistMarketingProject(activeProject.id, marketingPatchToDb({ status }));
+                    }}
                     className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                   >
                     {Object.values(STATUS_BY_COLUMN).map((value) => <option key={value}>{value}</option>)}
@@ -734,7 +855,11 @@ export default function MarketingProjectsPage() {
                   {lt("Owner")}
                   <select
                     value={activeProject.owner}
-                    onChange={(e) => updateProject(activeProject.id, { owner: e.target.value })}
+                    onChange={async (e) => {
+                      const owner = e.target.value;
+                      console.log("[marketing/campaigns] owner change", activeProject.id, owner);
+                      await persistMarketingProject(activeProject.id, marketingPatchToDb({ owner }));
+                    }}
                     className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                   >
                     {PROJECT_OWNERS.map((value) => <option key={value}>{value}</option>)}
@@ -745,7 +870,12 @@ export default function MarketingProjectsPage() {
                   <input
                     type="date"
                     value={activeProject.endDate ?? ""}
-                    onChange={(e) => updateProject(activeProject.id, { endDate: e.target.value || null })}
+                    onChange={async (e) => {
+                      const v = e.target.value || null;
+                      if (v === (activeProject.endDate ?? null)) return;
+                      console.log("[marketing/campaigns] due date save", activeProject.id, v);
+                      await persistMarketingProject(activeProject.id, marketingPatchToDb({ endDate: v }));
+                    }}
                     className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                   />
                 </label>
@@ -753,11 +883,30 @@ export default function MarketingProjectsPage() {
                   {lt("Campaign type")}
                   <select
                     value={activeProject.type}
-                    onChange={(e) => updateProject(activeProject.id, { type: e.target.value })}
+                    onChange={async (e) => {
+                      const type = e.target.value;
+                      console.log("[marketing/campaigns] type change", activeProject.id, type);
+                      await persistMarketingProject(activeProject.id, marketingPatchToDb({ type }));
+                    }}
                     className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                   >
                     {PROJECT_TYPES.map((value) => <option key={value}>{value}</option>)}
                   </select>
+                </label>
+                <label className="text-xs text-[var(--muted)]">
+                  {lt("Budget")}
+                  <input
+                    type="number"
+                    min={0}
+                    value={activeProject.budget}
+                    onChange={async (e) => {
+                      const v = Math.max(0, Number(e.target.value) || 0);
+                      if (v === activeProject.budget) return;
+                      console.log("[marketing/campaigns] budget save", activeProject.id, v);
+                      await persistMarketingProject(activeProject.id, marketingPatchToDb({ budget: v }));
+                    }}
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                  />
                 </label>
                 <label className="text-xs text-[var(--muted)]">
                   {lt("Progress")}
@@ -766,7 +915,12 @@ export default function MarketingProjectsPage() {
                     min={0}
                     max={100}
                     value={activeProject.progress}
-                    onChange={(e) => updateProject(activeProject.id, { progress: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
+                    onChange={async (e) => {
+                      const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                      if (v === activeProject.progress) return;
+                      console.log("[marketing/campaigns] progress save", activeProject.id, v);
+                      await persistMarketingProject(activeProject.id, marketingPatchToDb({ progress: v }));
+                    }}
                     className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                   />
                 </label>
@@ -818,6 +972,80 @@ export default function MarketingProjectsPage() {
             </Card>
 
             <Card className="mt-4">
+              <h3 className="section-title">META ADS LINK</h3>
+              <div className="mt-3 space-y-3">
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="min-w-0 flex-1 text-xs text-[var(--muted)]">
+                    Link to Meta Ads Campaign
+                    <select
+                      value={activeProject.metaCampaignId ?? ""}
+                      disabled={metaCampaignsLoading}
+                      onChange={async (e) => {
+                        const v = e.target.value.trim();
+                        const payload = v === "" ? { meta_campaign_id: null } : { meta_campaign_id: v };
+                        console.log("[marketing/campaigns] meta campaign link", activeProject.id, payload);
+                        const ok = await persistMarketingProject(activeProject.id, payload);
+                        if (!ok) setMetaSyncError("Failed to link Meta campaign.");
+                        else setMetaSyncError("");
+                      }}
+                      className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                    >
+                      <option value="">— None —</option>
+                      {metaCampaignOptions.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!activeProject.metaCampaignId || metaSyncing}
+                    onClick={() => void syncMetricsFromMeta()}
+                    className="shrink-0 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-elevated)] px-3 py-2 text-xs font-light text-white disabled:opacity-40"
+                  >
+                    {metaSyncing ? "Syncing…" : "Sync Metrics from Meta"}
+                  </button>
+                </div>
+                {activeProject.lastSyncedAt ? (
+                  <p className="text-xs text-[var(--muted)]">
+                    Last synced: {new Date(activeProject.lastSyncedAt).toLocaleString()}
+                  </p>
+                ) : null}
+                {metaCampaignsLoading ? <p className="text-xs text-[var(--muted)]">Loading Meta campaigns…</p> : null}
+                {metaCampaignsError ? <p className="text-xs text-[#f87171]">{metaCampaignsError}</p> : null}
+                {metaSyncError ? <p className="text-xs text-[#f87171]">{metaSyncError}</p> : null}
+                {(() => {
+                  const selectedMeta = metaCampaignOptions.find((c) => c.id === activeProject.metaCampaignId);
+                  if (!activeProject.metaCampaignId) return null;
+                  return (
+                    <div className="space-y-2">
+                      <span className="inline-flex max-w-full items-center rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.06)] px-2.5 py-1 text-xs text-white">
+                        {selectedMeta?.name ?? activeProject.metaCampaignId}
+                      </span>
+                      {selectedMeta ? (
+                        <div className="grid gap-1 text-xs text-[var(--muted)]">
+                          <p>
+                            <span className="text-[var(--muted)]">Status: </span>
+                            <span className="text-white">{selectedMeta.status ?? "—"}</span>
+                          </p>
+                          <p>
+                            <span className="text-[var(--muted)]">Objective: </span>
+                            <span className="text-white">{selectedMeta.objective ?? "—"}</span>
+                          </p>
+                          <p>
+                            <span className="text-[var(--muted)]">Budget: </span>
+                            <span className="text-white">{formatMetaCampaignBudget(selectedMeta)}</span>
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
+              </div>
+            </Card>
+
+            <Card className="mt-4">
               <h3 className="section-title">{lt("Metrics")}</h3>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <label className="text-xs text-[var(--muted)]">
@@ -826,7 +1054,12 @@ export default function MarketingProjectsPage() {
                     type="number"
                     min={0}
                     value={activeProject.budgetUsed}
-                    onChange={(e) => updateProject(activeProject.id, { budgetUsed: Number(e.target.value) || 0 })}
+                    onChange={async (e) => {
+                      const v = Math.max(0, Number(e.target.value) || 0);
+                      if (v === activeProject.budgetUsed) return;
+                      console.log("[marketing/campaigns] spend save", activeProject.id, v);
+                      await persistMarketingProject(activeProject.id, marketingPatchToDb({ budgetUsed: v }));
+                    }}
                     className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                   />
                 </label>
@@ -836,7 +1069,12 @@ export default function MarketingProjectsPage() {
                     type="number"
                     min={0}
                     value={activeProject.impressions}
-                    onChange={(e) => updateProject(activeProject.id, { impressions: Number(e.target.value) || 0 })}
+                    onChange={async (e) => {
+                      const v = Math.max(0, Number(e.target.value) || 0);
+                      if (v === activeProject.impressions) return;
+                      console.log("[marketing/campaigns] impressions save", activeProject.id, v);
+                      await persistMarketingProject(activeProject.id, marketingPatchToDb({ impressions: v }));
+                    }}
                     className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                   />
                 </label>
@@ -846,7 +1084,12 @@ export default function MarketingProjectsPage() {
                     type="number"
                     min={0}
                     value={activeProject.clicks}
-                    onChange={(e) => updateProject(activeProject.id, { clicks: Number(e.target.value) || 0 })}
+                    onChange={async (e) => {
+                      const v = Math.max(0, Number(e.target.value) || 0);
+                      if (v === activeProject.clicks) return;
+                      console.log("[marketing/campaigns] clicks save", activeProject.id, v);
+                      await persistMarketingProject(activeProject.id, marketingPatchToDb({ clicks: v }));
+                    }}
                     className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                   />
                 </label>
@@ -856,7 +1099,12 @@ export default function MarketingProjectsPage() {
                     type="number"
                     min={0}
                     value={activeProject.results}
-                    onChange={(e) => updateProject(activeProject.id, { results: Number(e.target.value) || 0 })}
+                    onChange={async (e) => {
+                      const v = Math.max(0, Number(e.target.value) || 0);
+                      if (v === activeProject.results) return;
+                      console.log("[marketing/campaigns] results save", activeProject.id, v);
+                      await persistMarketingProject(activeProject.id, marketingPatchToDb({ results: v }));
+                    }}
                     className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                   />
                 </label>
@@ -876,7 +1124,7 @@ export default function MarketingProjectsPage() {
                     size: file.size,
                     type: file.type,
                   }));
-                  updateProject(activeProject.id, { attachments: [...activeProject.attachments, ...selected] });
+                  updateProjectAttachments(activeProject.id, [...activeProject.attachments, ...selected]);
                   e.target.value = "";
                 }}
               />
@@ -887,9 +1135,7 @@ export default function MarketingProjectsPage() {
                     <button
                       type="button"
                       onClick={() =>
-                        updateProject(activeProject.id, {
-                          attachments: activeProject.attachments.filter((item) => item.id !== attachment.id),
-                        })
+                        updateProjectAttachments(activeProject.id, activeProject.attachments.filter((item) => item.id !== attachment.id))
                       }
                       className="text-[var(--muted)]"
                     >
@@ -1166,7 +1412,7 @@ export default function MarketingProjectsPage() {
           confirmLabel={lt("Delete")}
           cancelLabel={lt("Cancel")}
           onCancel={() => setMarketingTaskDelete(null)}
-          onConfirm={confirmDeleteMarketingTask}
+          onConfirm={() => void confirmDeleteMarketingTask()}
         />
 
         {taskModalOpen && activeProject ? (

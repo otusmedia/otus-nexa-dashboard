@@ -43,6 +43,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const datePreset = searchParams.get("date_preset") ?? "last_30d";
   const customRange = parseCustomSinceUntil(searchParams);
+  const campaignIdRaw = searchParams.get("campaign_id")?.trim() ?? "";
+  const campaignIdFilter = campaignIdRaw && /^[\d]+$/.test(campaignIdRaw) ? campaignIdRaw : "";
 
   if (!ACCESS_TOKEN || !AD_ACCOUNT_ID_RAW?.trim()) {
     return NextResponse.json({ error: "Meta Ads API is not configured (META_ACCESS_TOKEN, META_AD_ACCOUNT_ID)." }, { status: 503 });
@@ -60,7 +62,10 @@ export async function GET(request: Request) {
     const timeRangeParam = customRange
       ? `time_range=${encodeURIComponent(JSON.stringify({ since: customRange.sinceYmd, until: customRange.untilYmd }))}`
       : `date_preset=${encodeURIComponent(datePreset)}`;
-    const url = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${fields}&${timeRangeParam}&level=campaign&access_token=${ACCESS_TOKEN}`;
+    const filteringParam = campaignIdFilter
+      ? `&filtering=${encodeURIComponent(JSON.stringify([{ field: "campaign.id", operator: "IN", value: [campaignIdFilter] }]))}`
+      : "";
+    const url = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${fields}&${timeRangeParam}&level=campaign${filteringParam}&access_token=${ACCESS_TOKEN}`;
 
     const response = await fetch(url, { next: { revalidate: 300 } });
     const data = (await response.json()) as {

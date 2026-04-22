@@ -170,3 +170,6 @@ drop policy if exists "mkt_files_delete_v1" on marketing_files;
 create policy "mkt_files_delete_v1" on marketing_files
 for delete
 using (true);
+
+alter table marketing_projects add column if not exists meta_campaign_id text;
+alter table marketing_projects add column if not exists last_synced_at timestamptz;
