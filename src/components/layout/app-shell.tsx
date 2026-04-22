@@ -31,7 +31,6 @@ const moduleLinks: Array<{
     | "dashboard"
     | "projects"
     | "financial"
-    | "reports"
     | "marketing"
     | "calendar"
     | "crm"
@@ -43,7 +42,6 @@ const moduleLinks: Array<{
   { key: "dashboard", labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
   { key: "projects", labelKey: "projects", href: "/projects", icon: BarChart3 },
   { key: "financial", labelKey: "financial", href: "/financial", icon: Wallet },
-  { key: "reports", labelKey: "reports", href: "/reports", icon: FileText },
   { key: "marketing", labelKey: "marketing", href: "/marketing", icon: Megaphone },
   { key: "calendar", labelKey: "calendar", href: "/calendar", icon: Calendar },
   { key: "crm", labelKey: "crm", href: "/crm", icon: Briefcase },

@@ -39,8 +39,11 @@ type ProjectInvestRow = {
   remaining: number;
   completion: number;
   projectLink: string | null;
+  hasInstallments: boolean;
   installmentPaid: number;
   installmentTotal: number;
+  nonInstallmentTotal: number;
+  nonInstallmentPaid: number;
 };
 
 type LineItem = {
@@ -465,61 +468,65 @@ export function FinancialModule() {
     return [invPct, paidPct, investPct];
   }, [invoices.length, paidCount, invoices, totalInvested]);
 
-  const projectRows = useMemo(
-    () => {
-      const grouped = new Map<
-        string,
-        {
-          total: number;
-          paid: number;
-          name: string;
-          projectId: string | null;
-          installmentPaid: number;
-          installmentTotal: number;
-          hasInstallments: boolean;
-        }
-      >();
-      for (const item of invoiceLineItems) {
-        const fallbackName = (item.project_name ?? "").trim() || "Unassigned";
-        const projectById = item.project_id ? projects.find((p) => p.id === item.project_id) : null;
-        const name = projectById?.name ?? fallbackName;
-        const key = item.project_id ? `id:${item.project_id}` : `name:${name.toLowerCase()}`;
-        const cur = grouped.get(key) ?? {
-          total: 0,
-          paid: 0,
-          name,
-          projectId: item.project_id,
-          installmentPaid: 0,
-          installmentTotal: 0,
-          hasInstallments: false,
-        };
-        cur.total += item.amount;
-        if (item.invoice_status === "paid") cur.paid += item.amount;
-        if (item.is_installment) {
-          cur.hasInstallments = true;
-          cur.installmentTotal = Math.max(cur.installmentTotal, Math.max(1, Number(item.installment_total) || 1));
-          if (item.invoice_status === "paid") {
-            cur.installmentPaid += 1;
-          }
-        }
-        grouped.set(key, cur);
-      }
-      return Array.from(grouped.values()).map((agg) => {
-        const completion = agg.total > 0 ? Math.round((agg.paid / agg.total) * 100) : 0;
-        return {
-          name: agg.name,
-          total: agg.total,
-          paid: agg.paid,
-          remaining: agg.total - agg.paid,
-          completion,
-          projectLink: agg.projectId ? `/projects/${agg.projectId}` : null,
-          installmentPaid: agg.installmentPaid,
-          installmentTotal: agg.hasInstallments ? agg.installmentTotal : 0,
-        };
-      });
-    },
-    [invoiceLineItems, projects],
-  );
+  const projectRows = useMemo(() => {
+    const grouped = new Map<
+      string,
+      { name: string; projectId: string | null; installmentRows: DbInvoiceLineItem[]; nonInstallmentRows: DbInvoiceLineItem[] }
+    >();
+    for (const item of invoiceLineItems) {
+      const fallbackName = (item.project_name ?? "").trim() || "Unassigned";
+      const projectById = item.project_id ? projects.find((p) => p.id === item.project_id) : null;
+      const name = projectById?.name ?? fallbackName;
+      const key = item.project_id ? `id:${item.project_id}` : `name:${name.toLowerCase()}`;
+      const cur = grouped.get(key) ?? {
+        name,
+        projectId: item.project_id,
+        installmentRows: [] as DbInvoiceLineItem[],
+        nonInstallmentRows: [] as DbInvoiceLineItem[],
+      };
+      if (item.is_installment) cur.installmentRows.push(item);
+      else cur.nonInstallmentRows.push(item);
+      grouped.set(key, cur);
+    }
+    return Array.from(grouped.values()).map((g) => {
+      const inst = g.installmentRows;
+      const non = g.nonInstallmentRows;
+      const hasInstallments = inst.length > 0;
+
+      const installmentContractTotal = hasInstallments
+        ? Math.max(...inst.map((i) => i.amount * Math.max(1, i.installment_total)))
+        : 0;
+
+      const nonInstallmentTotalSum = non.reduce((a, i) => a + i.amount, 0);
+      const nonInstallmentPaidSum = non.filter((i) => i.invoice_status === "paid").reduce((a, i) => a + i.amount, 0);
+
+      const paidInstallments = inst.filter((i) => i.invoice_status === "paid").length;
+      const totalInstallments = hasInstallments ? Math.max(...inst.map((i) => Math.max(1, i.installment_total))) : 0;
+
+      const totalContractValue = installmentContractTotal + nonInstallmentTotalSum;
+
+      const installmentPaidSum = inst.filter((i) => i.invoice_status === "paid").reduce((a, i) => a + i.amount, 0);
+      const paidAmount = installmentPaidSum + nonInstallmentPaidSum;
+      const remaining = totalContractValue - paidAmount;
+      const completion = totalContractValue > 0 ? Math.round((paidAmount / totalContractValue) * 100) : 0;
+
+      const projectKnown = g.projectId != null && projects.some((p) => p.id === g.projectId);
+
+      return {
+        name: g.name,
+        total: totalContractValue,
+        paid: paidAmount,
+        remaining,
+        completion,
+        projectLink: projectKnown && g.projectId ? `/projects/${g.projectId}` : null,
+        hasInstallments,
+        installmentPaid: paidInstallments,
+        installmentTotal: totalInstallments,
+        nonInstallmentTotal: nonInstallmentTotalSum,
+        nonInstallmentPaid: nonInstallmentPaidSum,
+      };
+    });
+  }, [invoiceLineItems, projects]);
 
   const summaryTotals = useMemo(() => {
     const total = projectRows.reduce((a, r) => a + r.total, 0);
@@ -891,18 +898,18 @@ export function FinancialModule() {
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
               <th className="px-4 py-3 font-normal">{lt("Project")}</th>
-              <th className="px-4 py-3 font-normal">{lt("Total")}</th>
-              <th className="px-4 py-3 font-normal">{lt("Paid")}</th>
-              <th className="px-4 py-3 font-normal">{lt("Remaining")}</th>
-              <th className="px-4 py-3 font-normal">{lt("Completion")}</th>
-              <th className="px-4 py-3 font-normal">Installments</th>
+              <th className="px-4 py-3 font-normal">Total contract value</th>
+              <th className="px-4 py-3 font-normal">Paid so far</th>
+              <th className="px-4 py-3 font-normal">Remaining</th>
+              <th className="px-4 py-3 font-normal">Progress</th>
+              <th className="min-w-[220px] px-4 py-3 font-normal">Status</th>
             </tr>
           </thead>
           <tbody>
-            {projectRows.length === 0 ? (
+            {invoiceLineItems.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-sm text-[rgba(255,255,255,0.5)]">
-                  No invoices yet — generate your first invoice above
+                  No project data yet — generate invoices and link them to projects to track investment
                 </td>
               </tr>
             ) : null}
@@ -929,10 +936,7 @@ export function FinancialModule() {
                   <div className="flex items-center gap-2">
                     <div className="h-[2px] min-w-[64px] flex-1 rounded-[2px] bg-[rgba(255,255,255,0.15)]">
                       <div
-                        className={cn(
-                          "h-[2px] rounded-[2px]",
-                          row.completion > 80 ? "bg-[#ff4500]" : "bg-[rgba(255,255,255,0.35)]",
-                        )}
+                        className="h-[2px] rounded-[2px] bg-[#ff4500]"
                         style={{ width: `${Math.min(100, row.completion)}%` }}
                       />
                     </div>
@@ -940,7 +944,16 @@ export function FinancialModule() {
                   </div>
                 </td>
                 <td className="px-4 py-3 text-xs font-light text-[rgba(255,255,255,0.65)]">
-                  {row.installmentTotal > 0 ? `${row.installmentPaid} of ${row.installmentTotal} installments paid` : ""}
+                  {row.hasInstallments ? (
+                    <span>
+                      Installment {row.installmentPaid} of {row.installmentTotal} —{" "}
+                      <span className="text-[rgba(255,255,255,0.5)]">{formatCurrency(row.remaining)} remaining</span>
+                    </span>
+                  ) : (
+                    <span>
+                      {formatCurrency(row.nonInstallmentPaid)} paid of {formatCurrency(row.nonInstallmentTotal)}
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

@@ -14,7 +14,6 @@ const platformPtBR: Record<string, string> = {
   Dashboard: "Painel",
   Projects: "Projetos",
   Financial: "Financeiro",
-  Reports: "Relatórios",
   Marketing: "Marketing",
   Files: "Arquivos",
   Contracts: "Contratos",
@@ -300,24 +299,6 @@ const platformPtBR: Record<string, string> = {
   "Summary widgets and trends for social.": "Widgets de resumo e tendências para redes sociais.",
   "Summary widgets and trends for traffic.": "Widgets de resumo e tendências para tráfego.",
   "Summary widgets and trends for website.": "Widgets de resumo e tendências para o site.",
-
-  // Reports
-  "Social performance, traffic, and website analytics in dashboard/PDF views.":
-    "Performance social, tráfego e analytics do site em visualização de dashboard/PDF.",
-  "Social performance, traffic, and website analytics in dashboard/PDF views":
-    "Performance social, tráfego e analytics do site em visualização de dashboard/PDF",
-  "Social Performance": "Performance Social",
-  Traffic: "Tráfego",
-  "Upload Report": "Enviar Relatório",
-  "View Full Report": "Ver Relatório Completo",
-  "Dashboard View": "Visualização em Painel",
-  "PDF View": "Visualização em PDF",
-  updated: "atualizado",
-  draft: "rascunho",
-  PDF: "PDF",
-  "Download-ready monthly performance report in PDF format.":
-    "Relatório mensal de performance pronto para download em PDF.",
-  "Summary widgets and trends for": "Widgets de resumo e tendências para",
 
   // Marketing
   "Campaign tracking, notes/logs, and marketing report uploads.":

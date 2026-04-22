@@ -4,7 +4,6 @@ export const platformNavigation: Array<{ key: ModuleKey; href: string }> = [
   { key: "dashboard", href: "/dashboard" },
   { key: "projects", href: "/projects" },
   { key: "financial", href: "/financial" },
-  { key: "reports", href: "/reports" },
   { key: "marketing", href: "/marketing" },
   { key: "calendar", href: "/calendar" },
   { key: "crm", href: "/crm" },

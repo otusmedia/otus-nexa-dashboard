@@ -18,14 +18,14 @@ export const users: AppUser[] = [
     name: "Matheus Canci",
     role: "admin",
     company: "nexa",
-    modules: ["dashboard", "projects", "financial", "reports", "marketing", "calendar", "crm", "files", "contracts"],
+    modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
     id: "u-admin-mf",
     name: "Matheus Foletto",
     role: "admin",
     company: "otus",
-    modules: ["dashboard", "projects", "financial", "reports", "marketing", "calendar", "crm", "files", "contracts"],
+    modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
     id: "u-admin-joe",
@@ -39,7 +39,7 @@ export const users: AppUser[] = [
     name: "David Martins",
     role: "admin",
     company: "",
-    modules: ["dashboard", "projects", "financial", "reports", "marketing", "calendar", "crm", "files", "contracts"],
+    modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
     id: "u-mgr-kk",
