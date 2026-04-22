@@ -57,27 +57,62 @@ export async function GET(request: Request) {
 
   try {
     // `status` / delivery fields are not valid on the Insights `fields` param; use metrics + campaign_name only.
-    const fields =
+    const accountFields =
       "campaign_name,spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type";
-    const timeRangeParam = customRange
-      ? `time_range=${encodeURIComponent(JSON.stringify({ since: customRange.sinceYmd, until: customRange.untilYmd }))}`
-      : `date_preset=${encodeURIComponent(datePreset)}`;
-    const filteringParam = campaignIdFilter
-      ? `&filtering=${encodeURIComponent(JSON.stringify([{ field: "campaign.id", operator: "IN", value: [campaignIdFilter] }]))}`
-      : "";
-    const url = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${fields}&${timeRangeParam}&level=campaign${filteringParam}&access_token=${ACCESS_TOKEN}`;
+    const campaignInsightFields =
+      "spend,impressions,clicks,ctr,cpc,cpm,reach,actions,cost_per_action_type";
 
-    const response = await fetch(url, { next: { revalidate: 300 } });
-    const data = (await response.json()) as {
-      data?: unknown[];
-      error?: { message?: string };
-    };
+    let rows: unknown[];
+    if (campaignIdFilter) {
+      const timeRangeParam = customRange
+        ? `time_range=${encodeURIComponent(JSON.stringify({ since: customRange.sinceYmd, until: customRange.untilYmd }))}`
+        : `date_preset=${encodeURIComponent(datePreset)}`;
+      const primaryUrl = `https://graph.facebook.com/v19.0/${campaignIdFilter}/insights?fields=${campaignInsightFields}&${timeRangeParam}&access_token=${ACCESS_TOKEN}`;
 
-    if (data.error) {
-      return NextResponse.json({ error: data.error.message ?? "Meta API error" }, { status: 400 });
+      let response = await fetch(primaryUrl, { next: { revalidate: 300 } });
+      let data = (await response.json()) as {
+        data?: unknown[];
+        error?: { message?: string };
+      };
+      console.log("[meta-ads] campaign insights raw (primary):", JSON.stringify(data));
+
+      if (data.error) {
+        return NextResponse.json({ error: data.error.message ?? "Meta API error" }, { status: 400 });
+      }
+
+      rows = Array.isArray(data.data) ? data.data : [];
+      if (rows.length === 0) {
+        const fallbackUrl = `https://graph.facebook.com/v19.0/${campaignIdFilter}/insights?fields=${campaignInsightFields}&date_preset=maximum&access_token=${ACCESS_TOKEN}`;
+        response = await fetch(fallbackUrl, { next: { revalidate: 300 } });
+        data = (await response.json()) as {
+          data?: unknown[];
+          error?: { message?: string };
+        };
+        console.log("[meta-ads] campaign insights raw (fallback date_preset=maximum):", JSON.stringify(data));
+        if (data.error) {
+          return NextResponse.json({ error: data.error.message ?? "Meta API error" }, { status: 400 });
+        }
+        rows = Array.isArray(data.data) ? data.data : [];
+      }
+    } else {
+      const timeRangeParam = customRange
+        ? `time_range=${encodeURIComponent(JSON.stringify({ since: customRange.sinceYmd, until: customRange.untilYmd }))}`
+        : `date_preset=${encodeURIComponent(datePreset)}`;
+      const url = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${accountFields}&${timeRangeParam}&level=campaign&access_token=${ACCESS_TOKEN}`;
+
+      const response = await fetch(url, { next: { revalidate: 300 } });
+      const data = (await response.json()) as {
+        data?: unknown[];
+        error?: { message?: string };
+      };
+      console.log("[meta-ads] account insights raw:", JSON.stringify(data));
+
+      if (data.error) {
+        return NextResponse.json({ error: data.error.message ?? "Meta API error" }, { status: 400 });
+      }
+
+      rows = Array.isArray(data.data) ? data.data : [];
     }
-
-    const rows = Array.isArray(data.data) ? data.data : [];
     const campaigns = rows.map((c) => {
       const row = c as Record<string, unknown>;
       const actions = Array.isArray(row.actions) ? row.actions : [];
