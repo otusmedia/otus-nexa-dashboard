@@ -14,6 +14,26 @@ type StrategyRow = { id: string; content: string; updated_by: string | null; upd
 type CampaignRow = Record<string, unknown>;
 type TaskRow = Record<string, unknown>;
 
+function campaignOverviewProgressFromTasks(campaignId: string, allTasks: TaskRow[]): number {
+  const list = allTasks.filter((t) => String(t.project_id ?? "") === campaignId);
+  if (list.length === 0) return 0;
+  const completed = list.filter((t) => {
+    const st = String(t.status ?? "");
+    return st === "Done" || st === "Published";
+  }).length;
+  return Math.round((completed / list.length) * 100);
+}
+
+function campaignsOverviewStatusStyle(status: string): { backgroundColor: string; color: string } {
+  const s = status.trim().toLowerCase();
+  if (s === "planning") return { backgroundColor: "rgba(59,130,246,0.2)", color: "#3b82f6" };
+  if (s === "in progress") return { backgroundColor: "rgba(255,69,0,0.2)", color: "#FF4500" };
+  if (s === "paused") return { backgroundColor: "rgba(139,92,246,0.2)", color: "#8b5cf6" };
+  if (s === "done") return { backgroundColor: "rgba(34,197,94,0.2)", color: "#22c55e" };
+  if (s === "cancelled") return { backgroundColor: "rgba(239,68,68,0.2)", color: "#ef4444" };
+  return { backgroundColor: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.45)" };
+}
+
 export default function MarketingStrategyPage() {
   const { t, currentUser } = useAppContext();
   const { t: lt } = useLanguage();
@@ -29,7 +49,7 @@ export default function MarketingStrategyPage() {
     console.log("[marketing/strategy] fetch start: marketing_projects + marketing_tasks + marketing_strategy");
     void Promise.all([
       supabase.from("marketing_projects").select("*"),
-      supabase.from("marketing_tasks").select("*"),
+      supabase.from("marketing_tasks").select("id, project_id, status, title"),
       supabase.from("marketing_strategy").select("*").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
     ])
       .then(([projectsRes, tasksRes, strategyRes]) => {
@@ -100,6 +120,15 @@ export default function MarketingStrategyPage() {
     }, {});
   }, [campaigns, campaignTasks]);
 
+  const overviewProgressByCampaignId = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const c of campaigns) {
+      const id = String(c.id ?? "");
+      m[id] = campaignOverviewProgressFromTasks(id, campaignTasks);
+    }
+    return m;
+  }, [campaigns, campaignTasks]);
+
   const toggleCampaign = (id: string) => {
     setExpandedCampaigns((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
@@ -138,69 +167,6 @@ export default function MarketingStrategyPage() {
     <ModuleGuard module="marketing">
       <MarketingAccessGuard>
         <PageHeader title={t("marketing")} subtitle={lt("Campaign KPIs, budget allocation and strategic guidance.")} />
-
-        <Card>
-          <h2 className="section-title">{lt("Campaigns Overview")}</h2>
-          <div className="mt-3 overflow-hidden rounded-lg border border-[var(--border)]">
-            {campaigns.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-[var(--muted)]">{lt("No campaigns yet.")}</div>
-            ) : (
-              campaigns.map((campaign) => {
-                const id = String(campaign.id ?? "");
-                const isExpanded = expandedCampaigns.includes(id);
-                const status = String(campaign.status ?? "Planning");
-                const start = String(campaign.campaign_period_start ?? campaign.start_date ?? "—");
-                const end = String(campaign.campaign_period_end ?? campaign.end_date ?? "—");
-                const progress = Number(campaign.progress ?? 0) || 0;
-                const spend = Number(campaign.budget_used ?? 0) || 0;
-                const impressions = Number(campaign.impressions ?? 0) || 0;
-                const campaignResults = Number(campaign.results ?? 0) || 0;
-                return (
-                  <div key={id} className="border-b border-[var(--border)] last:border-b-0">
-                    <button
-                      type="button"
-                      onClick={() => toggleCampaign(id)}
-                      className="w-full px-4 py-3 text-left hover:bg-[var(--surface-elevated)]"
-                    >
-                      <div className="flex flex-wrap items-center gap-3">
-                        <p className="text-sm text-white">{String(campaign.name ?? "")}</p>
-                        <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[0.65rem] text-[var(--muted)]">{status}</span>
-                        <div className="min-w-[140px] flex-1">
-                          <div className="h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.08)]">
-                            <div className="h-[2px] rounded-[2px] bg-[#ff4500]" style={{ width: `${Math.min(100, progress)}%` }} />
-                          </div>
-                        </div>
-                        <span className="mono-num text-xs text-[var(--muted)]">{progress}%</span>
-                        <span className="mono-num text-xs text-[var(--muted)]">{start} — {end}</span>
-                        <span className="mono-num text-xs text-[var(--muted)]">{lt("Spend")}: {formatCurrency(spend)}</span>
-                        <span className="mono-num text-xs text-[var(--muted)]">{lt("Impressions")}: {impressions.toLocaleString("en-US")}</span>
-                        <span className="mono-num text-xs text-[var(--muted)]">{lt("Results")}: {campaignResults.toLocaleString("en-US")}</span>
-                      </div>
-                    </button>
-                    {isExpanded ? (
-                      <div className="border-t border-[var(--border)] px-4 py-2">
-                        {tasksByCampaign[id]?.length ? (
-                          <div className="space-y-1">
-                            {tasksByCampaign[id].map((task) => (
-                              <div key={String(task.id ?? "")} className="flex items-center justify-between rounded border border-[var(--border)] px-2 py-1 text-xs">
-                                <span>{String(task.title ?? "")}</span>
-                                <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[0.65rem] text-[var(--muted)]">
-                                  {String(task.status ?? "Not Started")}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-[var(--muted)]">{lt("No tasks for this campaign.")}</p>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </Card>
 
         <div className="grid gap-3 xl:grid-cols-4">
           <Card><p className="kpi-label">{lt("Active Campaigns")}</p><p className="metric-value mt-2">{activeCampaigns}</p></Card>
@@ -279,6 +245,74 @@ export default function MarketingStrategyPage() {
             <button type="button" onClick={saveStrategy} className="btn-primary rounded-lg px-3 py-1.5 text-xs">
               {lt("Save")}
             </button>
+          </div>
+        </Card>
+
+        <Card className="mt-6">
+          <h2 className="section-title">{lt("Campaigns Overview")}</h2>
+          <div className="mt-3 overflow-hidden rounded-lg border border-[var(--border)]">
+            {campaigns.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-[var(--muted)]">{lt("No campaigns yet.")}</div>
+            ) : (
+              campaigns.map((campaign) => {
+                const id = String(campaign.id ?? "");
+                const isExpanded = expandedCampaigns.includes(id);
+                const status = String(campaign.status ?? "Planning");
+                const start = String(campaign.campaign_period_start ?? campaign.start_date ?? "—");
+                const end = String(campaign.campaign_period_end ?? campaign.end_date ?? "—");
+                const progress = overviewProgressByCampaignId[id] ?? 0;
+                const spend = Number(campaign.budget_used ?? 0) || 0;
+                const impressions = Number(campaign.impressions ?? 0) || 0;
+                const campaignResults = Number(campaign.results ?? 0) || 0;
+                return (
+                  <div key={id} className="border-b border-[var(--border)] last:border-b-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleCampaign(id)}
+                      className="w-full px-4 py-3 text-left hover:bg-[var(--surface-elevated)]"
+                    >
+                      <div className="flex flex-wrap items-center gap-3">
+                        <p className="text-sm text-white">{String(campaign.name ?? "")}</p>
+                        <span
+                          className="rounded-full px-2 py-0.5 text-[0.65rem] font-medium"
+                          style={campaignsOverviewStatusStyle(status)}
+                        >
+                          {status}
+                        </span>
+                        <div className="min-w-[140px] flex-1">
+                          <div className="h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.08)]">
+                            <div className="h-[2px] rounded-[2px] bg-[#ff4500]" style={{ width: `${Math.min(100, progress)}%` }} />
+                          </div>
+                        </div>
+                        <span className="mono-num shrink-0 text-xs text-[var(--muted)]">{progress}%</span>
+                        <span className="mono-num text-xs text-[var(--muted)]">{start} — {end}</span>
+                        <span className="mono-num text-xs text-[var(--muted)]">{lt("Spend")}: {formatCurrency(spend)}</span>
+                        <span className="mono-num text-xs text-[var(--muted)]">{lt("Impressions")}: {impressions.toLocaleString("en-US")}</span>
+                        <span className="mono-num text-xs text-[var(--muted)]">{lt("Results")}: {campaignResults.toLocaleString("en-US")}</span>
+                      </div>
+                    </button>
+                    {isExpanded ? (
+                      <div className="border-t border-[var(--border)] px-4 py-2">
+                        {tasksByCampaign[id]?.length ? (
+                          <div className="space-y-1">
+                            {tasksByCampaign[id].map((task) => (
+                              <div key={String(task.id ?? "")} className="flex items-center justify-between rounded border border-[var(--border)] px-2 py-1 text-xs">
+                                <span>{String(task.title ?? "")}</span>
+                                <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[0.65rem] text-[var(--muted)]">
+                                  {String(task.status ?? "Not Started")}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-[var(--muted)]">{lt("No tasks for this campaign.")}</p>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })
+            )}
           </div>
         </Card>
       </MarketingAccessGuard>

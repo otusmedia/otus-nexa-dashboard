@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
-import { MoreHorizontal, Trash2, X } from "lucide-react";
+import { Download, Eye, File, FileImage, FileText, FileVideo, MoreHorizontal, Trash2, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { ModuleGuard } from "@/components/layout/module-guard";
 import { useAppContext } from "@/components/providers/app-providers";
@@ -16,6 +16,15 @@ import { MarketingAccessGuard } from "../_components/marketing-access-guard";
 type MarketingColumnId = "planning" | "in_progress" | "paused" | "done" | "cancelled";
 type MarketingTaskStatus = "Not Started" | "In Progress" | "Waiting for Approval" | "Done" | "Scheduled" | "Published";
 type MarketingTaskPriority = "Low" | "Medium" | "High" | "Urgent";
+
+type TaskAttachment = {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  url: string;
+  storagePath: string;
+};
 
 type MarketingTask = {
   id: string;
@@ -31,7 +40,7 @@ type MarketingTask = {
   shortDescription: string;
   reminderAt: string | null;
   reminderNote: string;
-  attachments: Array<{ id: string; name: string; size: number; type: string }>;
+  attachments: TaskAttachment[];
 };
 
 type MarketingProject = {
@@ -107,6 +116,83 @@ function computeMarketingProgress(taskList: MarketingTask[]): number {
   if (taskList.length === 0) return 0;
   const completed = taskList.filter((t) => t.status === "Done" || t.status === "Published").length;
   return Math.round((completed / taskList.length) * 100);
+}
+
+function getTaskAttachmentStoragePathFromUrl(url: string): string {
+  const marker = "/storage/v1/object/public/task-attachments/";
+  const idx = url.indexOf(marker);
+  if (idx === -1) return "";
+  return decodeURIComponent(url.slice(idx + marker.length));
+}
+
+function taskAttachmentFromRow(row: Record<string, unknown>): TaskAttachment {
+  const url = String(row.url ?? "");
+  return {
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    size: Number(row.size ?? 0) || 0,
+    type: String(row.type ?? ""),
+    url,
+    storagePath: getTaskAttachmentStoragePathFromUrl(url),
+  };
+}
+
+function taskAttachmentKind(attachment: TaskAttachment): "pdf" | "image" | "video" | "other" {
+  const type = attachment.type.toLowerCase();
+  const ext = attachment.name.split(".").pop()?.toLowerCase() ?? "";
+  if (type.includes("pdf") || ext === "pdf") return "pdf";
+  if (type.startsWith("image/") || ["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) return "image";
+  if (type.startsWith("video/") || ["mp4", "mov", "webm"].includes(ext)) return "video";
+  return "other";
+}
+
+function formatAttachmentSize(size: number): string {
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  if (size >= 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${size} B`;
+}
+
+function marketingTaskFromRow(row: Record<string, unknown>): MarketingTask {
+  return {
+    id: String(row.id ?? ""),
+    projectId: String(row.project_id ?? ""),
+    title: String(row.title ?? ""),
+    description: String(row.description ?? ""),
+    status: TASK_STATUSES.includes(String(row.status ?? "") as MarketingTaskStatus)
+      ? (String(row.status) as MarketingTaskStatus)
+      : "Not Started",
+    priority: TASK_PRIORITIES.includes(String(row.priority ?? "") as MarketingTaskPriority)
+      ? (String(row.priority) as MarketingTaskPriority)
+      : "Medium",
+    owner: String(row.assigned_to ?? ""),
+    dueDate: row.due_date ? String(row.due_date) : null,
+    isFeatured: Boolean(row.is_featured),
+    coverImage: row.cover_image ? String(row.cover_image) : null,
+    shortDescription: String(row.short_description ?? ""),
+    reminderAt: row.reminder_at ? String(row.reminder_at) : null,
+    reminderNote: String(row.reminder_note ?? ""),
+    attachments: [],
+  };
+}
+
+function progressForCampaign(campaignId: string, allTasks: MarketingTask[]): number {
+  return computeMarketingProgress(allTasks.filter((t) => t.projectId === campaignId));
+}
+
+function marketingTaskPatchToDb(patch: Partial<MarketingTask>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  if (patch.title !== undefined) o.title = patch.title;
+  if (patch.description !== undefined) o.description = patch.description;
+  if (patch.status !== undefined) o.status = patch.status;
+  if (patch.priority !== undefined) o.priority = patch.priority;
+  if (patch.owner !== undefined) o.assigned_to = patch.owner;
+  if (patch.dueDate !== undefined) o.due_date = patch.dueDate;
+  if (patch.isFeatured !== undefined) o.is_featured = patch.isFeatured;
+  if (patch.coverImage !== undefined) o.cover_image = patch.coverImage;
+  if (patch.shortDescription !== undefined) o.short_description = patch.shortDescription;
+  if (patch.reminderAt !== undefined) o.reminder_at = patch.reminderAt;
+  if (patch.reminderNote !== undefined) o.reminder_note = patch.reminderNote;
+  return o;
 }
 
 function marketingProjectFromRow(row: Record<string, unknown>): MarketingProject {
@@ -204,6 +290,8 @@ export default function MarketingProjectsPage() {
   const [newTaskReminderDate, setNewTaskReminderDate] = useState("");
   const [newTaskReminderTime, setNewTaskReminderTime] = useState("");
   const [newTaskReminderNote, setNewTaskReminderNote] = useState("");
+  const [newTaskDescription, setNewTaskDescription] = useState("");
+  const [taskModalError, setTaskModalError] = useState("");
 
   const [tagInput, setTagInput] = useState("");
   const [campaignMenuOpenId, setCampaignMenuOpenId] = useState<string | null>(null);
@@ -220,6 +308,9 @@ export default function MarketingProjectsPage() {
   const [metaCampaignsError, setMetaCampaignsError] = useState("");
   const [metaSyncError, setMetaSyncError] = useState("");
   const [metaSyncing, setMetaSyncing] = useState(false);
+  const [taskAttachmentError, setTaskAttachmentError] = useState("");
+  const [taskAttachmentUploading, setTaskAttachmentUploading] = useState(false);
+  const [previewAttachment, setPreviewAttachment] = useState<TaskAttachment | null>(null);
 
   const persistMarketingProject = useCallback(async (projectId: string, dbPayload: Record<string, unknown>) => {
     const keys = Object.keys(dbPayload);
@@ -243,7 +334,7 @@ export default function MarketingProjectsPage() {
     console.log("[marketing/campaigns] fetch start: marketing_projects + marketing_tasks");
     void Promise.all([
       supabase.from("marketing_projects").select("*").order("created_at", { ascending: false }),
-      supabase.from("marketing_tasks").select("*").order("created_at", { ascending: false }),
+      supabase.from("marketing_tasks").select("*").order("created_at", { ascending: true }),
     ])
       .then(([projectsRes, tasksRes]) => {
         if (!mounted) return;
@@ -258,28 +349,7 @@ export default function MarketingProjectsPage() {
         setProjects(
           ((projectsRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => marketingProjectFromRow(row)),
         );
-        setTasks(
-          ((tasksRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
-            id: String(row.id ?? ""),
-            projectId: String(row.project_id ?? ""),
-            title: String(row.title ?? ""),
-            description: String(row.description ?? ""),
-            status: TASK_STATUSES.includes(String(row.status ?? "") as MarketingTaskStatus)
-              ? (String(row.status) as MarketingTaskStatus)
-              : "Not Started",
-            priority: TASK_PRIORITIES.includes(String(row.priority ?? "") as MarketingTaskPriority)
-              ? (String(row.priority) as MarketingTaskPriority)
-              : "Medium",
-            owner: String(row.assigned_to ?? ""),
-            dueDate: row.due_date ? String(row.due_date) : null,
-            isFeatured: Boolean(row.is_featured),
-            coverImage: row.cover_image ? String(row.cover_image) : null,
-            shortDescription: String(row.short_description ?? ""),
-            reminderAt: row.reminder_at ? String(row.reminder_at) : null,
-            reminderNote: String(row.reminder_note ?? ""),
-            attachments: [],
-          })),
-        );
+        setTasks(((tasksRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => marketingTaskFromRow(row)));
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -312,6 +382,31 @@ export default function MarketingProjectsPage() {
     if (taskId) setActiveTaskId(taskId);
   }, [searchParams, projects]);
 
+  useEffect(() => {
+    if (!activeProjectId) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("marketing_tasks")
+        .select("*")
+        .eq("project_id", activeProjectId)
+        .order("created_at", { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        console.error("[marketing/campaigns] marketing_tasks panel fetch failed:", error.message);
+        return;
+      }
+      const mapped = ((data as Array<Record<string, unknown>> | null) ?? []).map((row) => marketingTaskFromRow(row));
+      setTasks((prev) => {
+        const rest = prev.filter((t) => t.projectId !== activeProjectId);
+        return [...rest, ...mapped];
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProjectId]);
+
   const projectsByColumn = useMemo(
     () =>
       COLUMNS.reduce(
@@ -328,6 +423,14 @@ export default function MarketingProjectsPage() {
     [projectsByColumn],
   );
 
+  const kanbanCampaignProgressPct = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of projects) {
+      map.set(p.id, progressForCampaign(p.id, tasks));
+    }
+    return map;
+  }, [projects, tasks]);
+
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) ?? null,
     [projects, activeProjectId],
@@ -340,6 +443,39 @@ export default function MarketingProjectsPage() {
     () => projectTasks.find((task) => task.id === activeTaskId) ?? null,
     [projectTasks, activeTaskId],
   );
+
+  useEffect(() => {
+    if (!activeTaskId) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("task_attachments")
+        .select("*")
+        .eq("task_id", activeTaskId)
+        .order("created_at", { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        console.error("[marketing/campaigns] task_attachments fetch failed:", error.message);
+        setTaskAttachmentError("Failed to load task attachments.");
+        return;
+      }
+      setTaskAttachmentError("");
+      const attachments = ((data as Array<Record<string, unknown>> | null) ?? []).map((row) => taskAttachmentFromRow(row));
+      setTasks((prev) => prev.map((task) => (task.id === activeTaskId ? { ...task, attachments } : task)));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTaskId]);
+
+  useEffect(() => {
+    if (!previewAttachment) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreviewAttachment(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [previewAttachment]);
 
   useEffect(() => {
     if (!activeProject) {
@@ -462,64 +598,160 @@ export default function MarketingProjectsPage() {
     setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, attachments } : p)));
   };
 
-  const updateTask = (taskId: string, patch: Partial<MarketingTask>) => {
-    setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, ...patch } : task)));
-    void supabase
-      .from("marketing_tasks")
-      .update({
-        title: patch.title,
-        description: patch.description,
-        status: patch.status,
-        priority: patch.priority,
-        assigned_to: patch.owner,
-        due_date: patch.dueDate,
-        is_featured: patch.isFeatured,
-        cover_image: patch.coverImage,
-        short_description: patch.shortDescription,
-        reminder_at: patch.reminderAt,
-        reminder_note: patch.reminderNote,
-      })
-      .eq("id", taskId);
+  const downloadTaskAttachment = (attachment: TaskAttachment) => {
+    const a = document.createElement("a");
+    a.href = attachment.url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.download = attachment.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   };
 
-  const createTask = (event: React.FormEvent) => {
+  const openTaskAttachment = (attachment: TaskAttachment) => {
+    if (taskAttachmentKind(attachment) === "other") {
+      downloadTaskAttachment(attachment);
+      return;
+    }
+    setPreviewAttachment(attachment);
+  };
+
+  const uploadTaskAttachments = async (taskId: string, files: File[]) => {
+    if (files.length === 0) return;
+    setTaskAttachmentUploading(true);
+    setTaskAttachmentError("");
+    const uploaded: TaskAttachment[] = [];
+    for (const file of files) {
+      const filePath = `${taskId}/${Date.now()}-${file.name}`;
+      const { data: storageData, error: storageError } = await supabase.storage
+        .from("task-attachments")
+        .upload(filePath, file, { cacheControl: "3600", upsert: false });
+      if (storageError || !storageData?.path) {
+        console.error("[marketing/campaigns] task attachment upload failed:", storageError?.message);
+        setTaskAttachmentError(storageError?.message || "Failed to upload attachment.");
+        continue;
+      }
+      const { data: urlData } = supabase.storage.from("task-attachments").getPublicUrl(storageData.path);
+      const { data: row, error: insertError } = await supabase
+        .from("task_attachments")
+        .insert([
+          {
+            task_id: taskId,
+            name: file.name,
+            url: urlData.publicUrl,
+            type: file.type,
+            size: file.size,
+          },
+        ])
+        .select("*")
+        .single();
+      if (insertError) {
+        console.error("[marketing/campaigns] task_attachments insert failed:", insertError.message);
+        setTaskAttachmentError(insertError.message || "Failed to save attachment metadata.");
+        await supabase.storage.from("task-attachments").remove([storageData.path]);
+        continue;
+      }
+      uploaded.push(taskAttachmentFromRow((row as Record<string, unknown>) ?? {}));
+    }
+    if (uploaded.length > 0) {
+      setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, attachments: [...task.attachments, ...uploaded] } : task)));
+    }
+    setTaskAttachmentUploading(false);
+  };
+
+  const deleteTaskAttachment = async (taskId: string, attachment: TaskAttachment) => {
+    setTaskAttachmentError("");
+    if (attachment.storagePath) {
+      const { error: storageError } = await supabase.storage.from("task-attachments").remove([attachment.storagePath]);
+      if (storageError) {
+        console.error("[marketing/campaigns] task attachment storage delete failed:", storageError.message);
+        setTaskAttachmentError(storageError.message || "Failed to delete attachment from storage.");
+        return;
+      }
+    }
+    const { error } = await supabase.from("task_attachments").delete().eq("id", attachment.id);
+    if (error) {
+      console.error("[marketing/campaigns] task_attachments delete failed:", error.message);
+      setTaskAttachmentError(error.message || "Failed to delete attachment metadata.");
+      return;
+    }
+    setTasks((prev) =>
+      prev.map((task) =>
+        task.id === taskId ? { ...task, attachments: task.attachments.filter((item) => item.id !== attachment.id) } : task,
+      ),
+    );
+  };
+
+  const updateTask = async (taskId: string, patch: Partial<MarketingTask>) => {
+    const existing = tasks.find((t) => t.id === taskId);
+    if (!existing) return false;
+
+    const dbPayload = marketingTaskPatchToDb(patch);
+    if (Object.keys(dbPayload).length === 0) {
+      setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, ...patch } : task)));
+      return true;
+    }
+
+    const prevTasks = tasks;
+    const merged: MarketingTask = { ...existing, ...patch };
+    const nextTasks = tasks.map((t) => (t.id === taskId ? merged : t));
+    setTasks(nextTasks);
+
+    const { error } = await supabase.from("marketing_tasks").update(dbPayload).eq("id", taskId);
+    if (error) {
+      console.error("[marketing/campaigns] marketing_tasks update failed:", error.message);
+      setTasks(prevTasks);
+      return false;
+    }
+
+    if (patch.status !== undefined) {
+      const prog = progressForCampaign(merged.projectId, nextTasks);
+      await persistMarketingProject(merged.projectId, { progress: prog });
+    }
+    return true;
+  };
+
+  const createTask = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!activeProject || !newTaskTitle.trim()) return;
-    const id = crypto.randomUUID();
     const reminderAt =
       newTaskReminderEnabled && newTaskReminderDate && newTaskReminderTime
         ? new Date(`${newTaskReminderDate}T${newTaskReminderTime}:00`).toISOString()
         : null;
-    const next: MarketingTask = {
-      id,
-      projectId: activeProject.id,
-      title: newTaskTitle.trim(),
-      description: "",
-      status: newTaskStatus,
-      priority: newTaskPriority,
-      owner: newTaskOwner,
-      dueDate: newTaskDueDate || null,
-      isFeatured: false,
-      coverImage: null,
-      shortDescription: "",
-      reminderAt,
-      reminderNote: newTaskReminderEnabled ? newTaskReminderNote.trim() : "",
-      attachments: [],
-    };
-    setTasks((prev) => [next, ...prev]);
-    void supabase.from("marketing_tasks").insert({
-      id,
+    const title = newTaskTitle.trim();
+    const description = newTaskDescription.trim();
+    const dueDate = newTaskDueDate || null;
+    const reminderNote = newTaskReminderEnabled ? newTaskReminderNote.trim() : "";
+
+    const insertRow = {
       project_id: activeProject.id,
-      title: next.title,
-      status: next.status,
-      priority: next.priority,
-      assigned_to: next.owner,
-      due_date: next.dueDate,
+      title,
+      status: newTaskStatus,
+      assigned_to: newTaskOwner,
+      due_date: dueDate,
+      priority: newTaskPriority,
+      description,
       is_featured: false,
       short_description: "",
       reminder_at: reminderAt,
-      reminder_note: newTaskReminderEnabled ? newTaskReminderNote.trim() : null,
-    });
+      reminder_note: newTaskReminderEnabled ? reminderNote || null : null,
+    };
+
+    const { data, error } = await supabase.from("marketing_tasks").insert([insertRow]).select().single();
+    if (error) {
+      console.error("[marketing/campaigns] marketing_tasks insert failed:", error.message);
+      setTaskModalError(error.message || "Failed to save task. Please try again.");
+      return;
+    }
+
+    setTaskModalError("");
+    const mapped = marketingTaskFromRow((data as Record<string, unknown>) ?? {});
+    const nextTasks = [...tasks, mapped];
+    setTasks(nextTasks);
+    const prog = progressForCampaign(activeProject.id, nextTasks);
+    await persistMarketingProject(activeProject.id, { progress: prog });
+
     setTaskModalOpen(false);
     setNewTaskTitle("");
     setNewTaskOwner("Matheus Foletto");
@@ -530,6 +762,7 @@ export default function MarketingProjectsPage() {
     setNewTaskReminderDate("");
     setNewTaskReminderTime("");
     setNewTaskReminderNote("");
+    setNewTaskDescription("");
   };
 
   const addTag = async () => {
@@ -781,7 +1014,10 @@ export default function MarketingProjectsPage() {
                                       <p className="pr-8 text-sm text-white">{project.name}</p>
                                       <p className="mt-1 text-xs text-[var(--muted)]">{project.owner}</p>
                                       <div className="mt-3 h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.12)]">
-                                        <div className="h-[2px] rounded-[2px] bg-[#ff4500]" style={{ width: `${project.progress}%` }} />
+                                        <div
+                                          className="h-[2px] rounded-[2px] bg-[#ff4500]"
+                                          style={{ width: `${Math.min(100, kanbanCampaignProgressPct.get(project.id) ?? 0)}%` }}
+                                        />
                                       </div>
                                       <p className="mt-2 text-xs text-[var(--muted)]">
                                         {lt("Due")}: <span className="mono-num">{project.endDate ?? "—"}</span>
@@ -1173,7 +1409,15 @@ export default function MarketingProjectsPage() {
             <Card className="mt-4">
               <div className="flex items-center justify-between">
                 <h3 className="section-title">{lt("Tasks")}</h3>
-                <button type="button" onClick={() => setTaskModalOpen(true)} className="btn-primary rounded-lg px-3 py-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTaskModalError("");
+                    setNewTaskDescription("");
+                    setTaskModalOpen(true);
+                  }}
+                  className="btn-primary rounded-lg px-3 py-1.5 text-xs"
+                >
                   {lt("New Task")}
                 </button>
               </div>
@@ -1202,7 +1446,7 @@ export default function MarketingProjectsPage() {
                         <td className="px-2 py-2">
                           <select
                             value={task.status}
-                            onChange={(e) => updateTask(task.id, { status: e.target.value as MarketingTaskStatus })}
+                            onChange={(e) => void updateTask(task.id, { status: e.target.value as MarketingTaskStatus })}
                             className="rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-1.5 py-1 text-xs text-white"
                           >
                             {TASK_STATUSES.map((value) => <option key={value}>{value}</option>)}
@@ -1211,7 +1455,7 @@ export default function MarketingProjectsPage() {
                         <td className="px-2 py-2">
                           <select
                             value={task.priority}
-                            onChange={(e) => updateTask(task.id, { priority: e.target.value as MarketingTaskPriority })}
+                            onChange={(e) => void updateTask(task.id, { priority: e.target.value as MarketingTaskPriority })}
                             className="rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-1.5 py-1 text-xs text-white"
                           >
                             {TASK_PRIORITIES.map((value) => <option key={value}>{value}</option>)}
@@ -1242,18 +1486,18 @@ export default function MarketingProjectsPage() {
                 <h3 className="section-title">{lt("Task detail")}</h3>
                 <input
                   value={activeTask.title}
-                  onChange={(e) => updateTask(activeTask.id, { title: e.target.value })}
+                  onChange={(e) => void updateTask(activeTask.id, { title: e.target.value })}
                   className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 />
                 <textarea
                   value={activeTask.description}
-                  onChange={(e) => updateTask(activeTask.id, { description: e.target.value })}
+                  onChange={(e) => void updateTask(activeTask.id, { description: e.target.value })}
                   rows={3}
                   className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 />
                 <textarea
                   value={activeTask.shortDescription}
-                  onChange={(e) => updateTask(activeTask.id, { shortDescription: e.target.value })}
+                  onChange={(e) => void updateTask(activeTask.id, { shortDescription: e.target.value })}
                   rows={2}
                   placeholder={lt("Brief description of this work...")}
                   className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
@@ -1262,7 +1506,7 @@ export default function MarketingProjectsPage() {
                   <input
                     type="checkbox"
                     checked={activeTask.isFeatured}
-                    onChange={(e) => updateTask(activeTask.id, { isFeatured: e.target.checked })}
+                    onChange={(e) => void updateTask(activeTask.id, { isFeatured: e.target.checked })}
                   />
                   {lt("Is Featured")}
                 </label>
@@ -1273,7 +1517,7 @@ export default function MarketingProjectsPage() {
                       type="checkbox"
                       checked={Boolean(activeTask.reminderAt)}
                       onChange={(e) =>
-                        updateTask(activeTask.id, {
+                        void updateTask(activeTask.id, {
                           reminderAt: e.target.checked
                             ? activeTask.reminderAt ?? new Date().toISOString()
                             : null,
@@ -1291,7 +1535,7 @@ export default function MarketingProjectsPage() {
                           const current = new Date(activeTask.reminderAt ?? new Date().toISOString());
                           const [y, m, d] = e.target.value.split("-").map(Number);
                           current.setUTCFullYear(y, (m || 1) - 1, d || 1);
-                          updateTask(activeTask.id, { reminderAt: current.toISOString() });
+                          void updateTask(activeTask.id, { reminderAt: current.toISOString() });
                         }}
                         className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                       />
@@ -1302,13 +1546,13 @@ export default function MarketingProjectsPage() {
                           const current = new Date(activeTask.reminderAt ?? new Date().toISOString());
                           const [hh, mm] = e.target.value.split(":").map(Number);
                           current.setUTCHours(hh || 0, mm || 0, 0, 0);
-                          updateTask(activeTask.id, { reminderAt: current.toISOString() });
+                          void updateTask(activeTask.id, { reminderAt: current.toISOString() });
                         }}
                         className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                       />
                       <textarea
                         value={activeTask.reminderNote}
-                        onChange={(e) => updateTask(activeTask.id, { reminderNote: e.target.value })}
+                        onChange={(e) => void updateTask(activeTask.id, { reminderNote: e.target.value })}
                         placeholder={lt("What to check or do")}
                         rows={2}
                         className="md:col-span-2 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
@@ -1321,18 +1565,111 @@ export default function MarketingProjectsPage() {
                   multiple
                   className="mt-2 block w-full text-xs text-[var(--muted)]"
                   onChange={(e) => {
-                    const selected = Array.from(e.target.files ?? []).map((file) => ({
-                      id: crypto.randomUUID(),
-                      name: file.name,
-                      size: file.size,
-                      type: file.type,
-                    }));
-                    updateTask(activeTask.id, { attachments: [...activeTask.attachments, ...selected] });
+                    const files = Array.from(e.target.files ?? []);
+                    void uploadTaskAttachments(activeTask.id, files);
                     e.target.value = "";
                   }}
                 />
+                {taskAttachmentUploading ? <p className="mt-2 text-xs text-[var(--muted)]">{lt("Uploading attachments...")}</p> : null}
+                {taskAttachmentError ? <p className="mt-2 text-xs text-[#f87171]">{taskAttachmentError}</p> : null}
+                <div className="mt-2 space-y-1">
+                  {activeTask.attachments.map((attachment) => {
+                    const kind = taskAttachmentKind(attachment);
+                    const icon =
+                      kind === "pdf" ? (
+                        <FileText className="h-4 w-4 text-[var(--muted)]" />
+                      ) : kind === "image" ? (
+                        <FileImage className="h-4 w-4 text-[var(--muted)]" />
+                      ) : kind === "video" ? (
+                        <FileVideo className="h-4 w-4 text-[var(--muted)]" />
+                      ) : (
+                        <File className="h-4 w-4 text-[var(--muted)]" />
+                      );
+                    return (
+                      <div key={attachment.id} className="flex items-center gap-2 rounded border border-[var(--border)] px-2 py-1.5 text-xs">
+                        <span className="shrink-0">{icon}</span>
+                        <button
+                          type="button"
+                          onClick={() => openTaskAttachment(attachment)}
+                          className="min-w-0 flex-1 truncate text-left text-white hover:underline"
+                          title={attachment.name}
+                        >
+                          {attachment.name}
+                        </button>
+                        <span className="mono-num shrink-0 text-[var(--muted)]">{formatAttachmentSize(attachment.size)}</span>
+                        <button
+                          type="button"
+                          onClick={() => openTaskAttachment(attachment)}
+                          className="rounded p-1 text-[var(--muted)] hover:text-white"
+                          aria-label={lt("Preview")}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => downloadTaskAttachment(attachment)}
+                          className="rounded p-1 text-[var(--muted)] hover:text-white"
+                          aria-label={lt("Download")}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteTaskAttachment(activeTask.id, attachment)}
+                          className="rounded p-1 text-[var(--muted)] hover:text-[#ef4444]"
+                          aria-label={lt("Delete attachment")}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               </Card>
             ) : null}
+          </div>
+        ) : null}
+
+        {previewAttachment ? (
+          <div
+            className="fixed inset-0 z-[110] flex items-center justify-center bg-[rgba(0,0,0,0.9)] p-4"
+            onClick={() => setPreviewAttachment(null)}
+          >
+            <div
+              className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-lg border border-[var(--border)] bg-[#0f0f0f]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+                <p className="min-w-0 flex-1 truncate text-sm text-white">{previewAttachment.name}</p>
+                <button
+                  type="button"
+                  onClick={() => downloadTaskAttachment(previewAttachment)}
+                  className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 text-xs text-white hover:bg-[var(--surface-elevated)]"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {lt("Download")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewAttachment(null)}
+                  className="rounded p-1 text-[var(--muted)] hover:text-white"
+                  aria-label={lt("Close preview")}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex max-h-[calc(90vh-54px)] min-h-[60vh] items-center justify-center p-4">
+                {taskAttachmentKind(previewAttachment) === "pdf" ? (
+                  <iframe src={previewAttachment.url} title={previewAttachment.name} className="h-[78vh] w-full rounded border border-[var(--border)]" />
+                ) : null}
+                {taskAttachmentKind(previewAttachment) === "image" ? (
+                  <img src={previewAttachment.url} alt={previewAttachment.name} className="max-h-[78vh] max-w-full object-contain" />
+                ) : null}
+                {taskAttachmentKind(previewAttachment) === "video" ? (
+                  <video src={previewAttachment.url} controls className="max-h-[78vh] max-w-full" />
+                ) : null}
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -1417,12 +1754,22 @@ export default function MarketingProjectsPage() {
 
         {taskModalOpen && activeProject ? (
           <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/70 p-4">
-            <form onSubmit={createTask} className="w-full max-w-lg rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-4">
+            <form onSubmit={(e) => void createTask(e)} className="w-full max-w-lg rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-4">
               <h3 className="text-sm uppercase tracking-[0.08em] text-white">{lt("New Task")}</h3>
+              {taskModalError ? <p className="mt-2 text-xs text-[#f87171]">{taskModalError}</p> : null}
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <label className="space-y-1 md:col-span-2">
                   <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[var(--muted)]">{lt("Task name")}</span>
                   <input value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white" required />
+                </label>
+                <label className="space-y-1 md:col-span-2">
+                  <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[var(--muted)]">{lt("Description")}</span>
+                  <textarea
+                    value={newTaskDescription}
+                    onChange={(e) => setNewTaskDescription(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                  />
                 </label>
                 <label className="space-y-1">
                   <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[var(--muted)]">{lt("Owner")}</span>
@@ -1462,7 +1809,16 @@ export default function MarketingProjectsPage() {
                 </label>
               </div>
               <div className="mt-4 flex justify-end gap-2">
-                <button type="button" onClick={() => setTaskModalOpen(false)} className="btn-ghost rounded-lg px-3 py-1.5 text-xs">{lt("Cancel")}</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTaskModalError("");
+                    setTaskModalOpen(false);
+                  }}
+                  className="btn-ghost rounded-lg px-3 py-1.5 text-xs"
+                >
+                  {lt("Cancel")}
+                </button>
                 <button type="submit" className="btn-primary rounded-lg px-3 py-1.5 text-xs">{lt("Save")}</button>
               </div>
             </form>
