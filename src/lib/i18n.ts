@@ -24,6 +24,8 @@ const platformPtBR: Record<string, string> = {
   "KPI overview and multi-channel activity summary": "Visão geral de KPIs e resumo multicanal",
   "Active Tasks": "Tarefas Ativas",
   "Completed Projects": "Projetos Concluídos",
+  "COMPLETED TASKS": "TAREFAS CONCLUÍDAS",
+  "POSTS PUBLISHED": "POSTS PUBLICADOS",
   "Digital Growth": "Crescimento Digital",
   "Paid Media Growth": "Crescimento em Mídia Paga",
   Highlights: "Destaques",
@@ -31,6 +33,9 @@ const platformPtBR: Record<string, string> = {
   "Instagram Performance": "Performance do Instagram",
   "Monthly follower growth": "Crescimento Mensal de Seguidores",
   "Monthly Follower Count": "Contagem mensal de seguidores",
+  "Current Followers": "Seguidores atuais",
+  "Historical follower data not available for this account — showing current count":
+    "Dados históricos de seguidores indisponíveis para esta conta — exibindo a contagem atual",
   "No data available": "Sem dados disponíveis",
   "Google Analytics 4 — not connected": "Google Analytics 4 — não conectado",
   "Social metrics": "Métricas Sociais",

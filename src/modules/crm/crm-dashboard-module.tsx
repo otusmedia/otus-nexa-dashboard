@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { DataTooltip } from "@/components/ui/data-tooltip";
 import { PageHeader } from "@/components/ui/page-header";
 import { supabase } from "@/lib/supabase";
 import {
@@ -112,7 +113,28 @@ export function CrmDashboardModule() {
         {kpiCards.map((kpi) => (
           <Card key={kpi.label} className="p-4">
             <div className="flex items-center justify-between">
-              <p className="kpi-label">{kpi.label}</p>
+              <div className="flex min-w-0 items-center gap-1">
+                <p className="kpi-label">{kpi.label}</p>
+                {kpi.label === "Conversion Rate" ? (
+                  <DataTooltip
+                    source="CRM module — Supabase database — calculated"
+                    reliability="high"
+                    note="Won leads divided by total leads. Accuracy depends on keeping lead statuses updated."
+                  />
+                ) : kpi.label === "Total Sales Value" ? (
+                  <DataTooltip
+                    source="CRM module — Supabase database"
+                    reliability="high"
+                    note="Sum of deal values for leads marked as Won."
+                  />
+                ) : kpi.label === "Open Proposals Value" ? (
+                  <DataTooltip
+                    source="CRM module — Supabase database"
+                    reliability="high"
+                    note="Sum of deal values for leads in Proposal Sent stage."
+                  />
+                ) : null}
+              </div>
               <MoreHorizontal className="h-4 w-4 text-[var(--muted)]" />
             </div>
             {loading ? (

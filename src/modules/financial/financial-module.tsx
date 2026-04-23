@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronUp, Pencil, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { DataTooltip } from "@/components/ui/data-tooltip";
 import { PageHeader } from "@/components/ui/page-header";
 import { ModuleGuard } from "@/components/layout/module-guard";
 import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
@@ -932,8 +933,13 @@ export function FinancialModule() {
 
       {/* Section 2 — Total invested table */}
       <div className="mt-6 overflow-x-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#161616]">
-        <h2 className="border-b border-[var(--border)] px-4 py-3 text-[0.7rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
+        <h2 className="flex flex-wrap items-center gap-1 border-b border-[var(--border)] px-4 py-3 text-[0.7rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
           {lt("Total invested per project")}
+          <DataTooltip
+            source="Financial module — Supabase database"
+            reliability="high"
+            note="Calculated from invoice line items linked to each project. Accuracy depends on correct invoice data entry."
+          />
         </h2>
         <table className="w-full bg-transparent">
           <thead>
@@ -942,7 +948,16 @@ export function FinancialModule() {
               <th className="px-4 py-3 font-normal">Total contract value</th>
               <th className="px-4 py-3 font-normal">Paid so far</th>
               <th className="px-4 py-3 font-normal">Remaining</th>
-              <th className="px-4 py-3 font-normal">Progress</th>
+              <th className="px-4 py-3 font-normal">
+                <span className="inline-flex items-center gap-1">
+                  Progress
+                  <DataTooltip
+                    source="Financial module — Supabase database — calculated"
+                    reliability="high"
+                    note="Paid installments divided by total installments. Based on invoice status marked in the system."
+                  />
+                </span>
+              </th>
               <th className="min-w-[220px] px-4 py-3 font-normal">Status</th>
             </tr>
           </thead>
@@ -1024,7 +1039,16 @@ export function FinancialModule() {
                 <th className="px-3 py-2.5 font-normal">Filename / Invoice</th>
                 <th className="px-3 py-2.5 font-normal">Project</th>
                 <th className="px-3 py-2.5 font-normal">{lt("Issue date")}</th>
-                <th className="px-3 py-2.5 font-normal">Amount</th>
+                <th className="px-3 py-2.5 font-normal">
+                  <span className="inline-flex items-center gap-1">
+                    Amount
+                    <DataTooltip
+                      source="Financial module — Supabase database"
+                      reliability="high"
+                      note="Manually entered invoice data. Verify against official accounting records."
+                    />
+                  </span>
+                </th>
                 <th className="px-3 py-2.5 font-normal">{lt("Status")}</th>
                 <th className="px-3 py-2.5 font-normal text-right">{lt("Actions")}</th>
               </tr>

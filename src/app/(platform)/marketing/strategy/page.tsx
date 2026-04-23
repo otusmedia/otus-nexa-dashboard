@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ModuleGuard } from "@/components/layout/module-guard";
 import { useAppContext } from "@/components/providers/app-providers";
 import { Card } from "@/components/ui/card";
+import { DataTooltip } from "@/components/ui/data-tooltip";
 import { PageHeader } from "@/components/ui/page-header";
 import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
@@ -49,6 +50,9 @@ const EMPTY_MARKETING_BUDGET: MarketingBudgetRow = {
   updated_at: null,
 };
 
+type MetaMonthlySpendSource = "loading" | "api" | "unconfigured" | "error";
+type MetaMonthlySpendRow = { date_start: string; spend: number };
+
 function campaignOverviewProgressFromTasks(campaignId: string, allTasks: TaskRow[]): number {
   const list = allTasks.filter((t) => String(t.project_id ?? "") === campaignId);
   if (list.length === 0) return 0;
@@ -81,6 +85,49 @@ export default function MarketingStrategyPage() {
   const [budgetSettings, setBudgetSettings] = useState<MarketingBudgetRow>(EMPTY_MARKETING_BUDGET);
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetSaveError, setBudgetSaveError] = useState("");
+  const [metaMonthlySource, setMetaMonthlySource] = useState<MetaMonthlySpendSource>("loading");
+  const [metaMonthlyRows, setMetaMonthlyRows] = useState<MetaMonthlySpendRow[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/meta-monthly-spend")
+      .then((r) => r.json())
+      .then((j: { source?: string; rows?: Array<{ date_start?: string; spend?: unknown }> }) => {
+        if (cancelled) return;
+        if (j.source === "api" && Array.isArray(j.rows)) {
+          const normalized: MetaMonthlySpendRow[] = j.rows
+            .map((row) => {
+              const date_start = String(row.date_start ?? "").trim().slice(0, 10);
+              const raw = row.spend;
+              const spend =
+                typeof raw === "number" && Number.isFinite(raw)
+                  ? raw
+                  : parseFloat(String(raw ?? "0")) || 0;
+              return { date_start, spend: Number.isFinite(spend) ? spend : 0 };
+            })
+            .filter((row) => row.date_start.length >= 7);
+          setMetaMonthlyRows(normalized);
+          setMetaMonthlySource("api");
+          return;
+        }
+        if (j.source === "unconfigured") {
+          setMetaMonthlyRows([]);
+          setMetaMonthlySource("unconfigured");
+          return;
+        }
+        setMetaMonthlyRows([]);
+        setMetaMonthlySource("error");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMetaMonthlyRows([]);
+          setMetaMonthlySource("error");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -134,18 +181,31 @@ export default function MarketingStrategyPage() {
     };
   }, []);
 
+  const metaSpendByYearMonth = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of metaMonthlyRows) {
+      const ym = r.date_start.slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(ym)) continue;
+      m.set(ym, (m.get(ym) ?? 0) + r.spend);
+    }
+    return m;
+  }, [metaMonthlyRows]);
+
   const byMonth = useMemo(() => {
     const now = new Date();
     return Array.from({ length: 6 }).map((_, index) => {
       const dt = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
       const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
       const label = dt.toLocaleDateString("en-US", { month: "short" });
-      const value = projects
+      const fromDb = projects
         .filter((p) => String(p.created_at ?? "").slice(0, 7) === key)
         .reduce((acc, p) => acc + (Number(p.budget_used ?? 0) || 0), 0);
+      const value = metaMonthlySource === "api" ? metaSpendByYearMonth.get(key) ?? 0 : fromDb;
       return { label, value };
     });
-  }, [projects]);
+  }, [projects, metaMonthlySource, metaSpendByYearMonth]);
+
+  const monthlyChartLoading = loading || metaMonthlySource === "loading";
 
   const maxMonth = Math.max(...byMonth.map((m) => m.value), 1);
   const activeCampaigns = projects.filter((p) => String(p.status ?? "").toLowerCase() === "in progress").length;
@@ -377,7 +437,14 @@ export default function MarketingStrategyPage() {
           <Card><p className="kpi-label">{lt("Total Budget")}</p><p className="metric-value mt-2">{formatCurrency(totalBudget)}</p></Card>
           <Card>
             <div className="flex items-center justify-between gap-2">
-              <p className="kpi-label">{lt("Budget Used")}</p>
+              <div className="flex min-w-0 items-center gap-1">
+                <p className="kpi-label">{lt("Budget Used")}</p>
+                <DataTooltip
+                  source="Marketing module — Supabase database"
+                  reliability="medium"
+                  note="Sum of budget_used values entered manually per campaign. Update campaign metrics regularly for accuracy."
+                />
+              </div>
               {hasTypeBudgetOverrun ? (
                 <span className="rounded-full bg-[rgba(239,68,68,0.2)] px-2 py-0.5 text-[0.65rem] text-[#ef4444]">{lt("Over budget")}</span>
               ) : totalBudgetOverrun ? (
@@ -399,17 +466,37 @@ export default function MarketingStrategyPage() {
 
         <div className="mt-6 grid gap-3 xl:grid-cols-2">
           <Card>
-            <h2 className="section-title">{lt("Monthly budget spend")}</h2>
-            <div className="mt-4 flex h-64 items-end gap-2 border-b border-[var(--border)] pb-3">
-              {loading
+            <h2 className="section-title flex flex-wrap items-center gap-1">
+              {lt("Monthly budget spend")}
+              <DataTooltip
+                source="Meta Ads API (when connected) or manual entry"
+                reliability="medium"
+                note="When Meta is connected: estimated spend from Meta Ads Manager. When not connected: manually entered budget_used values per campaign."
+              />
+            </h2>
+            <div className="mt-4 flex h-64 min-h-0 items-stretch gap-2 border-b border-[var(--border)] pb-3">
+              {monthlyChartLoading
                 ? Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="flex h-full flex-1 flex-col justify-end">
+                    <div key={i} className="flex h-full min-h-0 flex-1 flex-col justify-end">
                       <div className="w-full animate-pulse rounded-sm bg-[rgba(255,69,0,0.25)]" style={{ height: `${25 + i * 8}%` }} />
                     </div>
                   ))
-                : byMonth.map((m) => (
-                    <div key={m.label} className="group flex h-full flex-1 flex-col justify-end">
-                      <div className="w-full rounded-sm bg-[#ff4500]" style={{ height: `${Math.max(5, (m.value / maxMonth) * 100)}%` }} />
+                : byMonth.map((m, index) => (
+                    <div
+                      key={`${m.label}-${index}`}
+                      className="group relative flex h-full min-h-0 flex-1 flex-col justify-end"
+                    >
+                      <div
+                        className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 rounded-[4px] bg-[#222222] px-[10px] py-[6px] text-[0.75rem] text-white opacity-0 shadow-none transition-opacity duration-200 ease-out group-hover:opacity-100"
+                        style={{ boxShadow: "none" }}
+                      >
+                        <div className="whitespace-nowrap text-center font-normal">{m.label}</div>
+                        <div className="mono-num whitespace-nowrap text-center">{formatCurrency(m.value)}</div>
+                      </div>
+                      <div
+                        className="w-full rounded-sm bg-[#ff4500]"
+                        style={{ height: `${Math.max(5, (m.value / maxMonth) * 100)}%` }}
+                      />
                       <p className="mt-2 text-center text-[0.7rem] text-[var(--muted)]">{m.label}</p>
                     </div>
                   ))}

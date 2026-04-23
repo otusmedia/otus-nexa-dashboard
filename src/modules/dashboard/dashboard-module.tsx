@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Card } from "@/components/ui/card";
+import { DataTooltip } from "@/components/ui/data-tooltip";
 import { PageHeader } from "@/components/ui/page-header";
 import { ModuleGuard } from "@/components/layout/module-guard";
 import { Modal } from "@/components/ui/modal";
@@ -16,8 +17,6 @@ import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import type { MetaAdsCampaign, MetaAdsSummary } from "@/types/meta-ads";
 import {
-  ArrowDownRight,
-  ArrowUpRight,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -26,7 +25,9 @@ import {
   Heart,
   ImageIcon,
   Info,
+  Maximize2,
   MessageCircle,
+  Minimize2,
   MoreHorizontal,
   Play,
   Plus,
@@ -48,6 +49,82 @@ const INSTAGRAM_MONTHLY_EMPTY_CHART: IgMonthlyBar[] = Array.from({ length: 12 },
   heightPct: 3,
   reachValue: 0,
 }));
+
+const DASHBOARD_INSTAGRAM_METRIC_TOOLTIPS: Partial<
+  Record<string, { source: string; reliability: "high" | "medium" | "low"; note: string }>
+> = {
+  Reach: {
+    source: "Instagram Graph API",
+    reliability: "medium",
+    note: "Sum of unique accounts reached in the selected period. Meta classifies this as estimated data.",
+  },
+  Impressions: {
+    source: "Instagram Graph API",
+    reliability: "medium",
+    note: "Total content views in the selected period. Estimated by Meta.",
+  },
+  "Engagement Rate": {
+    source: "Instagram Graph API — calculated",
+    reliability: "medium",
+    note: "Interactions divided by reach. Estimated. Small variations are normal.",
+  },
+  "Profile Visits": {
+    source: "Instagram Graph API",
+    reliability: "medium",
+    note: "Accounts that visited the profile. Estimated by Meta.",
+  },
+  Followers: {
+    source: "Instagram Graph API — live profile",
+    reliability: "high",
+    note: "Current follower count fetched directly from the Instagram profile.",
+  },
+};
+
+const DASHBOARD_META_SPEND_TOOLTIP = {
+  source: "Meta Ads API — account level",
+  reliability: "medium" as const,
+  note: "Estimated spend from Meta Ads Manager. Small differences vs billing statements are normal. Current month shows month-to-date only.",
+};
+
+const DASHBOARD_GA4_METRIC_TOOLTIPS: Partial<
+  Record<string, { source: string; reliability: "high" | "medium" | "low"; note: string }>
+> = {
+  "Total Sessions": {
+    source: "Google Analytics 4",
+    reliability: "high",
+    note: "Sessions tracked by GA4 on the RocketRide website. Accuracy depends on correct tag installation.",
+  },
+  "Bounce Rate": {
+    source: "Google Analytics 4",
+    reliability: "high",
+    note: "Percentage of sessions with no engagement. Tracked by GA4.",
+  },
+  "Avg Session Duration": {
+    source: "Google Analytics 4",
+    reliability: "high",
+    note: "Average time users spend on the site per session.",
+  },
+};
+
+const DASHBOARD_META_METRIC_TOOLTIPS: Partial<
+  Record<string, { source: string; reliability: "high" | "medium" | "low"; note: string }>
+> = {
+  Impressions: {
+    source: "Meta Ads API",
+    reliability: "medium",
+    note: "Total ad impressions from Meta Ads Manager for the selected period.",
+  },
+  CTR: {
+    source: "Meta Ads API — calculated",
+    reliability: "medium",
+    note: "Clicks divided by impressions. Estimated by Meta.",
+  },
+  CPL: {
+    source: "Meta Ads API — calculated",
+    reliability: "medium",
+    note: "Cost per lead based on pixel events. Accuracy depends on pixel setup.",
+  },
+};
 
 type MetaApiCampaignRow = {
   campaignName: string;
@@ -603,7 +680,50 @@ function timeOfDayGreeting(): string {
 const HERO_CLOCK_MODE_KEY = "clock-mode";
 const HERO_BG_VISIBLE_KEY = "hero-bg-visible";
 const HERO_HEIGHT_KEY = "hero-height";
+const HERO_SCREENSAVER_DELAY_MS_KEY = "dashboard-hero-screensaver-delay-ms";
 const HERO_HEIGHT_MIN_PX = 200;
+const HERO_SCREENSAVER_MIN_MS = 10_000;
+const HERO_SCREENSAVER_MAX_MS = 120 * 60 * 1000;
+
+function clampScreensaverDelayMs(ms: number): number {
+  if (!Number.isFinite(ms)) return 5 * 60 * 1000;
+  return Math.min(HERO_SCREENSAVER_MAX_MS, Math.max(HERO_SCREENSAVER_MIN_MS, Math.round(ms)));
+}
+
+function readScreensaverDelayMs(): number {
+  if (typeof window === "undefined") return 5 * 60 * 1000;
+  try {
+    const raw = localStorage.getItem(HERO_SCREENSAVER_DELAY_MS_KEY);
+    if (raw != null) return clampScreensaverDelayMs(Number(raw));
+  } catch {
+    /* ignore */
+  }
+  return 5 * 60 * 1000;
+}
+
+function persistScreensaverDelayMs(ms: number) {
+  try {
+    localStorage.setItem(HERO_SCREENSAVER_DELAY_MS_KEY, String(clampScreensaverDelayMs(ms)));
+  } catch {
+    /* ignore */
+  }
+}
+
+function splitDelayForEdit(ms: number): { amount: number; unit: "minutes" | "seconds" } {
+  const c = clampScreensaverDelayMs(ms);
+  if (c >= 60_000 && c % 60_000 === 0) {
+    const m = c / 60_000;
+    if (m >= 1 && m <= 120) return { amount: m, unit: "minutes" };
+  }
+  return { amount: Math.max(10, Math.min(3600, Math.round(c / 1000))), unit: "seconds" };
+}
+
+function computeScreensaverDelayMs(amount: number, unit: "minutes" | "seconds"): number {
+  if (unit === "minutes") {
+    return clampScreensaverDelayMs(Math.max(1, Math.min(120, Math.round(amount))) * 60_000);
+  }
+  return clampScreensaverDelayMs(Math.max(10, Math.min(3600, Math.round(amount))) * 1000);
+}
 
 function clampHeroHeightPx(px: number): number {
   if (typeof window === "undefined") return Math.max(HERO_HEIGHT_MIN_PX, px);
@@ -729,6 +849,92 @@ function DashboardHeroSection() {
     }
   };
 
+  const [screensaverArmed, setScreensaverArmed] = useState(false);
+  const [isHeroFullscreen, setIsHeroFullscreen] = useState(false);
+  const [delayMs, setDelayMs] = useState(() =>
+    typeof window === "undefined" ? 5 * 60 * 1000 : readScreensaverDelayMs(),
+  );
+  const [idleAmount, setIdleAmount] = useState(5);
+  const [idleUnit, setIdleUnit] = useState<"minutes" | "seconds">("minutes");
+
+  useEffect(() => {
+    const ms = readScreensaverDelayMs();
+    setDelayMs(ms);
+    const s = splitDelayForEdit(ms);
+    setIdleAmount(s.amount);
+    setIdleUnit(s.unit);
+  }, []);
+
+  useEffect(() => {
+    const onFs = () => {
+      setIsHeroFullscreen(document.fullscreenElement === sectionRef.current);
+    };
+    document.addEventListener("fullscreenchange", onFs);
+    onFs();
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+
+  useEffect(() => {
+    if (!screensaverArmed) return;
+    let timer: number | undefined;
+    const clear = () => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+    const schedule = () => {
+      clear();
+      if (document.fullscreenElement === sectionRef.current) return;
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        const el = sectionRef.current;
+        if (!el || document.fullscreenElement === el) return;
+        void el.requestFullscreen({ navigationUI: "hide" } as FullscreenOptions).catch(() => {});
+      }, delayMs);
+    };
+    const onActivity = () => {
+      if (document.fullscreenElement === sectionRef.current) return;
+      schedule();
+    };
+    schedule();
+    const evs = ["mousemove", "mousedown", "keydown", "touchstart", "wheel"] as const;
+    for (const ev of evs) document.addEventListener(ev, onActivity, { passive: true });
+    const onFsRearm = () => {
+      if (document.fullscreenElement !== sectionRef.current) schedule();
+    };
+    document.addEventListener("fullscreenchange", onFsRearm);
+    return () => {
+      clear();
+      document.removeEventListener("fullscreenchange", onFsRearm);
+      for (const ev of evs) document.removeEventListener(ev, onActivity);
+    };
+  }, [screensaverArmed, delayMs]);
+
+  const applyIdleDelay = () => {
+    const ms = computeScreensaverDelayMs(idleAmount, idleUnit);
+    setDelayMs(ms);
+    const normalized = splitDelayForEdit(ms);
+    setIdleAmount(normalized.amount);
+    setIdleUnit(normalized.unit);
+    persistScreensaverDelayMs(ms);
+  };
+
+  const handleScreensaverFullscreenClick = async () => {
+    const el = sectionRef.current;
+    if (!el) return;
+    if (document.fullscreenElement === el) {
+      await document.exitFullscreen().catch(() => {});
+      return;
+    }
+    try {
+      await el.requestFullscreen({ navigationUI: "hide" } as FullscreenOptions);
+      setScreensaverArmed(true);
+    } catch {
+      /* denied — do not arm idle screensaver */
+    }
+  };
+
   const toggleHeroBgVisible = () => {
     setHeroBgVisible((prev) => {
       const next = !prev;
@@ -827,10 +1033,13 @@ function DashboardHeroSection() {
     <section
       ref={sectionRef}
       className={cn(
-        "relative -mx-4 -mt-6 mb-12 box-border flex min-h-0 w-[calc(100%+2rem)] max-w-none flex-col items-start justify-start overflow-hidden lg:-mx-8 lg:w-[calc(100%+4rem)]",
+        "relative box-border flex min-h-0 max-w-none flex-col items-start justify-start overflow-hidden",
+        isHeroFullscreen
+          ? "mx-0 mb-0 mt-0 min-h-[100dvh] w-full"
+          : "-mx-4 -mt-6 mb-12 w-[calc(100%+2rem)] lg:-mx-8 lg:w-[calc(100%+4rem)]",
         !heroBgVisible && "bg-transparent",
       )}
-      style={{ height: heroHeightPx }}
+      style={{ height: isHeroFullscreen ? "100dvh" : heroHeightPx }}
       aria-label="Dashboard hero"
     >
       {heroBgVisible ? (
@@ -848,19 +1057,74 @@ function DashboardHeroSection() {
           />
         </>
       ) : null}
-      <button
-        type="button"
-        onClick={toggleHeroBgVisible}
-        aria-label={heroBgVisible ? "Hide hero background" : "Show hero background"}
-        className="absolute right-4 top-4 z-20 text-[rgba(255,255,255,0.4)]"
-        style={heroBgToggleButtonStyle}
-      >
-        {heroBgVisible ? (
-          <Eye className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
-        ) : (
-          <EyeOff className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
-        )}
-      </button>
+      <div className="absolute right-4 top-4 z-20 flex flex-col items-end gap-2">
+        <button
+          type="button"
+          onClick={toggleHeroBgVisible}
+          aria-label={heroBgVisible ? "Hide hero background" : "Show hero background"}
+          className="text-[rgba(255,255,255,0.4)]"
+          style={heroBgToggleButtonStyle}
+        >
+          {heroBgVisible ? (
+            <Eye className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
+          ) : (
+            <EyeOff className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
+          )}
+        </button>
+        <div className="flex max-w-[min(100vw-2rem,220px)] flex-col items-end gap-1.5">
+          <div className="flex flex-wrap items-center justify-end gap-1.5" style={heroBgToggleButtonStyle}>
+            <button
+              type="button"
+              onClick={() => void handleScreensaverFullscreenClick()}
+              aria-label={isHeroFullscreen ? "Exit fullscreen screensaver" : "Enter fullscreen screensaver"}
+              className="inline-flex text-[rgba(255,255,255,0.45)] hover:text-white"
+            >
+              {isHeroFullscreen ? (
+                <Minimize2 className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
+              ) : (
+                <Maximize2 className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
+              )}
+            </button>
+            {screensaverArmed ? (
+              <label className="flex flex-wrap items-center gap-1 text-[10px] font-light leading-tight text-[rgba(255,255,255,0.75)]">
+                <span className="whitespace-nowrap">Idle</span>
+                <input
+                  type="number"
+                  min={idleUnit === "minutes" ? 1 : 10}
+                  max={idleUnit === "minutes" ? 120 : 3600}
+                  step={1}
+                  value={idleAmount}
+                  onChange={(e) => setIdleAmount(Number(e.target.value) || 1)}
+                  onBlur={applyIdleDelay}
+                  className="w-11 rounded border border-[rgba(255,255,255,0.12)] bg-black/35 px-1 py-0.5 text-[10px] text-white"
+                />
+                <select
+                  value={idleUnit}
+                  onChange={(e) => {
+                    const u = e.target.value === "seconds" ? "seconds" : "minutes";
+                    setIdleUnit(u);
+                    const ms = computeScreensaverDelayMs(idleAmount, u);
+                    setDelayMs(ms);
+                    const norm = splitDelayForEdit(ms);
+                    setIdleAmount(norm.amount);
+                    setIdleUnit(norm.unit);
+                    persistScreensaverDelayMs(ms);
+                  }}
+                  className="max-w-[4.75rem] rounded border border-[rgba(255,255,255,0.12)] bg-black/35 px-1 py-0.5 text-[10px] text-white"
+                >
+                  <option value="minutes">min</option>
+                  <option value="seconds">sec</option>
+                </select>
+              </label>
+            ) : null}
+          </div>
+          {screensaverArmed ? (
+            <p className="max-w-[200px] text-right text-[9px] font-light leading-snug text-[rgba(255,255,255,0.35)]">
+              Fullscreen returns after no activity for the time above.
+            </p>
+          ) : null}
+        </div>
+      </div>
       <div className="relative z-10 flex h-full min-h-0 min-w-0 w-full flex-1 flex-row items-end justify-between gap-10 overflow-hidden px-4 pb-10 lg:px-8">
         <div className="flex min-w-0 flex-col">
           <p className="text-[0.8rem] font-light tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
@@ -932,17 +1196,19 @@ function DashboardHeroSection() {
           </div>
         </div>
       </div>
-      <div
-        ref={handleRef}
-        className="group absolute bottom-0 left-0 right-0 z-30 flex h-2 shrink-0 cursor-ns-resize touch-none items-center justify-center bg-transparent"
-        onMouseDown={startMouseResize}
-        onTouchStart={startTouchResize}
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize hero height"
-      >
-        <div className="pointer-events-none h-0.5 w-10 rounded-sm bg-[rgba(255,255,255,0.2)] opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100" />
-      </div>
+      {!isHeroFullscreen ? (
+        <div
+          ref={handleRef}
+          className="group absolute bottom-0 left-0 right-0 z-30 flex h-2 shrink-0 cursor-ns-resize touch-none items-center justify-center bg-transparent"
+          onMouseDown={startMouseResize}
+          onTouchStart={startTouchResize}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize hero height"
+        >
+          <div className="pointer-events-none h-0.5 w-10 rounded-sm bg-[rgba(255,255,255,0.2)] opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100" />
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1017,8 +1283,11 @@ export function DashboardModule() {
   const [kpiLoading, setKpiLoading] = useState(true);
   const [kpiActiveTasks, setKpiActiveTasks] = useState(0);
   const [kpiTotalTasks, setKpiTotalTasks] = useState(0);
+  const [kpiCompletedTasks, setKpiCompletedTasks] = useState(0);
+  const [kpiPostsPublished, setKpiPostsPublished] = useState(0);
   const [kpiCompletedProjects, setKpiCompletedProjects] = useState(0);
   const [kpiTotalProjects, setKpiTotalProjects] = useState(0);
+  const [igProfileFollowersCount, setIgProfileFollowersCount] = useState<number | null>(null);
 
   const topCreativesDisplay = useMemo(() => {
     if (creativesLive !== null && creativesLive.length > 0) {
@@ -1090,10 +1359,16 @@ export function DashboardModule() {
   }, [igApiLoading, igLive, instagramImported]);
 
   const igDisplayMetrics = useMemo((): InstagramInsightMetricRow[] => {
-    if (igLive) return buildInstagramMetricsFromApi(igLive);
+    if (igLive) {
+      const followersFromProfile =
+        igProfileFollowersCount !== null && Number.isFinite(igProfileFollowersCount)
+          ? Math.max(0, Math.floor(igProfileFollowersCount))
+          : 0;
+      return buildInstagramMetricsFromApi({ ...igLive, followersCount: followersFromProfile });
+    }
     if (instagramImported?.metrics && instagramImported.metrics.length > 0) return instagramImported.metrics;
     return buildInstagramZeroMetrics();
-  }, [igLive, instagramImported]);
+  }, [igLive, instagramImported, igProfileFollowersCount]);
 
   const csvBadgeDate =
     metaAds.source === "csv" && metaAds.lastImported
@@ -1517,26 +1792,34 @@ export function DashboardModule() {
     let cancelled = false;
     setKpiLoading(true);
     void Promise.all([
-      supabase.from("tasks").select("id", { count: "exact", head: true }),
-      supabase
-        .from("tasks")
-        .select("id", { count: "exact", head: true })
-        .not("status", "in", '("Done","Published")'),
+      supabase.from("tasks").select("id, status"),
       supabase.from("projects").select("id", { count: "exact", head: true }),
       supabase.from("projects").select("id", { count: "exact", head: true }).eq("status", "Done"),
+      supabase.from("scheduled_posts").select("id, status"),
     ])
-      .then(([allTasksRes, activeTasksRes, allProjectsRes, completedProjectsRes]) => {
+      .then(([tasksRes, allProjectsRes, completedProjectsRes, postsRes]) => {
         if (cancelled) return;
-        if (allTasksRes.error) console.error("[dashboard] total tasks KPI fetch failed:", allTasksRes.error.message);
-        if (activeTasksRes.error) console.error("[dashboard] active tasks KPI fetch failed:", activeTasksRes.error.message);
+        if (tasksRes.error) console.error("[dashboard] tasks KPI fetch failed:", tasksRes.error.message);
         if (allProjectsRes.error) console.error("[dashboard] total projects KPI fetch failed:", allProjectsRes.error.message);
         if (completedProjectsRes.error) {
           console.error("[dashboard] completed projects KPI fetch failed:", completedProjectsRes.error.message);
         }
-        setKpiTotalTasks(allTasksRes.count ?? 0);
-        setKpiActiveTasks(activeTasksRes.count ?? 0);
+        if (postsRes.error) console.error("[dashboard] scheduled_posts KPI fetch failed:", postsRes.error.message);
+
+        const rows = (tasksRes.data as Array<{ status?: string | null }> | null) ?? [];
+        const total = rows.length;
+        const completed = rows.filter((r) => r.status === "Done" || r.status === "Published").length;
+        const active = Math.max(0, total - completed);
+        setKpiTotalTasks(total);
+        setKpiActiveTasks(active);
+        setKpiCompletedTasks(completed);
+
         setKpiTotalProjects(allProjectsRes.count ?? 0);
         setKpiCompletedProjects(completedProjectsRes.count ?? 0);
+
+        const pubRows = (postsRes.data as Array<{ status?: string | null }> | null) ?? [];
+        const published = pubRows.filter((r) => String(r.status ?? "").toLowerCase() === "published").length;
+        setKpiPostsPublished(postsRes.error ? 0 : published);
       })
       .finally(() => {
         if (!cancelled) setKpiLoading(false);
@@ -1544,7 +1827,7 @@ export function DashboardModule() {
     return () => {
       cancelled = true;
     };
-  }, [dateRange, customApplied]);
+  }, []);
 
   const featuredSlides = useMemo(() => {
     const out: HighlightSlide[] = [];
@@ -1618,16 +1901,13 @@ export function DashboardModule() {
     let cancelled = false;
     setMetaApiLoading(true);
     setIgApiLoading(true);
-    setIgMonthlyLoading(true);
     setCreativesApiLoading(true);
     setMetaLive(null);
     setIgLive(null);
-    setIgMonthlyBars(null);
     setCreativesLive(null);
     setMetaCreativesAdAccountId(null);
     setIgInsightsError(null);
     setMetaInsightsError(null);
-    setIgMonthlyError(null);
     setCreativesApiError(null);
     const metaUrl =
       dateRange === "custom" && customApplied
@@ -1637,17 +1917,12 @@ export function DashboardModule() {
       dateRange === "custom" && customApplied
         ? `/api/instagram-insights?since=${customApplied.since}&until=${customApplied.until}`
         : `/api/instagram-insights?range=${encodeURIComponent(dateRange)}`;
-    const monthUrl =
-      dateRange === "custom" && customApplied
-        ? `/api/instagram-monthly?since=${customApplied.since}&until=${customApplied.until}`
-        : "/api/instagram-monthly";
     void Promise.all([
       fetch(metaUrl).then((r) => r.json()),
       fetch(igUrl).then((r) => r.json()),
-      fetch(monthUrl).then((r) => r.json()),
       fetch("/api/meta-creatives").then((r) => r.json()),
     ])
-      .then(([metaJson, igJson, monthJson, crJson]: Record<string, unknown>[]) => {
+      .then(([metaJson, igJson, crJson]: Record<string, unknown>[]) => {
         if (cancelled) return;
         const metaErr = typeof metaJson.error === "string" ? metaJson.error : null;
         const metaCampaigns = metaJson.campaigns;
@@ -1680,42 +1955,6 @@ export function DashboardModule() {
           else if (typeof igJson.reach !== "number") console.error("[dashboard] Instagram insights: invalid payload");
         }
 
-        const mErr = typeof monthJson.error === "string" ? monthJson.error : null;
-        const months = monthJson.months;
-        if (!mErr && Array.isArray(months) && months.length > 0) {
-          const slice = (months as { label?: string; value?: unknown }[]).slice(-12);
-          const values = slice.map((m) => {
-            const v = m.value;
-            if (typeof v === "number" && Number.isFinite(v)) return v;
-            const n = Number(String(v ?? "").replace(/,/g, ""));
-            return Number.isFinite(n) ? n : 0;
-          });
-          const max = Math.max(...values, 0);
-          const scaleMax = max > 0 ? max : 1;
-          const bars = slice.map((m, i) => {
-            const v = values[i] ?? 0;
-            const heightPct = max > 0 ? Math.min(100, Math.round((v / scaleMax) * 100)) : 0;
-            return {
-              label: String(m.label ?? ""),
-              heightPct,
-              reachValue: v,
-            };
-          });
-          console.log("[dashboard] Instagram monthly chart input:", {
-            monthCount: slice.length,
-            labels: slice.map((m) => m.label),
-            values,
-            max,
-            bars: bars.map((b) => ({ label: b.label, heightPct: b.heightPct, reachValue: b.reachValue })),
-          });
-          setIgMonthlyBars(bars);
-          setIgMonthlyError(null);
-        } else {
-          setIgMonthlyBars(null);
-          setIgMonthlyError(mErr ?? "Monthly data unavailable");
-          if (mErr) console.error("[dashboard] Instagram monthly API:", mErr);
-        }
-
         const cErr = typeof crJson.error === "string" ? crJson.error : null;
         const creatives = crJson.creatives;
         const rawAcct = crJson.metaAdAccountId;
@@ -1741,12 +1980,10 @@ export function DashboardModule() {
         if (!cancelled) {
           setMetaLive(null);
           setIgLive(null);
-          setIgMonthlyBars(null);
           setCreativesLive(null);
           setMetaCreativesAdAccountId(null);
           setMetaInsightsError("Network error");
           setIgInsightsError("Network error");
-          setIgMonthlyError("Network error");
           setCreativesApiError("Network error");
         }
       })
@@ -1754,7 +1991,6 @@ export function DashboardModule() {
         if (!cancelled) {
           setMetaApiLoading(false);
           setIgApiLoading(false);
-          setIgMonthlyLoading(false);
           setCreativesApiLoading(false);
         }
       });
@@ -1762,6 +1998,67 @@ export function DashboardModule() {
       cancelled = true;
     };
   }, [dateRange, customApplied]);
+
+  /** Month-by-month follower chart: not tied to dashboard 7d/30d/90d filter. */
+  useEffect(() => {
+    let cancelled = false;
+    setIgMonthlyLoading(true);
+    setIgMonthlyError(null);
+    void fetch("/api/instagram-monthly")
+      .then((r) => r.json())
+      .then((monthJson: Record<string, unknown>) => {
+        if (cancelled) return;
+        const rawFc = monthJson.liveFollowersCount;
+        if (rawFc !== undefined && rawFc !== null) {
+          const n = Number(rawFc);
+          setIgProfileFollowersCount(Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0);
+        } else {
+          setIgProfileFollowersCount(null);
+        }
+        const mErr = typeof monthJson.error === "string" ? monthJson.error : null;
+        const months = monthJson.months;
+        if (!mErr && Array.isArray(months) && months.length > 0) {
+          const slice = (months as { label?: string; value?: unknown }[]).slice(-12);
+          const values = slice.map((m) => {
+            const v = m.value;
+            if (typeof v === "number" && Number.isFinite(v)) return v;
+            const n = Number(String(v ?? "").replace(/,/g, ""));
+            return Number.isFinite(n) ? n : 0;
+          });
+          const max = Math.max(...values, 0);
+          const scaleMax = max > 0 ? max : 1;
+          const bars = slice.map((m, i) => {
+            const v = values[i] ?? 0;
+            const heightPct = max > 0 ? Math.min(100, Math.round((v / scaleMax) * 100)) : 0;
+            return {
+              label: String(m.label ?? ""),
+              heightPct,
+              reachValue: v,
+            };
+          });
+          setIgMonthlyBars(bars);
+          setIgMonthlyError(null);
+        } else {
+          setIgMonthlyBars(null);
+          setIgMonthlyError(mErr ?? "Monthly data unavailable");
+          if (mErr) console.error("[dashboard] Instagram monthly API:", mErr);
+        }
+      })
+      .catch((e) => {
+        console.error("[dashboard] Instagram monthly fetch:", e);
+        if (!cancelled) {
+          setIgMonthlyBars(null);
+          setIgMonthlyError("Network error");
+          setIgProfileFollowersCount(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIgMonthlyLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const ga4TableRows = ga4Website.source === "live" ? ga4Website.topPages : [];
 
@@ -1923,7 +2220,14 @@ export function DashboardModule() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Card className="p-4">
           <div className="flex items-center justify-between">
-            <p className="kpi-label">{lt("Active Tasks")}</p>
+            <div className="flex min-w-0 items-center gap-1">
+              <p className="kpi-label">{lt("Active Tasks")}</p>
+              <DataTooltip
+                source="Projects module — Supabase database"
+                reliability="high"
+                note="Real-time count of tasks not marked as Done or Published"
+              />
+            </div>
             <MoreHorizontal className="h-4 w-4 text-[var(--muted)]" />
           </div>
           {kpiLoading ? (
@@ -1951,7 +2255,14 @@ export function DashboardModule() {
 
         <Card className="p-4">
           <div className="flex items-center justify-between">
-            <p className="kpi-label">{lt("Completed Projects")}</p>
+            <div className="flex min-w-0 items-center gap-1">
+              <p className="kpi-label">{lt("Completed Projects")}</p>
+              <DataTooltip
+                source="Projects module — Supabase database"
+                reliability="high"
+                note="Count of projects with status Done"
+              />
+            </div>
             <MoreHorizontal className="h-4 w-4 text-[var(--muted)]" />
           </div>
           {kpiLoading ? (
@@ -1978,96 +2289,62 @@ export function DashboardModule() {
         </Card>
 
         <Card className="p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="kpi-label">{lt("Digital Growth")}</p>
-              {igApiLoading ? (
-                <>
-                  <div className="mt-2 h-9 w-32 max-w-full animate-pulse rounded-md bg-[rgba(255,255,255,0.08)]" />
-                  <div className="mt-3 h-4 w-full max-w-[220px] animate-pulse rounded bg-[rgba(255,255,255,0.06)]" />
-                  <div className="mt-2 h-3 w-40 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />
-                </>
-              ) : igLive != null && typeof igLive.reachGrowthPct === "number" && Number.isFinite(igLive.reachGrowthPct) ? (
-                <>
-                  <p
-                    className={cn(
-                      "metric-value mt-2 text-3xl",
-                      igLive.reachGrowthPct >= 0 ? "text-[#379136]" : "text-[#ef4444]",
-                    )}
-                  >
-                    {igLive.reachGrowthPct >= 0 ? "+" : ""}
-                    {igLive.reachGrowthPct.toFixed(1)}%
-                  </p>
-                  <p className="mt-2 text-sm text-white">{lt("Avg growth across Instagram, LinkedIn, X")}</p>
-                  <p className={cn("mt-1", DASHBOARD_VS_PERIOD_TEXT_CLASS)}>{dashboardVsPeriodLabel(dateRange, lt)}</p>
-                </>
-              ) : (
-                <>
-                  <p className="metric-value mt-2 text-3xl text-[rgba(255,255,255,0.35)]">—</p>
-                  <p className="mt-2 text-sm text-white">{lt("Instagram, LinkedIn, X — connecting...")}</p>
-                  <p className={cn("mt-1", DASHBOARD_VS_PERIOD_TEXT_CLASS)}>{dashboardVsPeriodLabel(dateRange, lt)}</p>
-                </>
-              )}
-              {!igApiLoading && igLive == null && igInsightsError != null && igDataMode !== "csv" ? (
-                <p className="mt-2 text-[0.65rem] text-[rgba(255,255,255,0.35)]">{lt("Live data unavailable")}</p>
-              ) : null}
+          <div className="flex items-center justify-between">
+            <div className="flex min-w-0 items-center gap-1">
+              <p className="kpi-label">{lt("COMPLETED TASKS")}</p>
+              <DataTooltip
+                source="Projects module — Supabase database"
+                reliability="high"
+                note="Count of all tasks marked as Done or Published"
+              />
             </div>
-            {!igApiLoading && igLive != null && typeof igLive.reachGrowthPct === "number" && Number.isFinite(igLive.reachGrowthPct) ? (
-              igLive.reachGrowthPct >= 0 ? (
-                <ArrowUpRight className="h-5 w-5 shrink-0 text-[#379136]" />
-              ) : (
-                <ArrowDownRight className="h-5 w-5 shrink-0 text-[#ef4444]" />
-              )
-            ) : null}
+            <MoreHorizontal className="h-4 w-4 text-[var(--muted)]" />
           </div>
+          {kpiLoading ? (
+            <>
+              <div className="mt-2 h-9 w-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.08)]" />
+              <div className="mt-2 h-[2px] w-full animate-pulse rounded-[2px] bg-[rgba(255,255,255,0.12)]" />
+              <div className="mt-2 h-3 w-20 animate-pulse rounded bg-[rgba(255,255,255,0.06)]" />
+            </>
+          ) : (
+            <>
+              <p className="metric-value mt-2 text-3xl text-white">{kpiCompletedTasks}</p>
+              <div className="mt-2 h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.08)]">
+                <div
+                  className="h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.35)]"
+                  style={{ width: `${kpiTotalTasks === 0 ? 0 : (kpiCompletedTasks / kpiTotalTasks) * 100}%` }}
+                />
+              </div>
+              <p className="kpi-fraction mt-1 text-xs">
+                {kpiCompletedTasks} / {kpiTotalTasks}
+              </p>
+            </>
+          )}
+          <DashboardVsComparisonBlock primaryRaw="+0.0%" invert={false} dateRange={dateRange} lt={lt} />
         </Card>
 
         <Card className="p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="kpi-label">{lt("Paid Media Growth")}</p>
-              {metaApiLoading ? (
-                <>
-                  <div className="mt-2 h-9 w-32 max-w-full animate-pulse rounded-md bg-[rgba(255,255,255,0.08)]" />
-                  <div className="mt-3 h-4 w-full max-w-[220px] animate-pulse rounded bg-[rgba(255,255,255,0.06)]" />
-                  <div className="mt-2 h-3 w-36 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />
-                </>
-              ) : metaLive != null && metaLive.spendGrowthPct != null && Number.isFinite(metaLive.spendGrowthPct) ? (
-                <>
-                  <p
-                    className={cn(
-                      "metric-value mt-2 text-3xl",
-                      metaLive.spendGrowthPct >= 0 ? "text-[#379136]" : "text-[#ef4444]",
-                    )}
-                  >
-                    {metaLive.spendGrowthPct >= 0 ? "+" : ""}
-                    {metaLive.spendGrowthPct.toFixed(1)}%
-                  </p>
-                  <p className="mt-2 text-sm text-white">{lt("Meta Ads + Google Ads combined growth")}</p>
-                  <p className={cn("mt-1", DASHBOARD_VS_PERIOD_TEXT_CLASS)}>{dashboardVsPeriodLabel(dateRange, lt)}</p>
-                </>
-              ) : (
-                <>
-                  <p className="metric-value mt-2 text-3xl text-[rgba(255,255,255,0.35)]">—</p>
-                  <p className="mt-2 text-sm text-white">{lt("Meta Ads + Google Ads — connecting...")}</p>
-                  <p className={cn("mt-1", DASHBOARD_VS_PERIOD_TEXT_CLASS)}>{dashboardVsPeriodLabel(dateRange, lt)}</p>
-                </>
-              )}
-              {!metaApiLoading && metaLive == null && metaInsightsError != null && metaDataMode !== "csv" ? (
-                <p className="mt-2 text-[0.65rem] text-[rgba(255,255,255,0.35)]">{lt("Live data unavailable")}</p>
-              ) : null}
+          <div className="flex items-center justify-between">
+            <div className="flex min-w-0 items-center gap-1">
+              <p className="kpi-label">{lt("POSTS PUBLISHED")}</p>
+              <DataTooltip
+                source="Publishing module — Supabase database"
+                reliability="high"
+                note="Count of posts marked as published in the Publishing module"
+              />
             </div>
-            {!metaApiLoading &&
-            metaLive != null &&
-            metaLive.spendGrowthPct != null &&
-            Number.isFinite(metaLive.spendGrowthPct) ? (
-              metaLive.spendGrowthPct >= 0 ? (
-                <ArrowUpRight className="h-5 w-5 shrink-0 text-[#379136]" />
-              ) : (
-                <ArrowDownRight className="h-5 w-5 shrink-0 text-[#ef4444]" />
-              )
-            ) : null}
+            <MoreHorizontal className="h-4 w-4 text-[var(--muted)]" />
           </div>
+          {kpiLoading ? (
+            <>
+              <div className="mt-2 h-9 w-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.08)]" />
+              <div className="mt-2 h-[2px] w-full animate-pulse rounded-[2px] bg-[rgba(255,255,255,0.12)]" />
+              <div className="mt-2 h-3 w-20 animate-pulse rounded bg-[rgba(255,255,255,0.06)]" />
+            </>
+          ) : (
+            <p className="metric-value mt-2 text-3xl text-white">{kpiPostsPublished}</p>
+          )}
+          <DashboardVsComparisonBlock primaryRaw="+0.0%" invert={false} dateRange={dateRange} lt={lt} />
         </Card>
       </div>
 
@@ -2195,7 +2472,14 @@ export function DashboardModule() {
         <div className="mt-3 grid gap-3 xl:grid-cols-3">
           <Card className="xl:col-span-2 h-full">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">{lt("Monthly Follower Count")}</p>
+              <div className="flex min-w-0 items-center gap-1">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">{lt("Current Followers")}</p>
+                <DataTooltip
+                  source="Instagram Graph API"
+                  reliability="medium"
+                  note="Monthly reach aggregated from daily data. Historical data may be limited for accounts under 100 followers."
+                />
+              </div>
               <div className="inline-flex gap-1 text-[10px] text-[var(--muted)]">
                 <span className="mono-num rounded border border-[var(--border)] px-1.5 py-0.5">1M</span>
                 <span className="mono-num rounded border border-[var(--border)] px-1.5 py-0.5">12M</span>
@@ -2262,6 +2546,11 @@ export function DashboardModule() {
               {!igMonthlyLoading && igMonthlyBars == null && igMonthlyError ? (
                 <p className="mt-2 text-center text-[0.65rem] text-[rgba(255,255,255,0.35)]">{lt("Live data unavailable")}</p>
               ) : null}
+              {!igMonthlyLoading && igMonthlyBars != null ? (
+                <p className="mt-2 text-center text-[0.7rem] text-[rgba(255,255,255,0.3)]">
+                  {lt("Historical follower data not available for this account — showing current count")}
+                </p>
+              ) : null}
             </div>
           </Card>
           <Card>
@@ -2293,7 +2582,12 @@ export function DashboardModule() {
                 : igDisplayMetrics.map((metric) => (
                     <div key={metric.label} className="rounded-lg border border-[var(--border)] p-3">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-[var(--muted)]">{lt(metric.label)}</span>
+                        <span className="flex min-w-0 items-center gap-1 text-[var(--muted)]">
+                          {lt(metric.label)}
+                          {DASHBOARD_INSTAGRAM_METRIC_TOOLTIPS[metric.label] ? (
+                            <DataTooltip {...DASHBOARD_INSTAGRAM_METRIC_TOOLTIPS[metric.label]!} />
+                          ) : null}
+                        </span>
                         <span className="metric-value text-white">{metric.value}</span>
                       </div>
                       <DashboardVsComparisonBlock
@@ -2384,11 +2678,19 @@ export function DashboardModule() {
                 </>
               ) : (
                 <>
-                  <p className="metric-value mt-2 text-3xl">{metaSpendDisplay}</p>
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <p className="metric-value text-3xl">{metaSpendDisplay}</p>
+                    <DataTooltip {...DASHBOARD_META_SPEND_TOOLTIP} />
+                  </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                     {metaMetricsRows.map((metric) => (
                       <div key={metric.label} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-2">
-                        <p className="text-xs text-[var(--muted)]">{lt(metric.label)}</p>
+                        <p className="flex items-center gap-1 text-xs text-[var(--muted)]">
+                          {lt(metric.label)}
+                          {DASHBOARD_META_METRIC_TOOLTIPS[metric.label] ? (
+                            <DataTooltip {...DASHBOARD_META_METRIC_TOOLTIPS[metric.label]!} />
+                          ) : null}
+                        </p>
                         <p className="metric-value">{metric.value}</p>
                       </div>
                     ))}
@@ -2476,7 +2778,14 @@ export function DashboardModule() {
                 </div>
                 <MoreHorizontal className="h-4 w-4 shrink-0 text-[var(--muted)]" />
               </div>
-              <p className="metric-value mt-2 text-3xl">$0</p>
+              <div className="mt-2 flex items-center gap-1.5">
+                <p className="metric-value text-3xl">$0</p>
+                <DataTooltip
+                  source="Google Ads API — not yet connected"
+                  reliability="low"
+                  note="This section will show live data once Google Ads API is connected."
+                />
+              </div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                 {googleAdsPlaceholderMetrics.map((metric) => (
                   <div key={metric.label} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-2">
@@ -2860,7 +3169,12 @@ export function DashboardModule() {
             const change = ga4Website.totals.changes[item.changeKey];
             return (
               <Card key={item.label}>
-                <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">{lt(item.label)}</p>
+                <p className="flex items-center gap-1 text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">
+                  {lt(item.label)}
+                  {DASHBOARD_GA4_METRIC_TOOLTIPS[item.label] ? (
+                    <DataTooltip {...DASHBOARD_GA4_METRIC_TOOLTIPS[item.label]!} />
+                  ) : null}
+                </p>
                 <p className="metric-value mt-2 text-3xl">
                   {ga4Website.loading ? "—" : ga4Website.totals[item.valueKey]}
                 </p>
@@ -2891,7 +3205,16 @@ export function DashboardModule() {
             <table>
               <thead>
                 <tr>
-                  <th>{lt("Page")}</th>
+                  <th>
+                    <span className="inline-flex items-center gap-1">
+                      {lt("Page")}
+                      <DataTooltip
+                        source="Google Analytics 4"
+                        reliability="high"
+                        note="Most visited pages ranked by session count."
+                      />
+                    </span>
+                  </th>
                   <th>{lt("Sessions")}</th>
                   <th>{lt("Page views")}</th>
                   <th>{lt("Engagement rate")}</th>
