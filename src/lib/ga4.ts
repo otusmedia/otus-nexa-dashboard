@@ -38,6 +38,15 @@ export function isGa4Configured(): boolean {
   return Boolean(email && key && property);
 }
 
+function parseGooglePrivateKeyFromEnv(): string {
+  const privateKey = process.env.GOOGLE_PRIVATE_KEY!.replace(/\\n/g, "\n").replace(/\\\\n/g, "\n").trim();
+  return privateKey;
+}
+
+function logGa4Diagnostics(): void {
+  console.log('GA4 configured:', isGa4Configured());
+  console.log('GA4 email prefix:', process.env.GOOGLE_CLIENT_EMAIL?.slice(0, 20));
+}
 
 function dateRangeLiterals(key: Ga4DateRangeParam) {
   switch (key) {
@@ -123,13 +132,14 @@ function daysInclusiveYmd(startYmd: string, endYmd: string): number {
 }
 
 export async function fetchGa4DashboardSnapshotCustom(startYmd: string, endYmd: string): Promise<Ga4DashboardResponse> {
+  logGa4Diagnostics();
   if (!isGa4Configured()) {
     return getGa4DashboardMock("GA4 credentials not configured");
   }
 
   const credentials = {
     client_email: process.env.GOOGLE_CLIENT_EMAIL!,
-    private_key: process.env.GOOGLE_PRIVATE_KEY!.replace(/\\n/g, "\n"),
+    private_key: parseGooglePrivateKeyFromEnv(),
   };
 
   const propertyId = process.env.GA4_PROPERTY_ID!;
@@ -215,13 +225,14 @@ export async function fetchGa4DashboardSnapshotCustom(startYmd: string, endYmd: 
 }
 
 export async function fetchGa4DashboardSnapshot(range: Ga4DateRangeParam): Promise<Ga4DashboardResponse> {
+  logGa4Diagnostics();
   if (!isGa4Configured()) {
     return getGa4DashboardMock("GA4 credentials not configured");
   }
 
   const credentials = {
     client_email: process.env.GOOGLE_CLIENT_EMAIL!,
-    private_key: process.env.GOOGLE_PRIVATE_KEY!.replace(/\\n/g, "\n"),
+    private_key: parseGooglePrivateKeyFromEnv(),
   };
 
   const propertyId = process.env.GA4_PROPERTY_ID!;

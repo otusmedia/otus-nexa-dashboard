@@ -271,6 +271,47 @@ function invoiceUrlLooksHtml(fileName: string, url: string): boolean {
   return f.endsWith(".html") || f.endsWith(".htm") || path.endsWith(".html") || path.endsWith(".htm");
 }
 
+function invoiceUrlLooksPdf(fileName: string, url: string): boolean {
+  const f = fileName.toLowerCase();
+  const path = url.split("?")[0]?.toLowerCase() ?? "";
+  return f.endsWith(".pdf") || path.endsWith(".pdf");
+}
+
+function triggerBlobDownload(blob: Blob, downloadName: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = downloadName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function downloadInvoiceFileFromUrl(fileUrl: string, filename: string | null) {
+  const nameForKind = filename ?? "";
+  try {
+    if (invoiceUrlLooksHtml(nameForKind, fileUrl)) {
+      const html = await fetch(fileUrl).then((r) => r.text());
+      const blob = new Blob([html], { type: "text/html" });
+      triggerBlobDownload(blob, filename?.trim() || "invoice.html");
+      return;
+    }
+    if (invoiceUrlLooksPdf(nameForKind, fileUrl)) {
+      const res = await fetch(fileUrl);
+      const buf = await res.arrayBuffer();
+      const blob = new Blob([buf], { type: "application/pdf" });
+      triggerBlobDownload(blob, filename?.trim() || "invoice.pdf");
+      return;
+    }
+    const res = await fetch(fileUrl);
+    const blob = await res.blob();
+    triggerBlobDownload(blob, filename?.trim() || "invoice");
+  } catch (e) {
+    console.error("[financial] invoice file download failed:", e);
+  }
+}
+
 type InvoicePreviewModalState = {
   fileName: string;
   url: string;
@@ -1085,13 +1126,13 @@ export function FinancialModule() {
                         <Pencil className="h-3 w-3" />
                         Edit
                       </button>
-                      <a
-                        href={invoice.file_url ?? DEMO_PDF_URL}
-                        download
+                      <button
+                        type="button"
+                        onClick={() => void downloadInvoiceFileFromUrl(invoice.file_url ?? DEMO_PDF_URL, invoice.filename)}
                         className="inline-flex items-center rounded-lg border border-[var(--border-strong)] bg-transparent px-3 py-1 text-xs font-light text-[rgba(255,255,255,0.75)]"
                       >
                         Download
-                      </a>
+                      </button>
                       <button type="button" onClick={() => setDeleteInvoice(invoice)} className="rounded-lg border border-[rgba(239,68,68,0.35)] px-3 py-1 text-xs text-[#fca5a5]">Delete</button>
                     </div>
                   </td>
@@ -1849,9 +1890,13 @@ export function FinancialModule() {
             <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
               <p className="truncate text-sm font-light text-white">{pdfModal.fileName}</p>
               <div className="flex shrink-0 items-center gap-2">
-                <a href={pdfModal.url} download className="btn-primary rounded-lg px-3 py-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => void downloadInvoiceFileFromUrl(pdfModal.url, pdfModal.fileName)}
+                  className="btn-primary rounded-lg px-3 py-1.5 text-xs"
+                >
                   {lt("Download")}
-                </a>
+                </button>
                 <button
                   type="button"
                   onClick={() => setPdfModal(null)}

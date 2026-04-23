@@ -39,8 +39,14 @@ export async function GET(request: Request) {
 
     const data = await fetchGa4DashboardSnapshot(range);
     return NextResponse.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "GA4 request failed";
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "GA4 request failed";
+    if (error instanceof Error) {
+      const code = (error as Error & { code?: unknown }).code;
+      console.error('GA4 error details:', error.message, code);
+    } else {
+      console.error('GA4 error details:', message, undefined);
+    }
     return NextResponse.json(getGa4DashboardMock(message), { status: 200 });
   }
 }
