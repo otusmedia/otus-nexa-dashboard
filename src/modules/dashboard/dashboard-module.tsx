@@ -950,6 +950,7 @@ function DashboardHeroSection() {
 export function DashboardModule() {
   const { activity, t, td, projectsByColumn, currentUser } = useAppContext();
   const { t: lt } = useLanguage();
+  const canSeeActivity = currentUser?.company === "nexa" || currentUser?.company === "otus";
   const metaAds = useMetaAds();
   const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "custom">("30d");
   const [customApplied, setCustomApplied] = useState<DashboardCustomRange | null>(null);
@@ -3212,31 +3213,33 @@ export function DashboardModule() {
         </Modal>
       </div>
 
-      <Card className="mt-6">
-        <h2 className="section-title">{lt("Activity Summary")}</h2>
-        <div className="mt-3 grid gap-2 md:grid-cols-2">
-          {activity.length > 0 ? (
-            activity.slice(0, 6).map((item) => (
-              <div key={item.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-3">
-                <p className="text-sm">{td(item.action)}</p>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--primary)]/20 text-[10px] font-normal text-[var(--primary)]">
-                    {td(item.actor).slice(0, 1).toUpperCase()}
-                  </span>
-                  <p className="text-xs text-[var(--muted)]">{td(item.actor)}</p>
-                  <span className="text-xs text-[var(--muted)]">
-                    - <span className="mono-num">{td(item.timestamp)}</span>
-                  </span>
+      {canSeeActivity ? (
+        <Card className="mt-6">
+          <h2 className="section-title">{lt("Activity Summary")}</h2>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {activity.length > 0 ? (
+              activity.slice(0, 6).map((item) => (
+                <div key={item.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-3">
+                  <p className="text-sm">{td(item.action)}</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--primary)]/20 text-[10px] font-normal text-[var(--primary)]">
+                      {td(item.actor).slice(0, 1).toUpperCase()}
+                    </span>
+                    <p className="text-xs text-[var(--muted)]">{td(item.actor)}</p>
+                    <span className="text-xs text-[var(--muted)]">
+                      - <span className="mono-num">{td(item.timestamp)}</span>
+                    </span>
+                  </div>
                 </div>
+              ))
+            ) : (
+              <div className="md:col-span-2 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-4 text-center">
+                <p className="text-sm text-[rgba(255,255,255,0.6)]">{lt("No recent activity yet")}</p>
               </div>
-            ))
-          ) : (
-            <div className="md:col-span-2 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-4 text-center">
-              <p className="text-sm text-[rgba(255,255,255,0.6)]">{lt("No recent activity yet")}</p>
-            </div>
-          )}
-        </div>
-      </Card>
+            )}
+          </div>
+        </Card>
+      ) : null}
     </ModuleGuard>
   );
 }

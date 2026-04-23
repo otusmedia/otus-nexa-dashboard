@@ -3,7 +3,7 @@
 import type { DropResult } from "@hello-pangea/dnd";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { AuthProvider, useAuth } from "@/context/auth-context";
-import { ALL_MODULE_KEYS } from "@/lib/modules";
+import { ALL_MODULE_KEYS, ROCKETRIDE_ALLOWED_MODULE_KEYS } from "@/lib/modules";
 import {
   COLUMN_TO_STATUS,
   computeProjectProgressFromTasks,
@@ -25,7 +25,6 @@ import {
   invoices as invoicesSeed,
   roadmapSeed,
   tasks as tasksSeed,
-  users as usersSeed,
 } from "@/services/mock-data";
 import { supabase } from "@/lib/supabase";
 import { useLanguage, type AppLanguage } from "@/context/language-context";
@@ -43,8 +42,10 @@ import type {
   ModuleKey,
   NotificationItem,
   RoadmapItem,
+  Role,
   Task,
   TaskStatus,
+  UserCompany,
 } from "@/types";
 
 interface AppContextValue {
@@ -60,11 +61,15 @@ interface AppContextValue {
   setUserModules: (userId: string, modules: AppUser["modules"]) => void;
   addUser: (input: {
     name: string;
+    email?: string | null;
     role: AppUser["role"];
     modules: AppUser["modules"];
     company?: AppUser["company"];
   }) => void;
-  updateUser: (id: string, updates: Partial<Pick<AppUser, "name" | "role" | "modules" | "company">>) => void;
+  updateUser: (
+    id: string,
+    updates: Partial<Pick<AppUser, "name" | "role" | "modules" | "company" | "email">> & { password?: string },
+  ) => void;
   deleteUser: (id: string) => void;
   tasks: Task[];
   tasksLoading: boolean;
@@ -155,6 +160,97 @@ const GUEST_USER: AppUser = {
   company: "",
   modules: [],
 };
+
+const APP_USERS_SEED: Array<{
+  name: string;
+  email: string | null;
+  company: UserCompany;
+  role: Role;
+  modules: ModuleKey[];
+}> = [
+  {
+    name: "Matheus Canci",
+    email: "matheuscancci@gmail.com",
+    company: "nexa",
+    role: "admin",
+    modules: [...ALL_MODULE_KEYS],
+  },
+  {
+    name: "David Martins",
+    email: "david@nexamedia.com",
+    company: "nexa",
+    role: "admin",
+    modules: [...ALL_MODULE_KEYS],
+  },
+  {
+    name: "Matheus Foletto",
+    email: "foletto@otusmedia.com",
+    company: "otus",
+    role: "admin",
+    modules: [...ALL_MODULE_KEYS],
+  },
+  {
+    name: "Joe Maiochi",
+    email: "joe.maionchi@rocketride.ai",
+    company: "rocketride",
+    role: "admin",
+    modules: [...ROCKETRIDE_ALLOWED_MODULE_KEYS],
+  },
+  {
+    name: "Karla Kachuba",
+    email: "karla@nexamedia.com",
+    company: "nexa",
+    role: "manager",
+    modules: ["projects", "marketing", "files"],
+  },
+  {
+    name: "Luca",
+    email: "luca@otusmedia.com",
+    company: "otus",
+    role: "manager",
+    modules: ["projects", "marketing", "files"],
+  },
+  {
+    name: "Aaron Jimenez",
+    email: "aaron.jimenez@rocketride.ai",
+    company: "rocketride",
+    role: "manager",
+    modules: ["projects", "files", "contracts"],
+  },
+];
+
+function normalizeUserCompany(value: unknown): UserCompany {
+  const s = String(value ?? "").toLowerCase();
+  if (s === "nexa") return "nexa";
+  if (s === "otus") return "otus";
+  if (s === "rocketride") return "rocketride";
+  return "";
+}
+
+function normalizeUserRole(value: unknown): Role {
+  return value === "admin" || value === "manager" ? value : "manager";
+}
+
+function normalizeUserModules(value: unknown): ModuleKey[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(String).filter((m): m is ModuleKey => ALL_MODULE_KEYS.includes(m as ModuleKey));
+}
+
+function hashAppPassword(password: string): string {
+  return btoa(unescape(encodeURIComponent(password)));
+}
+
+function appUserFromAppUsersRow(row: Record<string, unknown>): AppUser {
+  const emailRaw = row.email;
+  return {
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    email: emailRaw != null && String(emailRaw).trim() !== "" ? String(emailRaw).trim() : null,
+    role: normalizeUserRole(row.role),
+    company: normalizeUserCompany(row.company),
+    modules: normalizeUserModules(row.modules),
+  };
+}
 
 type DbProjectRow = {
   id: string;
@@ -263,9 +359,9 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
 }
 
 function AppStateProvider({ children }: { children: React.ReactNode }) {
-  const { sessionUserId, logout } = useAuth();
+  const { sessionUserId, persistedUser, logout } = useAuth();
   const { language, setLanguage, t: tLine } = useLanguage();
-  const [users, setUsers] = useState<AppUser[]>(usersSeed);
+  const [users, setUsers] = useState<AppUser[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
@@ -286,10 +382,13 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [projectsByColumn, setProjectsByColumn] = useState<ProjectsByColumn>(() => splitProjectsByColumn([]));
   const [projectsLoading, setProjectsLoading] = useState(true);
 
-  const currentUser =
-    sessionUserId && users.some((u) => u.id === sessionUserId)
-      ? (users.find((u) => u.id === sessionUserId) as AppUser)
-      : GUEST_USER;
+  const currentUser = useMemo((): AppUser => {
+    if (!sessionUserId) return GUEST_USER;
+    const fromList = users.find((u) => u.id === sessionUserId);
+    if (fromList) return fromList;
+    if (persistedUser?.id === sessionUserId) return persistedUser;
+    return GUEST_USER;
+  }, [sessionUserId, users, persistedUser]);
 
   const allowedModules: ModuleKey[] =
     !sessionUserId || currentUser.id === GUEST_USER.id ? [] : [...currentUser.modules];
@@ -329,6 +428,42 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const { count, error: countError } = await supabase.from("app_users").select("*", { count: "exact", head: true });
+      if (!mounted) return;
+      if (countError) {
+        console.error("[supabase] app_users count failed:", countError.message);
+      }
+      if (count === 0) {
+        const { error: seedError } = await supabase.from("app_users").insert(
+          APP_USERS_SEED.map((u) => ({
+            name: u.name,
+            email: u.email,
+            company: u.company,
+            role: u.role,
+            modules: u.modules,
+          })),
+        );
+        if (seedError) {
+          console.error("[supabase] app_users seed failed:", seedError.message);
+        }
+      }
+      const { data, error } = await supabase.from("app_users").select("*").order("name", { ascending: true });
+      if (!mounted) return;
+      if (error) {
+        console.error("[supabase] app_users fetch failed:", error.message);
+        setUsers([]);
+        return;
+      }
+      setUsers(((data as Array<Record<string, unknown>> | null) ?? []).map((row) => appUserFromAppUsersRow(row)));
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!sessionUserId) {
@@ -703,34 +838,123 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       availableUsers: users,
       allowedModules,
       users,
-      setUserModules: (userId, modules) =>
+      setUserModules: (userId, modules) => {
         setUsers((prev) =>
           prev.map((user) => {
             if (user.id !== userId) return user;
             return { ...user, modules };
           }),
-        ),
-      addUser: ({ name, role, modules, company = "" }) => {
-        const id = crypto.randomUUID();
-        const nextModules =
-          role === "admin" ? (modules.length > 0 ? modules : [...ALL_MODULE_KEYS]) : modules;
-        setUsers((prev) => [...prev, { id, name, role, company, modules: nextModules }]);
+        );
+        void supabase
+          .from("app_users")
+          .update({ modules })
+          .eq("id", userId)
+          .then(({ error }) => {
+            if (error) console.error("[supabase] app_users modules update failed:", error.message);
+          });
+      },
+      addUser: ({ name, email: emailInput, role, modules, company = "" }) => {
+        const elevatedCompany = currentUser.company === "nexa" || currentUser.company === "otus";
+        const rocketRideViewer = currentUser.company === "rocketride";
+        const nexaOtusAdmin = elevatedCompany && currentUser.role === "admin";
+        const rrAdmin = rocketRideViewer && currentUser.role === "admin";
+        const viewerScopeModuleKeys = nexaOtusAdmin
+          ? [...ALL_MODULE_KEYS]
+          : rrAdmin
+            ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
+            : elevatedCompany
+              ? [...ALL_MODULE_KEYS]
+              : rocketRideViewer
+                ? ALL_MODULE_KEYS.filter(
+                    (k) => currentUser.modules.includes(k) && ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(k),
+                  )
+                : [...ALL_MODULE_KEYS];
+        const companyResolved: UserCompany = rocketRideViewer ? "rocketride" : company || "nexa";
+        let modulesToStore: ModuleKey[];
+        if (role === "admin") {
+          if (nexaOtusAdmin) {
+            modulesToStore = [...ALL_MODULE_KEYS];
+          } else if (rrAdmin) {
+            modulesToStore = [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
+          } else if (elevatedCompany) {
+            modulesToStore = [...ALL_MODULE_KEYS];
+          } else {
+            modulesToStore = [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
+          }
+        } else {
+          modulesToStore = modules.filter((m) => viewerScopeModuleKeys.includes(m));
+        }
+        const emailTrimmed = emailInput != null && String(emailInput).trim() !== "" ? String(emailInput).trim() : null;
+        void supabase
+          .from("app_users")
+          .insert({
+            name: name.trim(),
+            email: emailTrimmed,
+            company: companyResolved,
+            role,
+            modules: modulesToStore,
+          })
+          .select("*")
+          .single()
+          .then(({ data, error }) => {
+            if (error) {
+              console.error("[supabase] app_users insert failed:", error.message);
+              return;
+            }
+            const row = (data as Record<string, unknown>) ?? {};
+            const created = appUserFromAppUsersRow(row);
+            setUsers((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+          });
       },
       updateUser: (id, updates) => {
+        const { password: passwordUpdate, ...rest } = updates;
         setUsers((prev) =>
           prev.map((u) => {
             if (u.id !== id) return u;
-            const merged = { ...u, ...updates };
-            if (merged.role === "admin" && updates.modules !== undefined) {
-              return { ...merged, modules: updates.modules };
+            const merged = { ...u, ...rest };
+            if (merged.role === "admin" && rest.modules !== undefined) {
+              return { ...merged, modules: rest.modules };
             }
             return merged;
           }),
         );
+        const dbPatch: Record<string, unknown> = {};
+        if (rest.name !== undefined) dbPatch.name = typeof rest.name === "string" ? rest.name.trim() : rest.name;
+        if (rest.email !== undefined) dbPatch.email = rest.email != null && String(rest.email).trim() !== "" ? String(rest.email).trim() : null;
+        if (rest.role !== undefined) dbPatch.role = rest.role;
+        if (rest.company !== undefined) dbPatch.company = rest.company;
+        if (rest.modules !== undefined) dbPatch.modules = rest.modules;
+        if (passwordUpdate !== undefined && String(passwordUpdate).trim() !== "") {
+          dbPatch.password_hash = hashAppPassword(String(passwordUpdate).trim());
+        }
+        if (Object.keys(dbPatch).length === 0) return;
+        void supabase
+          .from("app_users")
+          .update(dbPatch)
+          .eq("id", id)
+          .select("*")
+          .single()
+          .then(({ data, error }) => {
+            if (error) {
+              console.error("[supabase] app_users update failed:", error.message);
+              return;
+            }
+            if (data) {
+              const next = appUserFromAppUsersRow(data as Record<string, unknown>);
+              setUsers((prev) => prev.map((u) => (u.id === id ? next : u)).sort((a, b) => a.name.localeCompare(b.name)));
+            }
+          });
       },
       deleteUser: (id) => {
         setUsers((prev) => prev.filter((u) => u.id !== id));
         if (sessionUserId === id) logout();
+        void supabase
+          .from("app_users")
+          .delete()
+          .eq("id", id)
+          .then(({ error }) => {
+            if (error) console.error("[supabase] app_users delete failed:", error.message);
+          });
       },
       tasks,
       tasksLoading,

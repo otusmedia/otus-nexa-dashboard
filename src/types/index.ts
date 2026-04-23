@@ -107,6 +107,7 @@ export interface NotificationItem {
 export interface AppUser {
   id: string;
   name: string;
+  email?: string | null;
   role: Role;
   modules: ModuleKey[];
   company: UserCompany;

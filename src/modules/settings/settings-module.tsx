@@ -6,15 +6,25 @@ import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
-import { ALL_MODULE_KEYS, MODULE_LABELS } from "@/lib/modules";
+import { ALL_MODULE_KEYS, MODULE_LABELS, ROCKETRIDE_ALLOWED_MODULE_KEYS } from "@/lib/modules";
 import type { AppUser, ModuleKey, Role, UserCompany } from "@/types";
 import { cn } from "@/lib/utils";
 
 type FormState = {
   name: string;
+  email: string;
   role: Role;
   modules: ModuleKey[];
   company: UserCompany;
+};
+
+type EditFormState = {
+  name: string;
+  email: string;
+  role: Role;
+  modules: ModuleKey[];
+  company: UserCompany;
+  password: string;
 };
 
 const COMPANY_OPTIONS: { value: Exclude<UserCompany, "">; labelKey: string }[] = [
@@ -26,9 +36,21 @@ const COMPANY_OPTIONS: { value: Exclude<UserCompany, "">; labelKey: string }[] =
 function emptyForm(defaultCompany: UserCompany): FormState {
   return {
     name: "",
+    email: "",
     role: "manager",
     modules: [],
     company: defaultCompany === "" ? "nexa" : defaultCompany,
+  };
+}
+
+function emptyEditForm(user: AppUser): EditFormState {
+  return {
+    name: user.name,
+    email: user.email ?? "",
+    role: user.role,
+    modules: [...user.modules],
+    company: user.company === "" ? "nexa" : user.company,
+    password: "",
   };
 }
 
@@ -65,77 +87,179 @@ function moduleChipClass(active: boolean, interactive: boolean) {
   );
 }
 
-function isElevatedCompany(company: AppUser["company"]): boolean {
-  return company === "nexa" || company === "otus";
+function isNexaOtusAdmin(user: AppUser): boolean {
+  return (user.company === "nexa" || user.company === "otus") && user.role === "admin";
 }
 
-function isRocketRideCompany(company: AppUser["company"]): boolean {
-  return company === "rocketride";
+function isRocketRideAdmin(user: AppUser): boolean {
+  return user.company === "rocketride" && user.role === "admin";
+}
+
+function isNexaOtusManager(user: AppUser): boolean {
+  return (user.company === "nexa" || user.company === "otus") && user.role === "manager";
+}
+
+function modulesInViewerScope(viewer: AppUser): ModuleKey[] {
+  if (isNexaOtusAdmin(viewer)) return [...ALL_MODULE_KEYS];
+  if (isNexaOtusManager(viewer)) return [...ALL_MODULE_KEYS];
+  if (isRocketRideAdmin(viewer)) return [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
+  if (viewer.company === "rocketride" && viewer.role === "manager") {
+    return ALL_MODULE_KEYS.filter((k) => viewer.modules.includes(k) && ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(k));
+  }
+  return [...ALL_MODULE_KEYS];
+}
+
+function moduleKeyToggleableByViewer(viewer: AppUser, key: ModuleKey): boolean {
+  if (isNexaOtusAdmin(viewer)) return true;
+  if (isNexaOtusManager(viewer)) return true;
+  if (isRocketRideAdmin(viewer)) return ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(key);
+  if (viewer.company === "rocketride" && viewer.role === "manager") {
+    return viewer.modules.includes(key) && ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(key);
+  }
+  return false;
 }
 
 function canEditTargetUserModules(viewer: AppUser, target: AppUser): boolean {
   if (target.id === viewer.id) return false;
-  if (isElevatedCompany(viewer.company)) return true;
-  if (isRocketRideCompany(viewer.company)) return target.company === "rocketride";
-  return false;
-}
-
-function moduleKeyToggleableByViewer(viewer: AppUser, key: ModuleKey): boolean {
-  if (isElevatedCompany(viewer.company)) return true;
-  if (isRocketRideCompany(viewer.company)) return viewer.modules.includes(key);
-  return false;
-}
-
-/** Modules this viewer may see as chips or grant in Add User (RocketRide = viewer.modules ∩ ALL, in product order). */
-function modulesInViewerScope(viewer: AppUser): ModuleKey[] {
-  if (isElevatedCompany(viewer.company)) return [...ALL_MODULE_KEYS];
-  if (isRocketRideCompany(viewer.company)) {
-    return ALL_MODULE_KEYS.filter((k) => viewer.modules.includes(k));
+  if (isNexaOtusAdmin(viewer)) return true;
+  if (isNexaOtusManager(viewer)) return target.company === viewer.company;
+  if (isRocketRideAdmin(viewer)) return target.company === "rocketride";
+  if (viewer.company === "rocketride" && viewer.role === "manager") {
+    return target.company === "rocketride";
   }
-  return [...ALL_MODULE_KEYS];
+  return false;
+}
+
+function canEditUser(viewer: AppUser, target: AppUser): boolean {
+  if (isNexaOtusAdmin(viewer)) return true;
+  if (isNexaOtusManager(viewer)) return target.company === viewer.company;
+  if (isRocketRideAdmin(viewer)) return target.company === "rocketride";
+  if (viewer.company === "rocketride" && viewer.role === "manager") {
+    return target.company === "rocketride";
+  }
+  return false;
+}
+
+function canDeleteUser(viewer: AppUser, target: AppUser): boolean {
+  if (target.id === viewer.id) return false;
+  if (isNexaOtusAdmin(viewer)) return true;
+  if (isNexaOtusManager(viewer)) return target.company === viewer.company;
+  if (isRocketRideAdmin(viewer)) return target.company === "rocketride";
+  return false;
 }
 
 export function SettingsModule() {
   const { users, addUser, updateUser, deleteUser, ts, currentUser } = useAppContext();
   const { t: lt } = useLanguage();
-  const [modalOpen, setModalOpen] = useState(false);
+  const [addModalOpen, setAddModalOpen] = useState(false);
   const [form, setForm] = useState<FormState>(() => emptyForm("nexa"));
+  const [editTarget, setEditTarget] = useState<AppUser | null>(null);
+  const [editForm, setEditForm] = useState<EditFormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null);
 
-  const elevatedViewer = isElevatedCompany(currentUser.company);
-  const rocketRideViewer = isRocketRideCompany(currentUser.company);
-
-  const viewerScopeModuleKeys = useMemo(
-    () => modulesInViewerScope(currentUser),
-    [currentUser],
-  );
+  const viewerScopeModuleKeys = useMemo(() => modulesInViewerScope(currentUser), [currentUser]);
 
   const tableUsers = useMemo(() => {
     let list = [...users].sort((a, b) => a.name.localeCompare(b.name));
-    if (rocketRideViewer) {
-      list = list.filter((u) => u.company === "rocketride");
+    if (isNexaOtusAdmin(currentUser)) return list;
+    if (currentUser.company === "nexa" || currentUser.company === "otus") {
+      return list.filter((u) => u.company === currentUser.company);
+    }
+    if (currentUser.company === "rocketride") {
+      return list.filter((u) => u.company === "rocketride");
     }
     return list;
-  }, [users, rocketRideViewer]);
+  }, [users, currentUser]);
+
+  const canAddUsers =
+    isNexaOtusAdmin(currentUser) ||
+    isNexaOtusManager(currentUser) ||
+    isRocketRideAdmin(currentUser);
+
+  const useStaticBadges =
+    currentUser.company !== "nexa" && currentUser.company !== "otus" && currentUser.company !== "rocketride";
 
   const openAdd = () => {
-    const defaultCompany: UserCompany = rocketRideViewer ? "rocketride" : "nexa";
+    const defaultCompany: UserCompany =
+      isRocketRideAdmin(currentUser) || (currentUser.company === "rocketride" && currentUser.role === "manager")
+        ? "rocketride"
+        : isNexaOtusManager(currentUser)
+          ? currentUser.company
+          : "nexa";
     setForm(emptyForm(defaultCompany));
-    setModalOpen(true);
+    setAddModalOpen(true);
   };
 
-  const save = () => {
+  const saveAdd = () => {
     const name = form.name.trim();
     if (!name) return;
-    const company: UserCompany = rocketRideViewer ? "rocketride" : form.company || "nexa";
+    const email = form.email.trim();
+    const company: UserCompany =
+      isRocketRideAdmin(currentUser) || (currentUser.company === "rocketride" && currentUser.role === "manager")
+        ? "rocketride"
+        : isNexaOtusManager(currentUser)
+          ? currentUser.company
+          : form.company || "nexa";
     let modules: ModuleKey[];
     if (form.role === "admin") {
-      modules = elevatedViewer ? [...ALL_MODULE_KEYS] : [...currentUser.modules];
+      if (isNexaOtusAdmin(currentUser) || isNexaOtusManager(currentUser)) {
+        modules = [...ALL_MODULE_KEYS];
+      } else if (isRocketRideAdmin(currentUser)) {
+        modules = [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
+      } else {
+        modules = [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
+      }
     } else {
       modules = form.modules.filter((m) => viewerScopeModuleKeys.includes(m));
     }
-    addUser({ name, role: form.role, modules, company });
-    setModalOpen(false);
+    addUser({ name, email: email || null, role: form.role, modules, company });
+    setAddModalOpen(false);
+  };
+
+  const openEdit = (user: AppUser) => {
+    if (!canEditUser(currentUser, user)) return;
+    setEditTarget(user);
+    setEditForm(emptyEditForm(user));
+  };
+
+  const saveEdit = () => {
+    if (!editTarget || !editForm) return;
+    const name = editForm.name.trim();
+    if (!name) return;
+    let company: UserCompany = editForm.company;
+    if (isRocketRideAdmin(currentUser) || (currentUser.company === "rocketride" && currentUser.role === "manager")) {
+      company = "rocketride";
+    } else if (isNexaOtusManager(currentUser)) {
+      company = currentUser.company;
+    }
+    let role: Role = editForm.role;
+    if (isRocketRideAdmin(currentUser) && editTarget.id === currentUser.id) {
+      role = editTarget.role;
+    }
+    let modules: ModuleKey[];
+    if (role === "admin") {
+      modules = company === "rocketride" ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS] : [...ALL_MODULE_KEYS];
+    } else {
+      const rrViewer =
+        isRocketRideAdmin(currentUser) || (currentUser.company === "rocketride" && currentUser.role === "manager");
+      modules =
+        company === "rocketride" && rrViewer
+          ? editForm.modules.filter((m) => ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(m))
+          : [...editForm.modules];
+    }
+    const payload: Parameters<typeof updateUser>[1] = {
+      name,
+      email: editForm.email.trim() || null,
+      company,
+      role,
+      modules,
+    };
+    if (editForm.password.trim()) {
+      payload.password = editForm.password.trim();
+    }
+    updateUser(editTarget.id, payload);
+    setEditTarget(null);
+    setEditForm(null);
   };
 
   const confirmDelete = () => {
@@ -154,7 +278,19 @@ export function SettingsModule() {
 
   const displayModulesForStaticBadges = (user: AppUser) => user.modules;
 
-  const useStaticBadges = !elevatedViewer && !rocketRideViewer;
+  const editCompanyLocked =
+    isRocketRideAdmin(currentUser) ||
+    (currentUser.company === "rocketride" && currentUser.role === "manager") ||
+    isNexaOtusManager(currentUser);
+
+  const editRoleLocked = Boolean(
+    editTarget && isRocketRideAdmin(currentUser) && editTarget.id === currentUser.id,
+  );
+
+  const editModuleScopeKeys =
+    editTarget && (isRocketRideAdmin(currentUser) || (editTarget.company === "rocketride" && currentUser.company === "rocketride"))
+      ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
+      : viewerScopeModuleKeys;
 
   return (
     <>
@@ -163,9 +299,11 @@ export function SettingsModule() {
       <Card className="overflow-hidden p-0">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <h2 className="text-xs font-normal uppercase tracking-[0.12em] text-[var(--muted)]">{lt("USERS")}</h2>
-          <button type="button" onClick={openAdd} className="btn-primary rounded-lg px-3 py-2 text-sm">
-            {lt("Add User")}
-          </button>
+          {canAddUsers ? (
+            <button type="button" onClick={openAdd} className="btn-primary rounded-lg px-3 py-2 text-sm">
+              {lt("Add User")}
+            </button>
+          ) : null}
         </div>
 
         <div className="overflow-x-auto">
@@ -181,6 +319,8 @@ export function SettingsModule() {
             <tbody>
               {tableUsers.map((user) => {
                 const rowCanEditModules = canEditTargetUserModules(currentUser, user);
+                const showEdit = canEditUser(currentUser, user);
+                const showDelete = canDeleteUser(currentUser, user);
                 return (
                   <tr key={user.id} className="border-b border-[var(--border)] last:border-b-0">
                     <td className="px-4 py-3">
@@ -252,13 +392,26 @@ export function SettingsModule() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget(user)}
-                        className="btn-primary rounded px-2 py-1 text-xs"
-                      >
-                        {lt("Delete")}
-                      </button>
+                      <div className="flex flex-wrap justify-end gap-1">
+                        {showEdit ? (
+                          <button
+                            type="button"
+                            onClick={() => openEdit(user)}
+                            className="btn-ghost rounded px-2 py-1 text-xs"
+                          >
+                            {lt("Edit")}
+                          </button>
+                        ) : null}
+                        {showDelete ? (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(user)}
+                            className="btn-primary rounded px-2 py-1 text-xs"
+                          >
+                            {lt("Delete")}
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -268,7 +421,7 @@ export function SettingsModule() {
         </div>
       </Card>
 
-      <Modal open={modalOpen} title={lt("Add user")} onClose={() => setModalOpen(false)} closeLabel={lt("Close")}>
+      <Modal open={addModalOpen} title={lt("Add user")} onClose={() => setAddModalOpen(false)} closeLabel={lt("Close")}>
         <div className="space-y-3">
           <div>
             <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Name")}</label>
@@ -280,10 +433,24 @@ export function SettingsModule() {
             />
           </div>
           <div>
+            <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Email")}</label>
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+              placeholder={lt("Email")}
+              className="w-full rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
             <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Company")}</label>
-            {rocketRideViewer ? (
+            {isRocketRideAdmin(currentUser) || (currentUser.company === "rocketride" && currentUser.role === "manager") ? (
               <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-[var(--muted)]">
                 {lt("RocketRide")}
+              </div>
+            ) : isNexaOtusManager(currentUser) ? (
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-[var(--muted)]">
+                {currentUser.company === "nexa" ? lt("Nexa") : lt("Otus")}
               </div>
             ) : (
               <select
@@ -350,10 +517,140 @@ export function SettingsModule() {
               </div>
             </div>
           ) : null}
-          <button type="button" onClick={save} className="btn-primary w-full rounded-lg px-3 py-2 text-sm">
+          <button type="button" onClick={saveAdd} className="btn-primary w-full rounded-lg px-3 py-2 text-sm">
             {lt("Save")}
           </button>
         </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(editTarget && editForm)}
+        title={lt("Edit user")}
+        onClose={() => {
+          setEditTarget(null);
+          setEditForm(null);
+        }}
+        closeLabel={lt("Close")}
+      >
+        {editForm && editTarget ? (
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Name")}</label>
+              <input
+                value={editForm.name}
+                onChange={(e) => setEditForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                className="w-full rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Email")}</label>
+              <input
+                type="email"
+                value={editForm.email}
+                onChange={(e) => setEditForm((prev) => (prev ? { ...prev, email: e.target.value } : prev))}
+                placeholder={lt("Email")}
+                className="w-full rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Company")}</label>
+              {editCompanyLocked ? (
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-[var(--muted)]">
+                  {editForm.company === "nexa"
+                    ? lt("Nexa")
+                    : editForm.company === "otus"
+                      ? lt("Otus")
+                      : lt("RocketRide")}
+                </div>
+              ) : (
+                <select
+                  value={editForm.company === "" ? "nexa" : editForm.company}
+                  onChange={(e) =>
+                    setEditForm((prev) =>
+                      prev ? { ...prev, company: e.target.value as UserCompany } : prev,
+                    )
+                  }
+                  className="w-full rounded-lg px-3 py-2 text-sm"
+                >
+                  {COMPANY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {lt(opt.labelKey)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Role")}</label>
+              <select
+                value={editForm.role}
+                disabled={editRoleLocked}
+                onChange={(e) => {
+                  const role = e.target.value as Role;
+                  setEditForm((prev) => {
+                    if (!prev) return prev;
+                    return {
+                      ...prev,
+                      role,
+                      modules:
+                        role === "admin"
+                          ? isNexaOtusAdmin(currentUser) || isNexaOtusManager(currentUser)
+                            ? [...ALL_MODULE_KEYS]
+                            : [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
+                          : prev.modules.filter((m) => editModuleScopeKeys.includes(m)),
+                    };
+                  });
+                }}
+                className="w-full rounded-lg px-3 py-2 text-sm disabled:opacity-50"
+              >
+                <option value="admin">{ts("admin")}</option>
+                <option value="manager">{ts("manager")}</option>
+              </select>
+            </div>
+            {editForm.role === "manager" ? (
+              <div>
+                <p className="mb-2 text-xs text-[var(--muted)]">{lt("Module Access")}</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {editModuleScopeKeys.map((key) => (
+                    <label key={key} className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
+                      <input
+                        type="checkbox"
+                        checked={editForm.modules.includes(key)}
+                        onChange={(e) => {
+                          setEditForm((prev) => {
+                            if (!prev) return prev;
+                            return {
+                              ...prev,
+                              modules: e.target.checked
+                                ? [...prev.modules, key]
+                                : prev.modules.filter((m) => m !== key),
+                            };
+                          });
+                        }}
+                        className="rounded border-[var(--border)]"
+                      />
+                      {lt(MODULE_LABELS[key])}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div>
+              <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Password")}</label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={editForm.password}
+                onChange={(e) => setEditForm((prev) => (prev ? { ...prev, password: e.target.value } : prev))}
+                placeholder={lt("Leave empty to keep current password")}
+                className="w-full rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <button type="button" onClick={saveEdit} className="btn-primary w-full rounded-lg px-3 py-2 text-sm">
+              {lt("Save")}
+            </button>
+          </div>
+        ) : null}
       </Modal>
 
       <Modal
