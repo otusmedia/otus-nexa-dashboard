@@ -15,6 +15,7 @@ import {
   LogOut,
   MessageCircle,
   Megaphone,
+  MessageSquare,
   Send,
   Settings,
   Wallet,
@@ -32,6 +33,7 @@ const moduleLinks: Array<{
     | "dashboard"
     | "projects"
     | "financial"
+    | "updates"
     | "marketing"
     | "publishing"
     | "calendar"
@@ -44,6 +46,7 @@ const moduleLinks: Array<{
   { key: "dashboard", labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
   { key: "projects", labelKey: "projects", href: "/projects", icon: BarChart3 },
   { key: "financial", labelKey: "financial", href: "/financial", icon: Wallet },
+  { key: "updates", labelKey: "updates", href: "/updates", icon: MessageSquare },
   { key: "marketing", labelKey: "marketing", href: "/marketing", icon: Megaphone },
   { key: "publishing", labelKey: "publishing", href: "/publishing", icon: Send },
   { key: "calendar", labelKey: "calendar", href: "/calendar", icon: Calendar },
@@ -307,11 +310,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 const isActive =
                   link.key === "projects"
                     ? pathname.startsWith("/projects")
-                    : link.key === "publishing"
-                      ? pathname.startsWith("/publishing")
-                      : link.key === "calendar"
-                        ? pathname.startsWith("/calendar")
-                        : pathname === link.href;
+                    : link.key === "updates"
+                      ? pathname.startsWith("/updates")
+                      : link.key === "publishing"
+                        ? pathname.startsWith("/publishing")
+                        : link.key === "calendar"
+                          ? pathname.startsWith("/calendar")
+                          : pathname === link.href;
                 const Icon = link.icon;
                 if (link.key === "marketing") {
                   const isMarketingActive = pathname.startsWith("/marketing");

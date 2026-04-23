@@ -201,14 +201,14 @@ const APP_USERS_SEED: Array<{
     email: "karla@nexamedia.com",
     company: "nexa",
     role: "manager",
-    modules: ["projects", "marketing", "publishing", "files"],
+    modules: ["projects", "updates", "marketing", "publishing", "files"],
   },
   {
     name: "Luca",
     email: "luca@otusmedia.com",
     company: "otus",
     role: "manager",
-    modules: ["projects", "marketing", "publishing", "files"],
+    modules: ["projects", "updates", "marketing", "publishing", "files"],
   },
   {
     name: "Aaron Jimenez",
@@ -242,13 +242,19 @@ function hashAppPassword(password: string): string {
 
 function appUserFromAppUsersRow(row: Record<string, unknown>): AppUser {
   const emailRaw = row.email;
+  const company = normalizeUserCompany(row.company);
+  const role = normalizeUserRole(row.role);
+  let modules = normalizeUserModules(row.modules);
+  if (role === "admin" && (company === "nexa" || company === "otus")) {
+    modules = [...ALL_MODULE_KEYS];
+  }
   return {
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
     email: emailRaw != null && String(emailRaw).trim() !== "" ? String(emailRaw).trim() : null,
-    role: normalizeUserRole(row.role),
-    company: normalizeUserCompany(row.company),
-    modules: normalizeUserModules(row.modules),
+    role,
+    company,
+    modules,
   };
 }
 

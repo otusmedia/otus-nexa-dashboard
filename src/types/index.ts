@@ -7,6 +7,7 @@ export type ModuleKey =
   | "dashboard"
   | "projects"
   | "financial"
+  | "updates"
   | "marketing"
   | "publishing"
   | "calendar"
