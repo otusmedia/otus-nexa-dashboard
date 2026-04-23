@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   fetchGa4DashboardSnapshot,
   fetchGa4DashboardSnapshotCustom,
-  getGa4DashboardMock,
+  getGa4DashboardUnavailable,
   type Ga4DateRangeParam,
 } from "@/lib/ga4";
 
@@ -47,6 +47,6 @@ export async function GET(request: Request) {
     } else {
       console.error('GA4 error details:', message, undefined);
     }
-    return NextResponse.json(getGa4DashboardMock(message), { status: 200 });
+    return NextResponse.json(getGa4DashboardUnavailable(message), { status: 200 });
   }
 }

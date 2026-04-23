@@ -40,12 +40,13 @@ function parseCreativeImageUrl(cr: GraphCreative | undefined): string | null {
 }
 
 function parseMetricsFromInsightObject(ins: GraphInsights | undefined) {
-  const impressions = parseInt(String(ins?.impressions ?? "0"), 10) || 0;
+  const impressions = Math.max(0, Math.round(parseInt(String(ins?.impressions ?? "0"), 10) || 0));
   const clicks = parseInt(String(ins?.clicks ?? "0"), 10) || 0;
   let ctr = parseFloat(String(ins?.ctr ?? "0")) || 0;
   if (ctr > 0 && ctr <= 1) ctr *= 100;
+  ctr = Math.round(ctr * 100) / 100;
   if (ctr <= 0 && impressions > 0 && clicks > 0) {
-    ctr = (clicks / impressions) * 100;
+    ctr = Math.round(((clicks / impressions) * 100) * 100) / 100;
   }
   const spend = parseFloat(String(ins?.spend ?? "0")) || 0;
   return { impressions, clicks, ctr, spend };
@@ -126,7 +127,7 @@ export async function GET() {
     const insightFields = encodeURIComponent(
       "ad_id,ad_name,impressions,clicks,ctr,spend,adcreatives{thumbnail_url,image_url,body,title}",
     );
-    const insightsUrl = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${insightFields}&date_preset=last_30d&level=ad&sort=impressions_descending&limit=3&access_token=${ACCESS_TOKEN}`;
+    const insightsUrl = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${insightFields}&date_preset=maximum&level=ad&sort=impressions_descending&limit=3&access_token=${ACCESS_TOKEN}`;
 
     let insightPayload = (await (await fetch(insightsUrl, { next: { revalidate: 300 } })).json()) as {
       data?: InsightApiRow[];
@@ -142,7 +143,7 @@ export async function GET() {
     // Retry insights without nested adcreatives if the first call failed on field errors
     if (insightPayload.error?.message && insightRows.length === 0) {
       const simpleFields = encodeURIComponent("ad_id,ad_name,impressions,clicks,ctr,spend");
-      const simpleUrl = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${simpleFields}&date_preset=last_30d&level=ad&sort=impressions_descending&limit=3&access_token=${ACCESS_TOKEN}`;
+      const simpleUrl = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${simpleFields}&date_preset=maximum&level=ad&sort=impressions_descending&limit=3&access_token=${ACCESS_TOKEN}`;
       insightPayload = (await (await fetch(simpleUrl, { next: { revalidate: 300 } })).json()) as {
         data?: InsightApiRow[];
         error?: { message?: string };
@@ -154,7 +155,12 @@ export async function GET() {
     }
 
     if (insightRows.length > 0) {
-      console.log("[meta-creatives] first raw insights row:", JSON.stringify(insightRows[0]));
+      const first = insightRows[0];
+      console.log("[meta-creatives] first raw insights row (full):", JSON.stringify(first));
+      console.log(
+        "[meta-creatives] first ad parsed metrics:",
+        JSON.stringify(parseMetricsFromInsightObject(first as unknown as GraphInsights)),
+      );
       const creatives = mapInsightRowsToCreatives(insightRows)
         .filter((c) => c.id.length > 0)
         .slice(0, 3);
@@ -169,7 +175,7 @@ export async function GET() {
 
     // 2) Ads + nested insights, sort client-side, top 3
     const adsFields = encodeURIComponent(
-      "id,name,creative{thumbnail_url,image_url,effective_object_story_id},insights.date_preset(last_30d){impressions,clicks,ctr,spend}",
+      "id,name,creative{thumbnail_url,image_url,effective_object_story_id},insights.date_preset(maximum){impressions,clicks,ctr,spend}",
     );
     const adsUrl = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/ads?fields=${adsFields}&limit=20&access_token=${ACCESS_TOKEN}`;
     const adsRes = await fetch(adsUrl, { next: { revalidate: 300 } });

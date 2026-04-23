@@ -208,8 +208,22 @@ export async function GET(request: Request) {
   const reachJson = await fetchJson(reachUrl);
   logRaw("reach", reachJson);
   const reachErr = getGraphErrorMessage(reachJson);
-  const reach = reachErr ? 0 : metricSumFromInsightJson(reachJson);
+  let reach = reachErr ? 0 : metricSumFromInsightJson(reachJson);
   if (reachErr) console.error("[instagram-insights] reach error:", reachErr);
+  if (!reachErr) {
+    const reachData = reachJson as { data?: Array<{ values?: Array<{ value?: unknown }> }> };
+    const reachValues = reachData.data?.[0]?.values;
+    if (Array.isArray(reachValues)) {
+      console.log(
+        "[instagram-insights] reach raw day values:",
+        reachValues.map((row) => row?.value),
+      );
+    }
+  }
+  if (reach > 1_000_000) {
+    console.warn("[instagram-insights] reach sanity: sum > 1,000,000 — treating as invalid:", reach);
+    reach = 0;
+  }
 
   const impressions = await tryImpressionsSum(id, token, since, until, reach);
   const profileVisits = await tryProfileVisitsSum(id, token, since, until, reach);

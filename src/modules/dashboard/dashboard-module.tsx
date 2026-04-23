@@ -361,7 +361,7 @@ const GA4_ANALYTICS_HOME = "https://analytics.google.com/analytics/web/";
 
 type Ga4WebsiteState = {
   loading: boolean;
-  source: "live" | "mock";
+  source: "live" | "mock" | "unavailable";
   error?: string;
   totals: {
     sessions: string;
@@ -374,12 +374,12 @@ type Ga4WebsiteState = {
 
 const ga4WebsiteInitial: Ga4WebsiteState = {
   loading: true,
-  source: "mock",
+  source: "unavailable",
   totals: {
     sessions: "0",
-    bounceRate: "0%",
+    bounceRate: "0.0%",
     avgSessionDuration: "00:00",
-    changes: { sessions: "—", bounceRate: "—", avgSessionDuration: "—" },
+    changes: { sessions: "0%", bounceRate: "0.0%", avgSessionDuration: "00:00" },
   },
   topPages: [],
 };
@@ -1588,15 +1588,26 @@ export function DashboardModule() {
         if (cancelled) return;
         setGa4Website({
           loading: false,
-          source: json.source,
+          source: json.source === "live" || json.source === "unavailable" || json.source === "mock" ? json.source : "unavailable",
           error: json.error,
           totals: json.totals,
-          topPages: json.topPages,
+          topPages: Array.isArray(json.topPages) ? json.topPages : [],
         });
       })
       .catch(() => {
         if (cancelled) return;
-        setGa4Website((prev) => ({ ...prev, loading: false, source: "mock" }));
+        setGa4Website({
+          loading: false,
+          source: "unavailable",
+          error: undefined,
+          totals: {
+            sessions: "0",
+            bounceRate: "0.0%",
+            avgSessionDuration: "00:00",
+            changes: { sessions: "0%", bounceRate: "0.0%", avgSessionDuration: "00:00" },
+          },
+          topPages: [],
+        });
       });
     return () => {
       cancelled = true;
@@ -2184,7 +2195,7 @@ export function DashboardModule() {
         <div className="mt-3 grid gap-3 xl:grid-cols-3">
           <Card className="xl:col-span-2 h-full">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">{lt("Monthly follower growth")}</p>
+              <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">{lt("Monthly Follower Count")}</p>
               <div className="inline-flex gap-1 text-[10px] text-[var(--muted)]">
                 <span className="mono-num rounded border border-[var(--border)] px-1.5 py-0.5">1M</span>
                 <span className="mono-num rounded border border-[var(--border)] px-1.5 py-0.5">12M</span>
@@ -2867,12 +2878,7 @@ export function DashboardModule() {
         </div>
         <Card className="mt-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-[var(--muted)]">
-              {lt("Website metrics from Google Analytics 4")}
-              {ga4Website.source === "mock" && ga4Website.error ? (
-                <span className="mt-1 block text-xs text-[rgba(255,255,255,0.35)]">{ga4Website.error}</span>
-              ) : null}
-            </p>
+            <p className="text-sm text-[var(--muted)]">{lt("Website metrics from Google Analytics 4")}</p>
             <button
               type="button"
               className="btn-primary rounded-lg px-3 py-2 text-xs"
@@ -2898,7 +2904,7 @@ export function DashboardModule() {
                       colSpan={4}
                       className="py-10 text-center align-middle text-[0.75rem] text-[rgba(255,255,255,0.3)]"
                     >
-                      {lt("No page data yet — visit your site to start collecting data")}
+                      {lt("No data available")}
                     </td>
                   </tr>
                 ) : (
@@ -2914,8 +2920,13 @@ export function DashboardModule() {
               </tbody>
             </table>
           </div>
-          <p className="source-label mt-3 text-right">
-            {ga4Website.source === "live" ? lt("Source: Google Analytics 4 (live)") : lt("Source: Google Analytics 4")}
+          <p
+            className={cn(
+              "source-label mt-3 text-right",
+              ga4Website.source !== "live" ? "text-[rgba(255,255,255,0.35)]" : "",
+            )}
+          >
+            {ga4Website.source === "live" ? lt("Source: Google Analytics 4 (live)") : lt("Google Analytics 4 — not connected")}
           </p>
         </Card>
       </div>

@@ -11,7 +11,7 @@ import { google } from "googleapis";
 export type Ga4DateRangeParam = "7d" | "30d" | "90d";
 
 export type Ga4DashboardResponse = {
-  source: "live" | "mock";
+  source: "live" | "mock" | "unavailable";
   error?: string;
   totals: {
     sessions: string;
@@ -33,13 +33,17 @@ export type Ga4DashboardResponse = {
 
 export function isGa4Configured(): boolean {
   const email = process.env.GOOGLE_CLIENT_EMAIL?.trim();
-  const key = process.env.GOOGLE_PRIVATE_KEY?.trim();
+  const raw = process.env.GOOGLE_PRIVATE_KEY;
   const property = process.env.GA4_PROPERTY_ID?.trim();
-  return Boolean(email && key && property);
+  return Boolean(email && raw && String(raw).trim() && property);
 }
 
 function parseGooglePrivateKeyFromEnv(): string {
-  const privateKey = process.env.GOOGLE_PRIVATE_KEY!.replace(/\\n/g, "\n").replace(/\\\\n/g, "\n").trim();
+  const privateKey = (process.env.GOOGLE_PRIVATE_KEY ?? "")
+    .replace(/\\n/g, "\n")
+    .replace(/\\\\n/g, "\n")
+    .trim();
+  console.log("GA4 key starts with:", privateKey.slice(0, 40));
   return privateKey;
 }
 
@@ -104,15 +108,16 @@ function formatSessionsDelta(current: number, previous: number): string {
   return `${sign}${pct.toFixed(1)}%`;
 }
 
-export function getGa4DashboardMock(error?: string): Ga4DashboardResponse {
+/** Zeros / empty when GA4 is not configured or the request fails — never fake metrics. */
+export function getGa4DashboardUnavailable(error?: string): Ga4DashboardResponse {
   return {
-    source: "mock",
+    source: "unavailable",
     ...(error ? { error } : {}),
     totals: {
-      sessions: "58,420",
-      bounceRate: "38.2%",
-      avgSessionDuration: "03:18",
-      changes: { sessions: "+7.1%", bounceRate: "-2.4%", avgSessionDuration: "+0:22" },
+      sessions: "0",
+      bounceRate: "0.0%",
+      avgSessionDuration: "00:00",
+      changes: { sessions: "0%", bounceRate: "0.0%", avgSessionDuration: "00:00" },
     },
     topPages: [],
   };
@@ -134,180 +139,192 @@ function daysInclusiveYmd(startYmd: string, endYmd: string): number {
 export async function fetchGa4DashboardSnapshotCustom(startYmd: string, endYmd: string): Promise<Ga4DashboardResponse> {
   logGa4Diagnostics();
   if (!isGa4Configured()) {
-    return getGa4DashboardMock("GA4 credentials not configured");
+    return getGa4DashboardUnavailable("GA4 credentials not configured");
   }
 
-  const credentials = {
-    client_email: process.env.GOOGLE_CLIENT_EMAIL!,
-    private_key: parseGooglePrivateKeyFromEnv(),
-  };
+  try {
+    const credentials = {
+      client_email: process.env.GOOGLE_CLIENT_EMAIL!,
+      private_key: parseGooglePrivateKeyFromEnv(),
+    };
 
-  const propertyId = process.env.GA4_PROPERTY_ID!;
+    const propertyId = process.env.GA4_PROPERTY_ID!;
 
-  const auth = new google.auth.JWT({
-    email: credentials.client_email.trim(),
-    key: credentials.private_key,
-    scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
-  });
+    const auth = new google.auth.JWT({
+      email: credentials.client_email.trim(),
+      key: credentials.private_key,
+      scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+    });
 
-  const analyticsdata = google.analyticsdata({ version: "v1beta", auth });
-  const propertyIdTrim = propertyId.trim();
-  const property = propertyIdTrim.startsWith("properties/")
-    ? propertyIdTrim
-    : `properties/${propertyIdTrim}`;
+    const analyticsdata = google.analyticsdata({ version: "v1beta", auth });
+    const propertyIdTrim = propertyId.trim();
+    const property = propertyIdTrim.startsWith("properties/")
+      ? propertyIdTrim
+      : `properties/${propertyIdTrim}`;
 
-  const d = daysInclusiveYmd(startYmd, endYmd);
-  const previousEnd = addDaysYmdUtc(startYmd, -1);
-  const previousStart = addDaysYmdUtc(previousEnd, -(d - 1));
-  const current = { startDate: startYmd, endDate: endYmd, name: "current" };
-  const previous = { startDate: previousStart, endDate: previousEnd, name: "previous" };
+    const d = daysInclusiveYmd(startYmd, endYmd);
+    const previousEnd = addDaysYmdUtc(startYmd, -1);
+    const previousStart = addDaysYmdUtc(previousEnd, -(d - 1));
+    const current = { startDate: startYmd, endDate: endYmd, name: "current" };
+    const previous = { startDate: previousStart, endDate: previousEnd, name: "previous" };
 
-  const { data: totalsBody } = await analyticsdata.properties.runReport({
-    property,
-    requestBody: {
-      dateRanges: [current, previous],
-      metrics: [{ name: "sessions" }, { name: "bounceRate" }, { name: "averageSessionDuration" }],
-    },
-  });
-
-  const mv = totalsBody.rows?.[0]?.metricValues ?? [];
-  const sessionsCur = Number(mv[0]?.value ?? 0);
-  const sessionsPrev = Number(mv[1]?.value ?? 0);
-  const bounceCur = Number(mv[2]?.value ?? 0);
-  const bouncePrev = Number(mv[3]?.value ?? 0);
-  const durationCur = Number(mv[4]?.value ?? 0);
-  const durationPrev = Number(mv[5]?.value ?? 0);
-
-  const { data: pagesBody } = await analyticsdata.properties.runReport({
-    property,
-    requestBody: {
-      dateRanges: [{ startDate: startYmd, endDate: endYmd }],
-      dimensions: [{ name: "pagePath" }],
-      metrics: [{ name: "sessions" }, { name: "screenPageViews" }, { name: "engagementRate" }],
-      orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
-      limit: "10",
-    },
-  });
-
-  const topPages =
-    pagesBody.rows?.map((row) => {
-      const page = row.dimensionValues?.[0]?.value ?? "(not set)";
-      const s = Number(row.metricValues?.[0]?.value ?? 0);
-      const v = Number(row.metricValues?.[1]?.value ?? 0);
-      const er = Number(row.metricValues?.[2]?.value ?? 0);
-      return {
-        page,
-        sessions: formatInt(s),
-        screenPageViews: formatInt(v),
-        engagementRate: formatPctFromRatio(Number.isFinite(er) ? er : 0),
-      };
-    }) ?? [];
-
-  return {
-    source: "live",
-    totals: {
-      sessions: formatInt(sessionsCur),
-      bounceRate: formatPctFromRatio(Number.isFinite(bounceCur) ? bounceCur : 0),
-      avgSessionDuration: formatDuration(Number.isFinite(durationCur) ? durationCur : 0),
-      changes: {
-        sessions: formatSessionsDelta(sessionsCur, sessionsPrev),
-        bounceRate: formatSignedPctPointDelta(
-          Number.isFinite(bounceCur) ? bounceCur : 0,
-          Number.isFinite(bouncePrev) ? bouncePrev : 0,
-        ),
-        avgSessionDuration: formatSignedDurationDelta(
-          (Number.isFinite(durationCur) ? durationCur : 0) - (Number.isFinite(durationPrev) ? durationPrev : 0),
-        ),
+    const { data: totalsBody } = await analyticsdata.properties.runReport({
+      property,
+      requestBody: {
+        dateRanges: [current, previous],
+        metrics: [{ name: "sessions" }, { name: "bounceRate" }, { name: "averageSessionDuration" }],
       },
-    },
-    topPages: topPages.slice(0, 10),
-  };
+    });
+
+    const mv = totalsBody.rows?.[0]?.metricValues ?? [];
+    const sessionsCur = Number(mv[0]?.value ?? 0);
+    const sessionsPrev = Number(mv[1]?.value ?? 0);
+    const bounceCur = Number(mv[2]?.value ?? 0);
+    const bouncePrev = Number(mv[3]?.value ?? 0);
+    const durationCur = Number(mv[4]?.value ?? 0);
+    const durationPrev = Number(mv[5]?.value ?? 0);
+
+    const { data: pagesBody } = await analyticsdata.properties.runReport({
+      property,
+      requestBody: {
+        dateRanges: [{ startDate: startYmd, endDate: endYmd }],
+        dimensions: [{ name: "pagePath" }],
+        metrics: [{ name: "sessions" }, { name: "screenPageViews" }, { name: "engagementRate" }],
+        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+        limit: "10",
+      },
+    });
+
+    const topPages =
+      pagesBody.rows?.map((row) => {
+        const page = row.dimensionValues?.[0]?.value ?? "(not set)";
+        const s = Number(row.metricValues?.[0]?.value ?? 0);
+        const v = Number(row.metricValues?.[1]?.value ?? 0);
+        const er = Number(row.metricValues?.[2]?.value ?? 0);
+        return {
+          page,
+          sessions: formatInt(s),
+          screenPageViews: formatInt(v),
+          engagementRate: formatPctFromRatio(Number.isFinite(er) ? er : 0),
+        };
+      }) ?? [];
+
+    return {
+      source: "live",
+      totals: {
+        sessions: formatInt(sessionsCur),
+        bounceRate: formatPctFromRatio(Number.isFinite(bounceCur) ? bounceCur : 0),
+        avgSessionDuration: formatDuration(Number.isFinite(durationCur) ? durationCur : 0),
+        changes: {
+          sessions: formatSessionsDelta(sessionsCur, sessionsPrev),
+          bounceRate: formatSignedPctPointDelta(
+            Number.isFinite(bounceCur) ? bounceCur : 0,
+            Number.isFinite(bouncePrev) ? bouncePrev : 0,
+          ),
+          avgSessionDuration: formatSignedDurationDelta(
+            (Number.isFinite(durationCur) ? durationCur : 0) - (Number.isFinite(durationPrev) ? durationPrev : 0),
+          ),
+        },
+      },
+      topPages: topPages.slice(0, 10),
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "GA4 request failed";
+    console.error("[ga4] fetchGa4DashboardSnapshotCustom:", message);
+    return getGa4DashboardUnavailable(message);
+  }
 }
 
 export async function fetchGa4DashboardSnapshot(range: Ga4DateRangeParam): Promise<Ga4DashboardResponse> {
   logGa4Diagnostics();
   if (!isGa4Configured()) {
-    return getGa4DashboardMock("GA4 credentials not configured");
+    return getGa4DashboardUnavailable("GA4 credentials not configured");
   }
 
-  const credentials = {
-    client_email: process.env.GOOGLE_CLIENT_EMAIL!,
-    private_key: parseGooglePrivateKeyFromEnv(),
-  };
+  try {
+    const credentials = {
+      client_email: process.env.GOOGLE_CLIENT_EMAIL!,
+      private_key: parseGooglePrivateKeyFromEnv(),
+    };
 
-  const propertyId = process.env.GA4_PROPERTY_ID!;
+    const propertyId = process.env.GA4_PROPERTY_ID!;
 
-  const auth = new google.auth.JWT({
-    email: credentials.client_email.trim(),
-    key: credentials.private_key,
-    scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
-  });
+    const auth = new google.auth.JWT({
+      email: credentials.client_email.trim(),
+      key: credentials.private_key,
+      scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+    });
 
-  const analyticsdata = google.analyticsdata({ version: "v1beta", auth });
-  const propertyIdTrim = propertyId.trim();
-  const property = propertyIdTrim.startsWith("properties/")
-    ? propertyIdTrim
-    : `properties/${propertyIdTrim}`;
-  const { current, previous } = dateRangeLiterals(range);
+    const analyticsdata = google.analyticsdata({ version: "v1beta", auth });
+    const propertyIdTrim = propertyId.trim();
+    const property = propertyIdTrim.startsWith("properties/")
+      ? propertyIdTrim
+      : `properties/${propertyIdTrim}`;
+    const { current, previous } = dateRangeLiterals(range);
 
-  const { data: totalsBody } = await analyticsdata.properties.runReport({
-    property,
-    requestBody: {
-      dateRanges: [current, previous],
-      metrics: [{ name: "sessions" }, { name: "bounceRate" }, { name: "averageSessionDuration" }],
-    },
-  });
-
-  const mv = totalsBody.rows?.[0]?.metricValues ?? [];
-  const sessionsCur = Number(mv[0]?.value ?? 0);
-  const sessionsPrev = Number(mv[1]?.value ?? 0);
-  const bounceCur = Number(mv[2]?.value ?? 0);
-  const bouncePrev = Number(mv[3]?.value ?? 0);
-  const durationCur = Number(mv[4]?.value ?? 0);
-  const durationPrev = Number(mv[5]?.value ?? 0);
-
-  const { data: pagesBody } = await analyticsdata.properties.runReport({
-    property,
-    requestBody: {
-      dateRanges: [{ startDate: current.startDate, endDate: current.endDate }],
-      dimensions: [{ name: "pagePath" }],
-      metrics: [{ name: "sessions" }, { name: "screenPageViews" }, { name: "engagementRate" }],
-      orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
-      limit: "10",
-    },
-  });
-
-  const topPages =
-    pagesBody.rows?.map((row) => {
-      const page = row.dimensionValues?.[0]?.value ?? "(not set)";
-      const s = Number(row.metricValues?.[0]?.value ?? 0);
-      const v = Number(row.metricValues?.[1]?.value ?? 0);
-      const er = Number(row.metricValues?.[2]?.value ?? 0);
-      return {
-        page,
-        sessions: formatInt(s),
-        screenPageViews: formatInt(v),
-        engagementRate: formatPctFromRatio(Number.isFinite(er) ? er : 0),
-      };
-    }) ?? [];
-
-  return {
-    source: "live",
-    totals: {
-      sessions: formatInt(sessionsCur),
-      bounceRate: formatPctFromRatio(Number.isFinite(bounceCur) ? bounceCur : 0),
-      avgSessionDuration: formatDuration(Number.isFinite(durationCur) ? durationCur : 0),
-      changes: {
-        sessions: formatSessionsDelta(sessionsCur, sessionsPrev),
-        bounceRate: formatSignedPctPointDelta(
-          Number.isFinite(bounceCur) ? bounceCur : 0,
-          Number.isFinite(bouncePrev) ? bouncePrev : 0,
-        ),
-        avgSessionDuration: formatSignedDurationDelta(
-          (Number.isFinite(durationCur) ? durationCur : 0) - (Number.isFinite(durationPrev) ? durationPrev : 0),
-        ),
+    const { data: totalsBody } = await analyticsdata.properties.runReport({
+      property,
+      requestBody: {
+        dateRanges: [current, previous],
+        metrics: [{ name: "sessions" }, { name: "bounceRate" }, { name: "averageSessionDuration" }],
       },
-    },
-    topPages: topPages.slice(0, 10),
-  };
+    });
+
+    const mv = totalsBody.rows?.[0]?.metricValues ?? [];
+    const sessionsCur = Number(mv[0]?.value ?? 0);
+    const sessionsPrev = Number(mv[1]?.value ?? 0);
+    const bounceCur = Number(mv[2]?.value ?? 0);
+    const bouncePrev = Number(mv[3]?.value ?? 0);
+    const durationCur = Number(mv[4]?.value ?? 0);
+    const durationPrev = Number(mv[5]?.value ?? 0);
+
+    const { data: pagesBody } = await analyticsdata.properties.runReport({
+      property,
+      requestBody: {
+        dateRanges: [{ startDate: current.startDate, endDate: current.endDate }],
+        dimensions: [{ name: "pagePath" }],
+        metrics: [{ name: "sessions" }, { name: "screenPageViews" }, { name: "engagementRate" }],
+        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+        limit: "10",
+      },
+    });
+
+    const topPages =
+      pagesBody.rows?.map((row) => {
+        const page = row.dimensionValues?.[0]?.value ?? "(not set)";
+        const s = Number(row.metricValues?.[0]?.value ?? 0);
+        const v = Number(row.metricValues?.[1]?.value ?? 0);
+        const er = Number(row.metricValues?.[2]?.value ?? 0);
+        return {
+          page,
+          sessions: formatInt(s),
+          screenPageViews: formatInt(v),
+          engagementRate: formatPctFromRatio(Number.isFinite(er) ? er : 0),
+        };
+      }) ?? [];
+
+    return {
+      source: "live",
+      totals: {
+        sessions: formatInt(sessionsCur),
+        bounceRate: formatPctFromRatio(Number.isFinite(bounceCur) ? bounceCur : 0),
+        avgSessionDuration: formatDuration(Number.isFinite(durationCur) ? durationCur : 0),
+        changes: {
+          sessions: formatSessionsDelta(sessionsCur, sessionsPrev),
+          bounceRate: formatSignedPctPointDelta(
+            Number.isFinite(bounceCur) ? bounceCur : 0,
+            Number.isFinite(bouncePrev) ? bouncePrev : 0,
+          ),
+          avgSessionDuration: formatSignedDurationDelta(
+            (Number.isFinite(durationCur) ? durationCur : 0) - (Number.isFinite(durationPrev) ? durationPrev : 0),
+          ),
+        },
+      },
+      topPages: topPages.slice(0, 10),
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "GA4 request failed";
+    console.error("[ga4] fetchGa4DashboardSnapshot:", message);
+    return getGa4DashboardUnavailable(message);
+  }
 }

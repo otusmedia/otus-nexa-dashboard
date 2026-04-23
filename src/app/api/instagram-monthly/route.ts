@@ -24,34 +24,7 @@ function parseRowValue(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-async function sumReachForWindow(
-  igId: string,
-  token: string,
-  since: number,
-  until: number,
-): Promise<number> {
-  const url = `https://graph.facebook.com/v19.0/${igId}/insights?metric=reach&period=day&since=${since}&until=${until}&access_token=${token}`;
-  try {
-    const res = await fetch(url, { next: { revalidate: 3600 } });
-    const json = (await res.json()) as {
-      error?: { message?: string };
-      data?: Array<{ values?: Array<{ value?: unknown }> }>;
-    };
-    console.log("[instagram-monthly] RAW reach window:", JSON.stringify(json), { since, until });
-    if (json.error?.message) {
-      console.error("[instagram-monthly] API error:", json.error.message, { since, until });
-      return 0;
-    }
-    const values = json.data?.[0]?.values;
-    if (!Array.isArray(values)) return 0;
-    return values.reduce((sum, row) => sum + parseRowValue(row?.value), 0);
-  } catch (e) {
-    console.error("[instagram-monthly] request failed:", e, { since, until });
-    return 0;
-  }
-}
-
-/** Latest follower_count snapshot in the window (day period; window capped to ≤28 days). */
+/** Last daily follower_count in the window (cumulative metric — use final day, not a sum). */
 async function lastFollowerCountForWindow(
   igId: string,
   token: string,
@@ -63,7 +36,7 @@ async function lastFollowerCountForWindow(
     const res = await fetch(url, { next: { revalidate: 3600 } });
     const json = (await res.json()) as {
       error?: { message?: string };
-      data?: Array<{ values?: Array<{ value?: unknown; end_time?: string }> }>;
+      data?: Array<{ values?: Array<{ value?: unknown }> }>;
     };
     console.log("[instagram-monthly] RAW follower_count window:", JSON.stringify(json), { since, until });
     if (json.error?.message) {
@@ -72,19 +45,8 @@ async function lastFollowerCountForWindow(
     }
     const values = json.data?.[0]?.values;
     if (!Array.isArray(values) || values.length === 0) return 0;
-    let bestTs = -1;
-    let bestVal = 0;
-    for (const row of values) {
-      const end = row?.end_time;
-      const ts = typeof end === "string" ? Date.parse(end) : NaN;
-      const t = Number.isFinite(ts) ? ts : -1;
-      const v = parseRowValue(row?.value);
-      if (t >= bestTs) {
-        bestTs = t;
-        bestVal = v;
-      }
-    }
-    return bestVal;
+    const monthValue = parseRowValue(values[values.length - 1]?.value ?? 0);
+    return monthValue;
   } catch (e) {
     console.error("[instagram-monthly] follower_count request failed:", e, { since, until });
     return 0;
@@ -171,34 +133,17 @@ export async function GET(request: Request) {
 
   const settled = await Promise.allSettled(
     targets.map(({ label, since, until }) =>
-      sumReachForWindow(id, token, since, until).then((value) => ({ label, value })),
+      lastFollowerCountForWindow(id, token, since, until).then((value) => ({ label, value })),
     ),
   );
 
-  let months = settled.map((result, idx) => {
+  const months = settled.map((result, idx) => {
     if (result.status === "fulfilled") {
       return result.value;
     }
     console.error("[instagram-monthly] month window failed:", targets[idx], result.reason);
     return { label: targets[idx].label, value: 0 };
   });
-
-  const reachAllZero = months.every((m) => m.value === 0);
-  if (reachAllZero) {
-    console.log("[instagram-monthly] reach all zero; fetching follower_count per month as fallback");
-    const fcSettled = await Promise.allSettled(
-      targets.map(({ label, since, until }) =>
-        lastFollowerCountForWindow(id, token, since, until).then((value) => ({ label, value })),
-      ),
-    );
-    months = fcSettled.map((result, idx) => {
-      if (result.status === "fulfilled") {
-        return result.value;
-      }
-      console.error("[instagram-monthly] follower_count month failed:", targets[idx], result.reason);
-      return { label: targets[idx].label, value: 0 };
-    });
-  }
 
   return NextResponse.json({ months, source: "api" }, { status: 200 });
 }
