@@ -42,7 +42,7 @@ export function CalendarModule() {
   };
 
   const openEditFromPopover = (ev: CalendarEvent) => {
-    if (ev.is_task_deadline || ev.source === "crm") return;
+    if (ev.is_task_deadline || ev.source === "crm" || ev.source === "scheduled_post" || ev.is_scheduled_post) return;
     setModalMode("edit");
     setEditingEvent(ev);
     setDefaultStart(null);

@@ -33,6 +33,10 @@ export interface CalendarEvent {
   /** True for auto-populated project / marketing task due dates (read-only on calendar). */
   is_task_deadline?: boolean;
   task_meta?: CalendarTaskMeta | null;
+  /** Synthetic row from `scheduled_posts` (Publishing). */
+  is_scheduled_post?: boolean;
+  publishing_platforms?: string[] | null;
+  publishing_status?: string | null;
 }
 
 export type CalendarView = "month" | "week" | "day";

@@ -201,14 +201,14 @@ const APP_USERS_SEED: Array<{
     email: "karla@nexamedia.com",
     company: "nexa",
     role: "manager",
-    modules: ["projects", "marketing", "files"],
+    modules: ["projects", "marketing", "publishing", "files"],
   },
   {
     name: "Luca",
     email: "luca@otusmedia.com",
     company: "otus",
     role: "manager",
-    modules: ["projects", "marketing", "files"],
+    modules: ["projects", "marketing", "publishing", "files"],
   },
   {
     name: "Aaron Jimenez",

@@ -8,6 +8,7 @@ export type ModuleKey =
   | "projects"
   | "financial"
   | "marketing"
+  | "publishing"
   | "calendar"
   | "crm"
   | "files"

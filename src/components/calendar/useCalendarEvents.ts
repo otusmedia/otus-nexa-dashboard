@@ -84,6 +84,38 @@ function inRange(ev: CalendarEvent, rangeStart: Date, rangeEnd: Date): boolean {
   return s <= b && e >= a;
 }
 
+function scheduledPostToCalendarEvent(row: Record<string, unknown>): CalendarEvent {
+  const id = String(row.id ?? "");
+  const content = String(row.content ?? "");
+  const scheduledAt = String(row.scheduled_at ?? "");
+  const platforms = Array.isArray(row.platforms) ? row.platforms.map(String) : [];
+  const startMs = new Date(scheduledAt).getTime();
+  const endIso = new Date(startMs + 60 * 60 * 1000).toISOString();
+  const trimmed = content.trim();
+  const title =
+    trimmed.length === 0 ? "Scheduled post" : trimmed.length > 44 ? `${trimmed.slice(0, 44)}…` : trimmed;
+  return {
+    id: `spost-${id}`,
+    title,
+    description: content,
+    start_at: scheduledAt,
+    end_at: endIso,
+    all_day: false,
+    type: "other",
+    meet_link: null,
+    location: null,
+    color: "#a855f7",
+    created_by: row.created_by != null ? String(row.created_by) : null,
+    organization: null,
+    created_at: String(row.created_at ?? ""),
+    source: "scheduled_post",
+    source_id: id,
+    is_scheduled_post: true,
+    publishing_platforms: platforms,
+    publishing_status: String(row.status ?? "scheduled"),
+  };
+}
+
 export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
   const { currentUser } = useAppContext();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -131,7 +163,7 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
     setError(null);
 
     try {
-      const [calRes, projTasksRes, mktTasksRes] = await Promise.all([
+      const [calRes, projTasksRes, mktTasksRes, scheduledRes] = await Promise.all([
         supabase
           .from("calendar_events")
           .select("*, calendar_event_invitees (*)")
@@ -145,6 +177,13 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
           .from("marketing_tasks")
           .select("id, title, due_date, status, assigned_to, project_id")
           .not("due_date", "is", null),
+        supabase
+          .from("scheduled_posts")
+          .select("*")
+          .eq("status", "scheduled")
+          .not("scheduled_at", "is", null)
+          .gte("scheduled_at", startIso)
+          .lte("scheduled_at", endIso),
       ]);
 
       if (calRes.error) {
@@ -156,6 +195,7 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
 
       if (projTasksRes.error) console.error("[calendar] project tasks:", projTasksRes.error.message);
       if (mktTasksRes.error) console.error("[calendar] marketing_tasks:", mktTasksRes.error.message);
+      if (scheduledRes.error) console.error("[calendar] scheduled_posts:", scheduledRes.error.message);
 
       const mappedEvents = ((calRes.data as Record<string, unknown>[]) ?? []).map(mapRow);
       const crmEvents = mappedEvents.filter((e) => e.source === "crm");
@@ -205,7 +245,10 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
         if (inRange(ev, rangeStart, rangeEnd)) virtual.push(ev);
       }
 
-      setEvents([...calEvents, ...virtual]);
+      const scheduledRows = (scheduledRes.data as Record<string, unknown>[] | null) ?? [];
+      const scheduledEvents = scheduledRows.map(scheduledPostToCalendarEvent).filter((ev) => inRange(ev, rangeStart, rangeEnd));
+
+      setEvents([...calEvents, ...virtual, ...scheduledEvents]);
     } finally {
       setLoading(false);
       fetchingRef.current = false;

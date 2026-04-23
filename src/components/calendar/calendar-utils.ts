@@ -23,6 +23,10 @@ export function defaultColorForType(type: CalendarEventType): string {
 export function eventDisplayColor(event: CalendarEvent): string {
   if (event.is_task_deadline) return "#FF4500";
   if (event.source === "crm") return "#10b981";
+  if (event.source === "scheduled_post" || event.is_scheduled_post) {
+    if (event.color?.trim()) return event.color;
+    return "#a855f7";
+  }
   if (event.color?.trim()) return event.color;
   return defaultColorForType(event.type);
 }

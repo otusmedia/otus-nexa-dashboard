@@ -15,6 +15,7 @@ import {
   LogOut,
   MessageCircle,
   Megaphone,
+  Send,
   Settings,
   Wallet,
   X,
@@ -32,6 +33,7 @@ const moduleLinks: Array<{
     | "projects"
     | "financial"
     | "marketing"
+    | "publishing"
     | "calendar"
     | "crm"
     | "files"
@@ -43,6 +45,7 @@ const moduleLinks: Array<{
   { key: "projects", labelKey: "projects", href: "/projects", icon: BarChart3 },
   { key: "financial", labelKey: "financial", href: "/financial", icon: Wallet },
   { key: "marketing", labelKey: "marketing", href: "/marketing", icon: Megaphone },
+  { key: "publishing", labelKey: "publishing", href: "/publishing", icon: Send },
   { key: "calendar", labelKey: "calendar", href: "/calendar", icon: Calendar },
   { key: "crm", labelKey: "crm", href: "/crm", icon: Briefcase },
   { key: "files", labelKey: "files", href: "/files", icon: FileUp },
@@ -304,9 +307,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 const isActive =
                   link.key === "projects"
                     ? pathname.startsWith("/projects")
-                    : link.key === "calendar"
-                      ? pathname.startsWith("/calendar")
-                      : pathname === link.href;
+                    : link.key === "publishing"
+                      ? pathname.startsWith("/publishing")
+                      : link.key === "calendar"
+                        ? pathname.startsWith("/calendar")
+                        : pathname === link.href;
                 const Icon = link.icon;
                 if (link.key === "marketing") {
                   const isMarketingActive = pathname.startsWith("/marketing");
