@@ -680,50 +680,7 @@ function timeOfDayGreeting(): string {
 const HERO_CLOCK_MODE_KEY = "clock-mode";
 const HERO_BG_VISIBLE_KEY = "hero-bg-visible";
 const HERO_HEIGHT_KEY = "hero-height";
-const HERO_SCREENSAVER_DELAY_MS_KEY = "dashboard-hero-screensaver-delay-ms";
 const HERO_HEIGHT_MIN_PX = 200;
-const HERO_SCREENSAVER_MIN_MS = 10_000;
-const HERO_SCREENSAVER_MAX_MS = 120 * 60 * 1000;
-
-function clampScreensaverDelayMs(ms: number): number {
-  if (!Number.isFinite(ms)) return 5 * 60 * 1000;
-  return Math.min(HERO_SCREENSAVER_MAX_MS, Math.max(HERO_SCREENSAVER_MIN_MS, Math.round(ms)));
-}
-
-function readScreensaverDelayMs(): number {
-  if (typeof window === "undefined") return 5 * 60 * 1000;
-  try {
-    const raw = localStorage.getItem(HERO_SCREENSAVER_DELAY_MS_KEY);
-    if (raw != null) return clampScreensaverDelayMs(Number(raw));
-  } catch {
-    /* ignore */
-  }
-  return 5 * 60 * 1000;
-}
-
-function persistScreensaverDelayMs(ms: number) {
-  try {
-    localStorage.setItem(HERO_SCREENSAVER_DELAY_MS_KEY, String(clampScreensaverDelayMs(ms)));
-  } catch {
-    /* ignore */
-  }
-}
-
-function splitDelayForEdit(ms: number): { amount: number; unit: "minutes" | "seconds" } {
-  const c = clampScreensaverDelayMs(ms);
-  if (c >= 60_000 && c % 60_000 === 0) {
-    const m = c / 60_000;
-    if (m >= 1 && m <= 120) return { amount: m, unit: "minutes" };
-  }
-  return { amount: Math.max(10, Math.min(3600, Math.round(c / 1000))), unit: "seconds" };
-}
-
-function computeScreensaverDelayMs(amount: number, unit: "minutes" | "seconds"): number {
-  if (unit === "minutes") {
-    return clampScreensaverDelayMs(Math.max(1, Math.min(120, Math.round(amount))) * 60_000);
-  }
-  return clampScreensaverDelayMs(Math.max(10, Math.min(3600, Math.round(amount))) * 1000);
-}
 
 function clampHeroHeightPx(px: number): number {
   if (typeof window === "undefined") return Math.max(HERO_HEIGHT_MIN_PX, px);
@@ -849,21 +806,7 @@ function DashboardHeroSection() {
     }
   };
 
-  const [screensaverArmed, setScreensaverArmed] = useState(false);
   const [isHeroFullscreen, setIsHeroFullscreen] = useState(false);
-  const [delayMs, setDelayMs] = useState(() =>
-    typeof window === "undefined" ? 5 * 60 * 1000 : readScreensaverDelayMs(),
-  );
-  const [idleAmount, setIdleAmount] = useState(5);
-  const [idleUnit, setIdleUnit] = useState<"minutes" | "seconds">("minutes");
-
-  useEffect(() => {
-    const ms = readScreensaverDelayMs();
-    setDelayMs(ms);
-    const s = splitDelayForEdit(ms);
-    setIdleAmount(s.amount);
-    setIdleUnit(s.unit);
-  }, []);
 
   useEffect(() => {
     const onFs = () => {
@@ -874,52 +817,6 @@ function DashboardHeroSection() {
     return () => document.removeEventListener("fullscreenchange", onFs);
   }, []);
 
-  useEffect(() => {
-    if (!screensaverArmed) return;
-    let timer: number | undefined;
-    const clear = () => {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-        timer = undefined;
-      }
-    };
-    const schedule = () => {
-      clear();
-      if (document.fullscreenElement === sectionRef.current) return;
-      timer = window.setTimeout(() => {
-        timer = undefined;
-        const el = sectionRef.current;
-        if (!el || document.fullscreenElement === el) return;
-        void el.requestFullscreen({ navigationUI: "hide" } as FullscreenOptions).catch(() => {});
-      }, delayMs);
-    };
-    const onActivity = () => {
-      if (document.fullscreenElement === sectionRef.current) return;
-      schedule();
-    };
-    schedule();
-    const evs = ["mousemove", "mousedown", "keydown", "touchstart", "wheel"] as const;
-    for (const ev of evs) document.addEventListener(ev, onActivity, { passive: true });
-    const onFsRearm = () => {
-      if (document.fullscreenElement !== sectionRef.current) schedule();
-    };
-    document.addEventListener("fullscreenchange", onFsRearm);
-    return () => {
-      clear();
-      document.removeEventListener("fullscreenchange", onFsRearm);
-      for (const ev of evs) document.removeEventListener(ev, onActivity);
-    };
-  }, [screensaverArmed, delayMs]);
-
-  const applyIdleDelay = () => {
-    const ms = computeScreensaverDelayMs(idleAmount, idleUnit);
-    setDelayMs(ms);
-    const normalized = splitDelayForEdit(ms);
-    setIdleAmount(normalized.amount);
-    setIdleUnit(normalized.unit);
-    persistScreensaverDelayMs(ms);
-  };
-
   const handleScreensaverFullscreenClick = async () => {
     const el = sectionRef.current;
     if (!el) return;
@@ -929,9 +826,8 @@ function DashboardHeroSection() {
     }
     try {
       await el.requestFullscreen({ navigationUI: "hide" } as FullscreenOptions);
-      setScreensaverArmed(true);
     } catch {
-      /* denied — do not arm idle screensaver */
+      /* fullscreen denied */
     }
   };
 
@@ -1071,59 +967,19 @@ function DashboardHeroSection() {
             <EyeOff className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
           )}
         </button>
-        <div className="flex max-w-[min(100vw-2rem,220px)] flex-col items-end gap-1.5">
-          <div className="flex flex-wrap items-center justify-end gap-1.5" style={heroBgToggleButtonStyle}>
-            <button
-              type="button"
-              onClick={() => void handleScreensaverFullscreenClick()}
-              aria-label={isHeroFullscreen ? "Exit fullscreen screensaver" : "Enter fullscreen screensaver"}
-              className="inline-flex text-[rgba(255,255,255,0.45)] hover:text-white"
-            >
-              {isHeroFullscreen ? (
-                <Minimize2 className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
-              ) : (
-                <Maximize2 className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
-              )}
-            </button>
-            {screensaverArmed ? (
-              <label className="flex flex-wrap items-center gap-1 text-[10px] font-light leading-tight text-[rgba(255,255,255,0.75)]">
-                <span className="whitespace-nowrap">Idle</span>
-                <input
-                  type="number"
-                  min={idleUnit === "minutes" ? 1 : 10}
-                  max={idleUnit === "minutes" ? 120 : 3600}
-                  step={1}
-                  value={idleAmount}
-                  onChange={(e) => setIdleAmount(Number(e.target.value) || 1)}
-                  onBlur={applyIdleDelay}
-                  className="w-11 rounded border border-[rgba(255,255,255,0.12)] bg-black/35 px-1 py-0.5 text-[10px] text-white"
-                />
-                <select
-                  value={idleUnit}
-                  onChange={(e) => {
-                    const u = e.target.value === "seconds" ? "seconds" : "minutes";
-                    setIdleUnit(u);
-                    const ms = computeScreensaverDelayMs(idleAmount, u);
-                    setDelayMs(ms);
-                    const norm = splitDelayForEdit(ms);
-                    setIdleAmount(norm.amount);
-                    setIdleUnit(norm.unit);
-                    persistScreensaverDelayMs(ms);
-                  }}
-                  className="max-w-[4.75rem] rounded border border-[rgba(255,255,255,0.12)] bg-black/35 px-1 py-0.5 text-[10px] text-white"
-                >
-                  <option value="minutes">min</option>
-                  <option value="seconds">sec</option>
-                </select>
-              </label>
-            ) : null}
-          </div>
-          {screensaverArmed ? (
-            <p className="max-w-[200px] text-right text-[9px] font-light leading-snug text-[rgba(255,255,255,0.35)]">
-              Fullscreen returns after no activity for the time above.
-            </p>
-          ) : null}
-        </div>
+        <button
+          type="button"
+          onClick={() => void handleScreensaverFullscreenClick()}
+          aria-label={isHeroFullscreen ? "Exit hero fullscreen" : "Enter hero fullscreen"}
+          className="text-[rgba(255,255,255,0.4)]"
+          style={heroBgToggleButtonStyle}
+        >
+          {isHeroFullscreen ? (
+            <Minimize2 className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
+          ) : (
+            <Maximize2 className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
+          )}
+        </button>
       </div>
       <div className="relative z-10 flex h-full min-h-0 min-w-0 w-full flex-1 flex-row items-end justify-between gap-10 overflow-hidden px-4 pb-10 lg:px-8">
         <div className="flex min-w-0 flex-col">
