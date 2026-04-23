@@ -8,6 +8,8 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Download,
+  Eye,
   FileArchive,
   FileCode,
   FileImage,
@@ -59,6 +61,8 @@ interface TaskAttachment {
   name: string;
   size: number;
   type: string;
+  url: string;
+  storagePath: string;
 }
 
 interface LocalTask extends ProjectTaskRow {
@@ -128,11 +132,40 @@ type ProjectComment = {
 
 function attachmentKind(type: string, name: string) {
   const ext = name.split(".").pop()?.toLowerCase() || "";
+  if (type.includes("pdf") || ext === "pdf") return FileText;
   if (type.startsWith("image/")) return FileImage;
   if (type.startsWith("video/")) return FileVideo;
   if (type.includes("zip") || type.includes("compressed") || ext === "zip" || ext === "rar") return FileArchive;
   if (["ts", "tsx", "js", "jsx", "json", "css", "html", "md"].includes(ext)) return FileCode;
   return FileText;
+}
+
+function getTaskAttachmentStoragePathFromUrl(url: string): string {
+  const marker = "/storage/v1/object/public/task-attachments/";
+  const idx = url.indexOf(marker);
+  if (idx === -1) return "";
+  return decodeURIComponent(url.slice(idx + marker.length));
+}
+
+function taskAttachmentFromRow(row: Record<string, unknown>): TaskAttachment {
+  const url = String(row.url ?? "");
+  return {
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    size: Number(row.size ?? 0) || 0,
+    type: String(row.type ?? ""),
+    url,
+    storagePath: getTaskAttachmentStoragePathFromUrl(url),
+  };
+}
+
+function attachmentPreviewKind(attachment: TaskAttachment): "pdf" | "image" | "video" | "other" {
+  const type = attachment.type.toLowerCase();
+  const ext = attachment.name.split(".").pop()?.toLowerCase() ?? "";
+  if (type.includes("pdf") || ext === "pdf") return "pdf";
+  if (type.startsWith("image/") || ["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) return "image";
+  if (type.startsWith("video/") || ["mp4", "mov", "webm"].includes(ext)) return "video";
+  return "other";
 }
 
 /** Fixed estimate for row status portal menu height (see viewport flip logic). */
@@ -201,6 +234,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [taskDeleteDialog, setTaskDeleteDialog] = useState<{ id: string; name: string } | null>(null);
   const [coverUploadLoading, setCoverUploadLoading] = useState(false);
   const [coverUploadError, setCoverUploadError] = useState("");
+  const [taskAttachmentUploading, setTaskAttachmentUploading] = useState(false);
+  const [taskAttachmentError, setTaskAttachmentError] = useState("");
+  const [previewAttachment, setPreviewAttachment] = useState<TaskAttachment | null>(null);
   const [projectStatusDropdownOpen, setProjectStatusDropdownOpen] = useState(false);
   const [projectOwnersDropdownOpen, setProjectOwnersDropdownOpen] = useState(false);
   const [comments, setComments] = useState<ProjectComment[]>([]);
@@ -309,6 +345,47 @@ export function ProjectDetailView({ project }: { project: Project }) {
       setActiveTaskId(tid);
     }
   }, [searchParams, tasks]);
+
+  useEffect(() => {
+    if (!activeTaskId) {
+      setPreviewAttachment(null);
+      setTaskAttachmentError("");
+      return;
+    }
+    setPreviewAttachment(null);
+    setTaskAttachmentError("");
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("task_attachments")
+        .select("*")
+        .eq("task_id", activeTaskId)
+        .order("created_at", { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        console.error("[supabase] task_attachments fetch failed:", error.message);
+        setTaskAttachmentError(error.message || "Failed to load attachments.");
+        return;
+      }
+      const list = ((data as Array<Record<string, unknown>> | null) ?? []).map((row) => taskAttachmentFromRow(row));
+      setTasks((prev) => {
+        if (!prev.some((t) => t.id === activeTaskId)) return prev;
+        return prev.map((t) => (t.id === activeTaskId ? { ...t, attachments: list } : t));
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTaskId]);
+
+  useEffect(() => {
+    if (!previewAttachment) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreviewAttachment(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [previewAttachment]);
 
   useEffect(() => {
     if (!rowStatusMenu) return;
@@ -527,15 +604,93 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setRowStatusMenu(null);
   };
 
-  const onPanelFileUpload = (files: FileList | null) => {
-    if (!files || !activeTask) return;
-    const additions: TaskAttachment[] = Array.from(files).map((file) => ({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-    }));
-    void updateTask(activeTask.id, { attachments: [...activeTask.attachments, ...additions] });
+  const downloadTaskAttachment = (attachment: TaskAttachment) => {
+    const a = document.createElement("a");
+    a.href = attachment.url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.download = attachment.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const openTaskAttachmentPreview = (attachment: TaskAttachment) => {
+    if (attachmentPreviewKind(attachment) === "other") {
+      downloadTaskAttachment(attachment);
+      return;
+    }
+    setPreviewAttachment(attachment);
+  };
+
+  const deleteTaskAttachment = async (taskId: string, attachment: TaskAttachment) => {
+    setTaskAttachmentError("");
+    const storagePath = attachment.storagePath || getTaskAttachmentStoragePathFromUrl(attachment.url);
+    if (storagePath) {
+      const { error: storageError } = await supabase.storage.from("task-attachments").remove([storagePath]);
+      if (storageError) {
+        console.error("[supabase] task attachment storage delete failed:", storageError.message);
+        setTaskAttachmentError(storageError.message || "Failed to delete file from storage.");
+        return;
+      }
+    }
+    const { error } = await supabase.from("task_attachments").delete().eq("id", attachment.id);
+    if (error) {
+      console.error("[supabase] task_attachments delete failed:", error.message);
+      setTaskAttachmentError(error.message || "Failed to delete attachment.");
+      return;
+    }
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, attachments: t.attachments.filter((item) => item.id !== attachment.id) } : t,
+      ),
+    );
+    setPreviewAttachment((prev) => (prev?.id === attachment.id ? null : prev));
+  };
+
+  const onPanelFileUpload = async (files: FileList | null) => {
+    if (!files?.length || !activeTask) return;
+    const taskId = activeTask.id;
+    setTaskAttachmentUploading(true);
+    setTaskAttachmentError("");
+    try {
+      for (const file of Array.from(files)) {
+        const fileName = `${taskId}/${Date.now()}-${file.name}`;
+        const { data, error } = await supabase.storage
+          .from("task-attachments")
+          .upload(fileName, file, { cacheControl: "3600", upsert: false });
+        if (error || !data?.path) {
+          console.error("[supabase] task attachment upload failed:", error?.message ?? "No path");
+          setTaskAttachmentError(error?.message || "Upload failed.");
+          continue;
+        }
+        const { data: urlData } = supabase.storage.from("task-attachments").getPublicUrl(data.path);
+        const { data: row, error: insertError } = await supabase
+          .from("task_attachments")
+          .insert([
+            {
+              task_id: taskId,
+              name: file.name,
+              url: urlData.publicUrl,
+              type: file.type,
+              size: file.size,
+            },
+          ])
+          .select("*")
+          .single();
+        if (insertError || !row) {
+          console.error("[supabase] task_attachments insert failed:", insertError?.message);
+          setTaskAttachmentError(insertError?.message || "Failed to save attachment.");
+          await supabase.storage.from("task-attachments").remove([data.path]);
+          continue;
+        }
+        const att = taskAttachmentFromRow(row as Record<string, unknown>);
+        setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, attachments: [...t.attachments, att] } : t)));
+      }
+    } finally {
+      setTaskAttachmentUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   // -- Run in Supabase Dashboard > Storage: create a public bucket called 'task-covers'
@@ -1542,43 +1697,93 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   type="file"
                   className="hidden"
                   multiple
-                  onChange={(event) => onPanelFileUpload(event.target.files)}
+                  onChange={(event) => void onPanelFileUpload(event.target.files)}
                 />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex w-full items-center justify-center gap-2 rounded-[8px] border border-dashed border-[rgba(255,255,255,0.15)] bg-[#161616] px-4 py-6 text-sm font-light text-[rgba(255,255,255,0.5)]"
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      if (!taskAttachmentUploading) fileInputRef.current?.click();
+                    }
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (!taskAttachmentUploading) void onPanelFileUpload(event.dataTransfer.files);
+                  }}
+                  className="w-full"
                 >
-                  <Upload className="h-4 w-4" />
-                  {lt("Click to upload or drag and drop")}
-                </button>
+                  <button
+                    type="button"
+                    disabled={taskAttachmentUploading}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex w-full items-center justify-center gap-2 rounded-[8px] border border-dashed border-[rgba(255,255,255,0.15)] bg-[#161616] px-4 py-6 text-sm font-light text-[rgba(255,255,255,0.5)] disabled:opacity-60"
+                  >
+                    {taskAttachmentUploading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" strokeWidth={1.5} />
+                        {lt("Uploading…")}
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4" />
+                        {lt("Click to upload or drag and drop")}
+                      </>
+                    )}
+                  </button>
+                </div>
+                {taskAttachmentError ? (
+                  <p className="mt-2 text-[0.75rem] text-[#ef4444]">{taskAttachmentError}</p>
+                ) : null}
                 <div className="mt-3 space-y-2">
                   {activeTask.attachments.map((attachment) => {
                     const Icon = attachmentKind(attachment.type, attachment.name);
                     return (
                       <div
                         key={attachment.id}
-                        className="flex items-center justify-between rounded-[8px] border border-[var(--border)] bg-[#161616] px-3 py-2"
+                        className="flex items-center gap-2 rounded-[8px] border border-[var(--border)] bg-[#161616] px-2 py-2"
                       >
-                        <div className="flex min-w-0 items-center gap-2">
-                          <Icon className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.55)]" />
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-light text-white">{attachment.name}</p>
-                            <p className="text-xs font-light text-[rgba(255,255,255,0.4)]">
-                              <span className="mono-num">{formatFileSize(attachment.size)}</span>
-                            </p>
-                          </div>
-                        </div>
+                        <Icon className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.55)]" />
                         <button
                           type="button"
-                          onClick={() =>
-                            void updateTask(activeTask.id, {
-                              attachments: activeTask.attachments.filter((item) => item.id !== attachment.id),
-                            })
-                          }
-                          className="rounded-[6px] border border-[var(--border)] px-2 py-1 text-xs font-light text-[rgba(255,255,255,0.5)]"
+                          onClick={() => openTaskAttachmentPreview(attachment)}
+                          className="min-w-0 flex-1 truncate text-left text-sm font-light text-white hover:underline"
+                          title={attachment.name}
                         >
-                          {lt("Remove")}
+                          {attachment.name}
+                        </button>
+                        <span className="mono-num shrink-0 text-xs font-light text-[rgba(255,255,255,0.4)]">
+                          {formatFileSize(attachment.size)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => openTaskAttachmentPreview(attachment)}
+                          className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+                          aria-label={lt("Preview")}
+                        >
+                          <Eye className="h-4 w-4" strokeWidth={1.5} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => downloadTaskAttachment(attachment)}
+                          className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+                          aria-label={lt("Download")}
+                        >
+                          <Download className="h-4 w-4" strokeWidth={1.5} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteTaskAttachment(activeTask.id, attachment)}
+                          className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] transition-colors hover:bg-[rgba(239,68,68,0.12)] hover:text-[#ef4444]"
+                          aria-label={lt("Delete attachment")}
+                        >
+                          <X className="h-4 w-4" strokeWidth={1.5} />
                         </button>
                       </div>
                     );
@@ -1688,6 +1893,60 @@ export function ProjectDetailView({ project }: { project: Project }) {
           ) : null}
         </aside>
       </div>
+
+      {previewAttachment
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center bg-[rgba(0,0,0,0.9)] p-4"
+              onClick={() => setPreviewAttachment(null)}
+            >
+              <div
+                className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[#111]"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+                  <p className="min-w-0 flex-1 truncate text-sm font-light text-white">{previewAttachment.name}</p>
+                  <button
+                    type="button"
+                    onClick={() => downloadTaskAttachment(previewAttachment)}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-[6px] border border-[var(--border)] px-3 py-1.5 text-xs font-light text-white hover:bg-[rgba(255,255,255,0.06)]"
+                  >
+                    <Download className="h-3.5 w-3.5" strokeWidth={1.5} />
+                    {lt("Download")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewAttachment(null)}
+                    className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.55)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+                    aria-label={lt("Close preview")}
+                  >
+                    <X className="h-4 w-4" strokeWidth={1.5} />
+                  </button>
+                </div>
+                <div className="flex min-h-[50vh] flex-1 items-center justify-center overflow-auto p-4">
+                  {attachmentPreviewKind(previewAttachment) === "pdf" ? (
+                    <iframe
+                      title={previewAttachment.name}
+                      src={previewAttachment.url}
+                      className="h-[min(78vh,800px)] w-full rounded-[6px] border border-[var(--border)] bg-[#1a1a1a]"
+                    />
+                  ) : null}
+                  {attachmentPreviewKind(previewAttachment) === "image" ? (
+                    <img
+                      src={previewAttachment.url}
+                      alt={previewAttachment.name}
+                      className="max-h-[78vh] max-w-full object-contain"
+                    />
+                  ) : null}
+                  {attachmentPreviewKind(previewAttachment) === "video" ? (
+                    <video src={previewAttachment.url} controls className="max-h-[78vh] max-w-full" />
+                  ) : null}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       <DeleteConfirmModal
         open={taskDeleteDialog !== null}
