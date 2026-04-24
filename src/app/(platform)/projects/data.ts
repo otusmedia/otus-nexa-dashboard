@@ -1,3 +1,5 @@
+import type { TaskHighlightAttachment } from "@/lib/task-highlight-cover";
+
 export type KanbanColumnId = "planning" | "in_progress" | "paused" | "done" | "cancelled";
 
 export type ProjectStatus = "Planning" | "In Progress" | "Paused" | "Done" | "Cancelled";
@@ -25,6 +27,8 @@ export interface ProjectTaskRow {
   reviewStatus: string | null;
   /** Platforms selected when status is Published (`tasks.published_to`). */
   publishedTo: string[];
+  /** From `task_attachments` — used for Highlights when no dedicated cover. */
+  attachments: TaskHighlightAttachment[];
 }
 
 export interface TaskStatusOption {

@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
 import { MarketingAccessGuard } from "../_components/marketing-access-guard";
+import { PublishedPlatformIconRow, TaskRowStatusBadge } from "@/app/(platform)/projects/_components/task-row-status-badge";
 
 type MarketingColumnId = "planning" | "in_progress" | "paused" | "done" | "cancelled";
 type MarketingTaskStatus = "Not Started" | "In Progress" | "Waiting for Approval" | "Done" | "Scheduled" | "Published";
@@ -1477,13 +1478,18 @@ export default function MarketingProjectsPage() {
                         <td className="px-2 py-2">{task.owner}</td>
                         <td className="px-2 py-2 mono-num">{task.dueDate ?? "—"}</td>
                         <td className="px-2 py-2">
-                          <select
-                            value={task.status}
-                            onChange={(e) => void handleMarketingTaskStatusSelect(task.id, e.target.value as MarketingTaskStatus)}
-                            className="rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-1.5 py-1 text-xs text-white"
-                          >
-                            {TASK_STATUSES.map((value) => <option key={value}>{value}</option>)}
-                          </select>
+                          <div className="inline-flex items-center gap-1">
+                            <select
+                              value={task.status}
+                              onChange={(e) => void handleMarketingTaskStatusSelect(task.id, e.target.value as MarketingTaskStatus)}
+                              className="rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-1.5 py-1 text-xs text-white"
+                            >
+                              {TASK_STATUSES.map((value) => <option key={value}>{value}</option>)}
+                            </select>
+                            {task.status === "Published" && task.publishedTo.length > 0 ? (
+                              <PublishedPlatformIconRow platforms={task.publishedTo} />
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-2 py-2">
                           <select
@@ -1517,6 +1523,11 @@ export default function MarketingProjectsPage() {
             {activeTask ? (
               <Card className="mt-4">
                 <h3 className="section-title">{lt("Task detail")}</h3>
+                {activeTask.status === "Published" ? (
+                  <div className="mt-1.5">
+                    <TaskRowStatusBadge status="Published" publishedTo={activeTask.publishedTo} />
+                  </div>
+                ) : null}
                 <input
                   value={activeTask.title}
                   onChange={(e) => void updateTask(activeTask.id, { title: e.target.value })}

@@ -15,6 +15,7 @@ import {
   type ProjectTaskRow,
   type ProjectsByColumn,
 } from "@/app/(platform)/projects/data";
+import { parseTaskAttachmentsNested } from "@/lib/task-highlight-cover";
 import {
   activityLog as activitySeed,
   contracts as contractsSeed,
@@ -289,6 +290,7 @@ type DbTaskRow = {
   short_description: string | null;
   review_status: string | null;
   published_to: string[] | null;
+  task_attachments?: unknown;
 };
 
 const toTaskStatus = (status: string | null | undefined): TaskStatus =>
@@ -344,6 +346,7 @@ function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTask
         shortDescription: task.short_description ?? "",
         reviewStatus: task.review_status?.trim() ? String(task.review_status) : null,
         publishedTo: Array.isArray(task.published_to) ? task.published_to.map(String) : [],
+        attachments: parseTaskAttachmentsNested(task.task_attachments),
       }));
     return {
       id: row.id,
@@ -660,7 +663,11 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
     void Promise.all([
       supabase.from("projects").select("*").order("created_at", { ascending: false }),
-      supabase.from("tasks").select("*").not("project_id", "is", null).order("created_at", { ascending: false }),
+      supabase
+        .from("tasks")
+        .select("*, task_attachments(*)")
+        .not("project_id", "is", null)
+        .order("created_at", { ascending: false }),
     ])
       .then(([projectsRes, tasksRes]) => {
         if (!mounted) return;

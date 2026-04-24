@@ -15,6 +15,7 @@ import { parseInstagramInsightsCsv, type InstagramInsightMetricRow } from "@/lib
 import { parseMetaAdsCsv } from "@/lib/parse-meta-csv";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { getTaskHighlightCoverUrl } from "@/lib/task-highlight-cover";
 import type { MetaAdsCampaign, MetaAdsSummary } from "@/types/meta-ads";
 import {
   ChevronLeft,
@@ -1259,16 +1260,16 @@ export function DashboardModule() {
     const out: HighlightSlide[] = [];
     for (const p of mergedProjects) {
       for (const task of p.tasks) {
-        if (task.isFeatured && task.coverImage) {
-          out.push({
-            key: `${p.id}-${task.id}`,
-            projectId: p.id,
-            taskId: task.id,
-            title: task.name,
-            description: task.shortDescription,
-            coverImage: task.coverImage,
-          });
-        }
+        if (!task.isFeatured) continue;
+        const coverImage = getTaskHighlightCoverUrl(task);
+        out.push({
+          key: `${p.id}-${task.id}`,
+          projectId: p.id,
+          taskId: task.id,
+          title: task.name,
+          description: task.shortDescription,
+          coverImage,
+        });
       }
     }
     return out;
@@ -1790,12 +1791,16 @@ export function DashboardModule() {
                     <div className="relative min-h-[50vh] w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[#1a1a1a]">
                       <div
                         className="absolute inset-0"
-                        style={{
-                          backgroundImage: `url(${slide.coverImage})`,
-                          backgroundSize: "cover",
-                          backgroundPosition: "center",
-                          backgroundRepeat: "no-repeat",
-                        }}
+                        style={
+                          slide.coverImage
+                            ? {
+                                backgroundImage: `url(${slide.coverImage})`,
+                                backgroundSize: "cover",
+                                backgroundPosition: "center",
+                                backgroundRepeat: "no-repeat",
+                              }
+                            : undefined
+                        }
                       />
                       <div className="absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.85)_0%,rgba(0,0,0,0.4)_50%,transparent_100%)]" />
                       <div className="absolute inset-x-0 bottom-0 z-10 p-6">

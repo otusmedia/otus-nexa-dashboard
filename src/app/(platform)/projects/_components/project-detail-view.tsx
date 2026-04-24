@@ -42,6 +42,7 @@ import { useLanguage } from "@/context/language-context";
 import { Card } from "@/components/ui/card";
 import { PublishedToModal } from "@/components/ui/published-to-modal";
 import { supabase } from "@/lib/supabase";
+import { getTaskHighlightCoverUrl } from "@/lib/task-highlight-cover";
 import { OwnerAvatars } from "./owner-avatars";
 import { ProgressInline } from "./progress-inline";
 import { ProjectStatusBadge } from "./project-status-badge";
@@ -582,11 +583,16 @@ export function ProjectDetailView({ project }: { project: Project }) {
         if (!prev.some((t) => t.id === activeTaskId)) return prev;
         return prev.map((t) => (t.id === activeTaskId ? { ...t, attachments: list } : t));
       });
+      if (!isRocketRideClient) {
+        updateBoardProjectTask(project.id, activeTaskId, {
+          attachments: list.map((a) => ({ type: a.type, name: a.name, url: a.url })),
+        });
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [activeTaskId]);
+  }, [activeTaskId, isRocketRideClient, project.id, updateBoardProjectTask]);
 
   useEffect(() => {
     if (!activeTaskId || !isRocketRideClient) {
@@ -934,9 +940,14 @@ export function ProjectDetailView({ project }: { project: Project }) {
       return;
     }
     setTasks((prev) =>
-      prev.map((t) =>
-        t.id === taskId ? { ...t, attachments: t.attachments.filter((item) => item.id !== attachment.id) } : t,
-      ),
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        const nextAtts = t.attachments.filter((item) => item.id !== attachment.id);
+        updateBoardProjectTask(project.id, taskId, {
+          attachments: nextAtts.map((a) => ({ type: a.type, name: a.name, url: a.url })),
+        });
+        return { ...t, attachments: nextAtts };
+      }),
     );
     setPreviewAttachment((prev) => (prev?.id === attachment.id ? null : prev));
   };
@@ -979,7 +990,16 @@ export function ProjectDetailView({ project }: { project: Project }) {
           continue;
         }
         const att = taskAttachmentFromRow(row as Record<string, unknown>);
-        setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, attachments: [...t.attachments, att] } : t)));
+        setTasks((prev) =>
+          prev.map((t) => {
+            if (t.id !== taskId) return t;
+            const merged = [...t.attachments, att];
+            updateBoardProjectTask(project.id, taskId, {
+              attachments: merged.map((a) => ({ type: a.type, name: a.name, url: a.url })),
+            });
+            return { ...t, attachments: merged };
+          }),
+        );
       }
     } finally {
       setTaskAttachmentUploading(false);
@@ -1165,6 +1185,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
       shortDescription: createdTask.shortDescription,
       reviewStatus: createdTask.reviewStatus,
       publishedTo: createdTask.publishedTo,
+      attachments: [],
     };
     addBoardProjectTask(project.id, boardRow);
     void syncProjectProgressFromLocalTasks(nextTasks);
@@ -2516,7 +2537,13 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   )}
                 </div>
                 {!isRocketRideClient && activeTask.isFeatured && !activeTask.coverImage ? (
-                  <p className="text-xs text-amber-400">{lt("Add a cover image to display in Highlights")}</p>
+                  getTaskHighlightCoverUrl({ coverImage: null, attachments: activeTask.attachments }) ? (
+                    <p className="text-[0.72rem] font-light text-[rgba(255,255,255,0.4)]">
+                      {lt("Using first image attachment as cover — or upload a dedicated cover image")}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-amber-400">{lt("Add a cover image to display in Highlights")}</p>
+                  )
                 ) : null}
               </div>
 

@@ -493,6 +493,9 @@ const platformPtBR: Record<string, string> = {
   "Platform name": "Nome da plataforma",
   "Skip — mark as published without specifying":
     "Pular — marcar como publicado sem especificar",
+
+  "Using first image attachment as cover — or upload a dedicated cover image":
+    "Usando o primeiro anexo de imagem como capa — ou envie uma imagem de capa dedicada",
 };
 
 export const translations = {
