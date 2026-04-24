@@ -127,6 +127,8 @@ interface AppContextValue {
     projectName: string;
     ownerNames: string[];
   }) => void;
+  /** Inserts dashboard Activity Summary row (nexa/otus) when a client submits a task review. */
+  logTaskReviewActivity: (input: { reviewerName: string; taskName: string; reviewStatusLabel: string }) => void;
   query: string;
   setQuery: (value: string) => void;
   projectsByColumn: ProjectsByColumn;
@@ -283,6 +285,7 @@ type DbTaskRow = {
   is_featured: boolean | null;
   cover_image: string | null;
   short_description: string | null;
+  review_status: string | null;
 };
 
 const toTaskStatus = (status: string | null | undefined): TaskStatus =>
@@ -336,6 +339,7 @@ function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTask
         isFeatured: Boolean(task.is_featured),
         coverImage: task.cover_image,
         shortDescription: task.short_description ?? "",
+        reviewStatus: task.review_status?.trim() ? String(task.review_status) : null,
       }));
     return {
       id: row.id,
@@ -429,6 +433,14 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     },
     [sessionUserId, currentUser.id, currentUser.name, pushNotification],
   );
+
+  const logTaskReviewActivity = useCallback((input: { reviewerName: string; taskName: string; reviewStatusLabel: string }) => {
+    const actor = input.reviewerName.trim() || "Client";
+    const action = `${actor} reviewed task: ${input.taskName} — ${input.reviewStatusLabel}`;
+    void supabase.from("activity").insert({ action, user_name: actor }).then(({ error }) => {
+      if (error) console.error("[supabase] task review activity insert failed:", error.message);
+    });
+  }, []);
   const tagsFromText = (text: string) =>
     text
       .split(",")
@@ -1298,6 +1310,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         setNotifications((prev) => prev.map((item) => (item.id === id ? { ...item, read: true } : item))),
       dismissNotification: (id) => setNotifications((prev) => prev.filter((item) => item.id !== id)),
       notifyProjectComment,
+      logTaskReviewActivity,
       query,
       setQuery,
       projectsByColumn,
@@ -1571,6 +1584,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       unreadCount,
       pushNotification,
       notifyProjectComment,
+      logTaskReviewActivity,
       query,
       projectsByColumn,
       projectsLoading,

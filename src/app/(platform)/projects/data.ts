@@ -21,6 +21,8 @@ export interface ProjectTaskRow {
   isFeatured: boolean;
   coverImage: string | null;
   shortDescription: string;
+  /** Latest client review outcome from `tasks.review_status` (Approved | Needs Changes | Rejected). */
+  reviewStatus: string | null;
 }
 
 export interface TaskStatusOption {

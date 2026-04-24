@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
+  AlertCircle,
   ArrowLeft,
   Check,
   ChevronDown,
@@ -16,6 +17,7 @@ import {
   FileText,
   FileVideo,
   Loader2,
+  Paperclip,
   Plus,
   Star,
   Target,
@@ -82,7 +84,85 @@ type DbProjectTaskRow = {
   short_description: string | null;
   description: string | null;
   priority: string | null;
+  review_status: string | null;
 };
+
+type ClientReviewDecision = "Approved" | "Needs Changes" | "Rejected";
+
+type TaskReviewAttachmentRow = {
+  id: string;
+  name: string;
+  url: string;
+  type: string;
+  size: number;
+};
+
+type TaskReviewRow = {
+  id: string;
+  task_id: string;
+  reviewer_name: string;
+  status: string;
+  comment: string | null;
+  created_at: string;
+  task_review_attachments?: TaskReviewAttachmentRow[] | null;
+};
+
+function normalizeClientReviewDecision(value: string | null | undefined): ClientReviewDecision | null {
+  const s = String(value ?? "").trim();
+  if (!s) return null;
+  if (s === "Approved") return "Approved";
+  if (s === "Needs Changes") return "Needs Changes";
+  if (s === "Rejected") return "Rejected";
+  const lower = s.toLowerCase();
+  if (lower === "approved") return "Approved";
+  if (lower === "needs changes" || lower === "needs_changes") return "Needs Changes";
+  if (lower === "rejected") return "Rejected";
+  return null;
+}
+
+function reviewAttachmentRowToTaskAttachment(row: TaskReviewAttachmentRow): TaskAttachment {
+  return {
+    id: row.id,
+    name: row.name,
+    size: Number(row.size) || 0,
+    type: row.type ?? "",
+    url: row.url,
+    storagePath: "",
+  };
+}
+
+function TaskReviewColumnBadge({ status, lt }: { status: string | null | undefined; lt: (k: string) => string }) {
+  const d = normalizeClientReviewDecision(status);
+  if (!d) return null;
+  const cfg =
+    d === "Approved"
+      ? { dot: "bg-emerald-400", label: lt("Approved"), cls: "text-emerald-200/95" }
+      : d === "Needs Changes"
+        ? { dot: "bg-amber-400", label: lt("Needs Changes"), cls: "text-amber-200/95" }
+        : { dot: "bg-red-400", label: lt("Rejected"), cls: "text-red-200/95" };
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 text-xs font-light", cfg.cls)}>
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", cfg.dot)} aria-hidden />
+      {cfg.label}
+    </span>
+  );
+}
+
+function reviewHistoryStatusBadge(status: string, lt: (k: string) => string) {
+  const d = normalizeClientReviewDecision(status);
+  const label = d === "Approved" ? lt("Approved") : d === "Needs Changes" ? lt("Needs Changes") : lt("Rejected");
+  const cls =
+    d === "Approved"
+      ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
+      : d === "Needs Changes"
+        ? "border-amber-500/40 bg-amber-500/15 text-amber-200"
+        : "border-red-500/40 bg-red-500/15 text-red-200";
+  return (
+    <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[0.65rem] font-medium uppercase tracking-wide", cls)}>
+      {label}
+    </span>
+  );
+}
 
 const PRIORITY_OPTIONS: Array<{ value: Priority; textClass: string; dotClass: string }> = [
   { value: "Low", textClass: "text-[#9ca3af]", dotClass: "bg-[#9ca3af]" },
@@ -168,6 +248,96 @@ function attachmentPreviewKind(attachment: TaskAttachment): "pdf" | "image" | "v
   return "other";
 }
 
+function TaskAttachmentImageStrip({
+  attachment,
+  onExpand,
+  expandHint,
+}: {
+  attachment: TaskAttachment;
+  onExpand: () => void;
+  expandHint: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      className="relative block w-full border-b border-[var(--border)] bg-[#0a0a0a] text-left outline-none ring-inset focus-visible:ring-2 focus-visible:ring-[rgba(255,69,0,0.45)]"
+    >
+      <img
+        src={attachment.url}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+        className="mx-auto max-h-[min(280px,42vh)] w-full object-contain"
+      />
+      <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/75 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-white/90">
+        {expandHint}
+      </span>
+    </button>
+  );
+}
+
+function TaskAttachmentInlineVisual({
+  attachment,
+  onExpand,
+  expandHint,
+}: {
+  attachment: TaskAttachment;
+  onExpand: () => void;
+  expandHint: string;
+}) {
+  const pk = attachmentPreviewKind(attachment);
+  if (pk === "image") {
+    return <TaskAttachmentImageStrip attachment={attachment} onExpand={onExpand} expandHint={expandHint} />;
+  }
+  if (pk === "video") {
+    return (
+      <div className="border-b border-[var(--border)] bg-[#0a0a0a]">
+        <video
+          src={attachment.url}
+          controls
+          playsInline
+          preload="metadata"
+          className="max-h-[min(280px,42vh)] w-full object-contain"
+        />
+        <div className="flex justify-end border-t border-[var(--border)] bg-[#141414] px-2 py-1.5">
+          <button
+            type="button"
+            onClick={onExpand}
+            className="rounded-[6px] px-2 py-1 text-[11px] font-light text-[rgba(255,255,255,0.65)] transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+          >
+            {expandHint}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (pk === "pdf") {
+    return (
+      <div className="border-b border-[var(--border)] bg-[#0a0a0a]">
+        <iframe
+          title={attachment.name}
+          src={attachment.url}
+          className="h-[min(240px,38vh)] w-full border-0 bg-[#1a1a1a]"
+        />
+        <div className="flex justify-end border-t border-[var(--border)] bg-[#141414] px-2 py-1.5">
+          <button
+            type="button"
+            onClick={onExpand}
+            className="rounded-[6px] px-2 py-1 text-[11px] font-light text-[rgba(255,255,255,0.65)] transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+          >
+            {expandHint}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
 /** Fixed estimate for row status portal menu height (see viewport flip logic). */
 const STATUS_DROPDOWN_EST_HEIGHT_PX = 220;
 
@@ -192,6 +362,7 @@ const BOARD_TASK_KEYS = new Set<keyof ProjectTaskRow>([
   "isFeatured",
   "coverImage",
   "shortDescription",
+  "reviewStatus",
 ]);
 
 export function ProjectDetailView({ project }: { project: Project }) {
@@ -203,8 +374,10 @@ export function ProjectDetailView({ project }: { project: Project }) {
     updateBoardProject,
     currentUser,
     notifyProjectComment,
+    logTaskReviewActivity,
   } = useAppContext();
   const { t: lt } = useLanguage();
+  const isRocketRideClient = currentUser.company === "rocketride";
   const [description, setDescription] = useState(project.description);
   const [savedDescription, setSavedDescription] = useState(project.description);
   const [projectDescriptionSavedHint, setProjectDescriptionSavedHint] = useState(false);
@@ -237,6 +410,14 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [taskAttachmentUploading, setTaskAttachmentUploading] = useState(false);
   const [taskAttachmentError, setTaskAttachmentError] = useState("");
   const [previewAttachment, setPreviewAttachment] = useState<TaskAttachment | null>(null);
+  const [taskReviews, setTaskReviews] = useState<TaskReviewRow[]>([]);
+  const [taskReviewsLoading, setTaskReviewsLoading] = useState(false);
+  const [reviewPendingStatus, setReviewPendingStatus] = useState<ClientReviewDecision | null>(null);
+  const [reviewCommentDraft, setReviewCommentDraft] = useState("");
+  const [reviewDraftFiles, setReviewDraftFiles] = useState<File[]>([]);
+  const [reviewSubmitError, setReviewSubmitError] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const reviewComposerFileRef = useRef<HTMLInputElement>(null);
   const [projectStatusDropdownOpen, setProjectStatusDropdownOpen] = useState(false);
   const [projectOwnersDropdownOpen, setProjectOwnersDropdownOpen] = useState(false);
   const [comments, setComments] = useState<ProjectComment[]>([]);
@@ -328,6 +509,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
             shortDescription: row.short_description ?? "",
             description: row.description ?? "",
             priority,
+            reviewStatus: row.review_status?.trim() ? String(row.review_status) : null,
             attachments: [],
           } satisfies LocalTask;
         });
@@ -377,6 +559,43 @@ export function ProjectDetailView({ project }: { project: Project }) {
       cancelled = true;
     };
   }, [activeTaskId]);
+
+  useEffect(() => {
+    if (!activeTaskId || !isRocketRideClient) {
+      setTaskReviews([]);
+      setTaskReviewsLoading(false);
+      setReviewPendingStatus(null);
+      setReviewCommentDraft("");
+      setReviewDraftFiles([]);
+      setReviewSubmitError("");
+      return;
+    }
+    setReviewPendingStatus(null);
+    setReviewCommentDraft("");
+    setReviewDraftFiles([]);
+    setReviewSubmitError("");
+    let cancelled = false;
+    setTaskReviewsLoading(true);
+    void supabase
+      .from("task_reviews")
+      .select("*, task_review_attachments(*)")
+      .eq("task_id", activeTaskId)
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setTaskReviewsLoading(false);
+        if (error) {
+          console.error("[supabase] task_reviews fetch failed:", error.message);
+          setTaskReviews([]);
+          return;
+        }
+        const rows = (data as TaskReviewRow[] | null) ?? [];
+        setTaskReviews(rows);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTaskId, isRocketRideClient]);
 
   useEffect(() => {
     if (!previewAttachment) return;
@@ -488,6 +707,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   }, [project.id, project.name, project.owners.join("|"), notifyProjectComment]);
 
   const updateTask = async (taskId: string, updates: Partial<LocalTask>) => {
+    if (isRocketRideClient) return false;
     const dbPatch: Record<string, unknown> = {};
     if (updates.name !== undefined) dbPatch.title = updates.name;
     if (updates.dueDate !== undefined) dbPatch.due_date = updates.dueDate;
@@ -498,6 +718,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     if (updates.shortDescription !== undefined) dbPatch.short_description = updates.shortDescription;
     if (updates.description !== undefined) dbPatch.description = updates.description;
     if (updates.priority !== undefined) dbPatch.priority = updates.priority;
+    if (updates.reviewStatus !== undefined) dbPatch.review_status = updates.reviewStatus;
 
     if (Object.keys(dbPatch).length === 0) {
       setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, ...updates } : task)));
@@ -571,6 +792,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   };
 
   const confirmDeleteTask = async () => {
+    if (isRocketRideClient) return;
     if (!taskDeleteDialog) return;
     const targetTaskId = taskDeleteDialog.id;
     const { error } = await supabase.from("tasks").delete().eq("id", targetTaskId);
@@ -624,6 +846,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   };
 
   const deleteTaskAttachment = async (taskId: string, attachment: TaskAttachment) => {
+    if (isRocketRideClient) return;
     setTaskAttachmentError("");
     const storagePath = attachment.storagePath || getTaskAttachmentStoragePathFromUrl(attachment.url);
     if (storagePath) {
@@ -649,6 +872,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   };
 
   const onPanelFileUpload = async (files: FileList | null) => {
+    if (isRocketRideClient) return;
     if (!files?.length || !activeTask) return;
     const taskId = activeTask.id;
     setTaskAttachmentUploading(true);
@@ -695,6 +919,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
   // -- Run in Supabase Dashboard > Storage: create a public bucket called 'task-covers'
   const onCoverImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isRocketRideClient) return;
     const inputEl = event.target;
     const file = inputEl.files?.[0];
     const resetInput = () => {
@@ -763,6 +988,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   };
 
   const removeCoverImage = () => {
+    if (isRocketRideClient) return;
     if (!activeTaskId) return;
     const task = tasks.find((t) => t.id === activeTaskId);
     if (!task?.coverImage) return;
@@ -805,6 +1031,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
   const handleCreateTask = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isRocketRideClient) return;
     const trimmedName = taskName.trim();
     if (!trimmedName) {
       setTaskNameError("Task name is required.");
@@ -851,6 +1078,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
       shortDescription: row.short_description ?? "",
       description: row.description ?? "",
       priority: row.priority === "Low" || row.priority === "Medium" || row.priority === "High" || row.priority === "Urgent" ? row.priority : "Medium",
+      reviewStatus: row.review_status?.trim() ? String(row.review_status) : null,
       attachments: [],
     };
     const nextTasks = [...tasks, createdTask];
@@ -864,6 +1092,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
       isFeatured: createdTask.isFeatured,
       coverImage: createdTask.coverImage,
       shortDescription: createdTask.shortDescription,
+      reviewStatus: createdTask.reviewStatus,
     };
     addBoardProjectTask(project.id, boardRow);
     void syncProjectProgressFromLocalTasks(nextTasks);
@@ -902,6 +1131,97 @@ export function ProjectDetailView({ project }: { project: Project }) {
       return [row, ...prev];
     });
     setCommentDraft("");
+  };
+
+  const submitClientReview = async () => {
+    if (!isRocketRideClient || !activeTask) return;
+    if (!reviewPendingStatus) {
+      setReviewSubmitError(lt("Select a review status before submitting."));
+      return;
+    }
+    setReviewSubmitting(true);
+    setReviewSubmitError("");
+    const reviewerName = currentUser.name.trim() || "Client";
+    try {
+      const { data: inserted, error: reviewErr } = await supabase
+        .from("task_reviews")
+        .insert({
+          task_id: activeTask.id,
+          reviewer_name: reviewerName,
+          status: reviewPendingStatus,
+          comment: reviewCommentDraft.trim() || null,
+        })
+        .select("*")
+        .single();
+      if (reviewErr || !inserted) {
+        console.error("[supabase] task_reviews insert failed:", reviewErr?.message ?? "unknown");
+        setReviewSubmitError(reviewErr?.message || "Failed to submit review.");
+        return;
+      }
+      const reviewId = String((inserted as Record<string, unknown>).id ?? "");
+      for (const file of reviewDraftFiles) {
+        const path = `${reviewId}/${Date.now()}-${file.name.replace(/[^\w.\-]+/g, "_")}`;
+        const { data: upData, error: upErr } = await supabase.storage.from("task-reviews").upload(path, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+        if (upErr || !upData?.path) {
+          console.error("[supabase] task-reviews upload failed:", upErr?.message ?? "no path");
+          setReviewSubmitError(upErr?.message || "Failed to upload an attachment.");
+          return;
+        }
+        const { data: urlData } = supabase.storage.from("task-reviews").getPublicUrl(upData.path);
+        const { error: attErr } = await supabase.from("task_review_attachments").insert({
+          review_id: reviewId,
+          name: file.name,
+          url: urlData.publicUrl,
+          type: file.type || "application/octet-stream",
+          size: file.size,
+        });
+        if (attErr) {
+          console.error("[supabase] task_review_attachments insert failed:", attErr.message);
+          setReviewSubmitError(attErr.message || "Failed to save attachment.");
+          return;
+        }
+      }
+
+      const statusLabel = reviewPendingStatus;
+      const { error: taskUpdErr } = await supabase
+        .from("tasks")
+        .update({ review_status: statusLabel })
+        .eq("id", activeTask.id)
+        .eq("project_id", project.id);
+      if (taskUpdErr) {
+        console.error("[supabase] tasks review_status update failed:", taskUpdErr.message);
+        setReviewSubmitError(taskUpdErr.message || "Failed to update task.");
+        return;
+      }
+
+      setTasks((prev) =>
+        prev.map((t) => (t.id === activeTask.id ? { ...t, reviewStatus: statusLabel } : t)),
+      );
+      updateBoardProjectTask(project.id, activeTask.id, { reviewStatus: statusLabel });
+      logTaskReviewActivity({
+        reviewerName,
+        taskName: activeTask.name,
+        reviewStatusLabel: statusLabel,
+      });
+
+      const { data: listData, error: listErr } = await supabase
+        .from("task_reviews")
+        .select("*, task_review_attachments(*)")
+        .eq("task_id", activeTask.id)
+        .order("created_at", { ascending: false });
+      if (!listErr && listData) {
+        setTaskReviews((listData as TaskReviewRow[]) ?? []);
+      }
+      setReviewCommentDraft("");
+      setReviewDraftFiles([]);
+      setReviewPendingStatus(null);
+      if (reviewComposerFileRef.current) reviewComposerFileRef.current.value = "";
+    } finally {
+      setReviewSubmitting(false);
+    }
   };
 
   return (
@@ -1112,9 +1432,11 @@ export function ProjectDetailView({ project }: { project: Project }) {
       <Card className="rounded-[8px]">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="section-title mb-0">{lt("Project Tasks")}</h2>
-          <button type="button" onClick={openTaskModal} className="btn-primary rounded-[8px] px-3 py-1.5 text-xs">
-            {lt("New Task")}
-          </button>
+          {!isRocketRideClient ? (
+            <button type="button" onClick={openTaskModal} className="btn-primary rounded-[8px] px-3 py-1.5 text-xs">
+              {lt("New Task")}
+            </button>
+          ) : null}
         </div>
         <div className="overflow-x-auto rounded-[8px] border border-[var(--border)]">
           <table className="bg-[#161616]">
@@ -1124,6 +1446,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                 <th className="kpi-label border-[var(--border)] bg-[#101010] py-2.5">{lt("Owner")}</th>
                 <th className="kpi-label border-[var(--border)] bg-[#101010] py-2.5">{lt("Due date")}</th>
                 <th className="kpi-label border-[var(--border)] bg-[#101010] py-2.5">{lt("Status")}</th>
+                <th className="kpi-label border-[var(--border)] bg-[#101010] py-2.5">{lt("Review")}</th>
                 <th className="kpi-label w-12 border-[var(--border)] bg-[#101010] py-2.5 text-center" aria-label={lt("Featured")}>
                   <Star className="mx-auto h-4 w-4 text-[rgba(255,255,255,0.35)]" strokeWidth={1.5} />
                 </th>
@@ -1138,7 +1461,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   onClick={() => openTaskPanel(task.id)}
                 >
                   <td className="text-sm font-light text-white">
-                    {editingCell?.taskId === task.id && editingCell.field === "name" ? (
+                    {isRocketRideClient ? (
+                      <span className="block px-2 py-1 text-sm font-light text-white">{task.name}</span>
+                    ) : editingCell?.taskId === task.id && editingCell.field === "name" ? (
                       <input
                         autoFocus
                         value={task.name}
@@ -1167,7 +1492,11 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     )}
                   </td>
                   <td onClick={(event) => event.stopPropagation()}>
-                    {editingCell?.taskId === task.id && editingCell.field === "owner" ? (
+                    {isRocketRideClient ? (
+                      <div className="px-2 py-1">
+                        <OwnerAvatars names={[task.owner]} />
+                      </div>
+                    ) : editingCell?.taskId === task.id && editingCell.field === "owner" ? (
                       <select
                         autoFocus
                         value={task.owner}
@@ -1192,7 +1521,11 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     )}
                   </td>
                   <td className="text-xs font-light text-[rgba(255,255,255,0.4)]" onClick={(event) => event.stopPropagation()}>
-                    {editingCell?.taskId === task.id && editingCell.field === "dueDate" ? (
+                    {isRocketRideClient ? (
+                      <span className="mono-num px-2 py-1">
+                        {task.dueDate ? formatDisplayDate(task.dueDate) : "—"}
+                      </span>
+                    ) : editingCell?.taskId === task.id && editingCell.field === "dueDate" ? (
                       <input
                         type="date"
                         autoFocus
@@ -1216,94 +1549,123 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     )}
                   </td>
                   <td className="relative" onClick={(event) => event.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        const { top, left } = getRowStatusDropdownPosition(rect);
-                        setRowStatusMenu((prev) =>
-                          prev?.taskId === task.id ? null : { taskId: task.id, top, left },
-                        );
-                      }}
-                      className="text-left"
-                    >
-                      <TaskRowStatusBadge status={task.status} />
-                    </button>
-                    {rowStatusMenu?.taskId === task.id
-                      ? createPortal(
-                          <div
-                            className="w-56 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2"
-                            style={{ position: "fixed", top: rowStatusMenu.top, left: rowStatusMenu.left, zIndex: 9999 }}
-                            onMouseDown={(event) => event.stopPropagation()}
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            {groupedStatuses.map((group) => (
-                              <div key={group.group} className="mb-2 last:mb-0">
-                                <p className="px-2 py-1 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-                                  {group.group}
-                                </p>
-                                {group.options.map((option) => (
-                                  <button
-                                    key={option.value}
-                                    type="button"
-                                    onClick={() => onRowStatusChange(task.id, option.value)}
-                                    className={cn(
-                                      "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
-                                      task.status === option.value && "bg-[rgba(255,255,255,0.04)]",
-                                    )}
-                                  >
-                                    <span className={cn("h-1.5 w-1.5 rounded-full", option.dotClass)} aria-hidden />
-                                    {option.value}
-                                  </button>
+                    {isRocketRideClient ? (
+                      <div className="px-2 py-1">
+                        <TaskRowStatusBadge status={task.status} />
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            const rect = event.currentTarget.getBoundingClientRect();
+                            const { top, left } = getRowStatusDropdownPosition(rect);
+                            setRowStatusMenu((prev) =>
+                              prev?.taskId === task.id ? null : { taskId: task.id, top, left },
+                            );
+                          }}
+                          className="text-left"
+                        >
+                          <TaskRowStatusBadge status={task.status} />
+                        </button>
+                        {rowStatusMenu?.taskId === task.id
+                          ? createPortal(
+                              <div
+                                className="w-56 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2"
+                                style={{ position: "fixed", top: rowStatusMenu.top, left: rowStatusMenu.left, zIndex: 9999 }}
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                {groupedStatuses.map((group) => (
+                                  <div key={group.group} className="mb-2 last:mb-0">
+                                    <p className="px-2 py-1 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+                                      {group.group}
+                                    </p>
+                                    {group.options.map((option) => (
+                                      <button
+                                        key={option.value}
+                                        type="button"
+                                        onClick={() => onRowStatusChange(task.id, option.value)}
+                                        className={cn(
+                                          "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
+                                          task.status === option.value && "bg-[rgba(255,255,255,0.04)]",
+                                        )}
+                                      >
+                                        <span className={cn("h-1.5 w-1.5 rounded-full", option.dotClass)} aria-hidden />
+                                        {option.value}
+                                      </button>
+                                    ))}
+                                  </div>
                                 ))}
-                              </div>
-                            ))}
-                          </div>,
-                          document.body,
-                        )
-                      : null}
+                              </div>,
+                              document.body,
+                            )
+                          : null}
+                      </>
+                    )}
+                  </td>
+                  <td className="text-xs font-light text-[rgba(255,255,255,0.55)]" onClick={(event) => event.stopPropagation()}>
+                    <div className="px-2 py-1">
+                      <TaskReviewColumnBadge status={task.reviewStatus} lt={lt} />
+                    </div>
                   </td>
                   <td className="w-12 text-center" onClick={(event) => event.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={() => void updateTask(task.id, { isFeatured: !task.isFeatured })}
-                      className="inline-flex rounded-[6px] p-1.5 text-[rgba(255,255,255,0.35)] transition hover:bg-[rgba(255,255,255,0.06)]"
-                      aria-label={task.isFeatured ? lt("Unfeature task") : lt("Feature task in highlights")}
-                    >
-                      <Star
-                        className={cn(
-                          "h-4 w-4",
-                          task.isFeatured ? "fill-[var(--primary)] text-[var(--primary)]" : "",
-                        )}
-                        strokeWidth={1.5}
-                      />
-                    </button>
+                    {isRocketRideClient ? (
+                      <span className="inline-flex justify-center p-1.5 text-[rgba(255,255,255,0.35)]" aria-hidden>
+                        <Star
+                          className={cn(
+                            "h-4 w-4",
+                            task.isFeatured ? "fill-[var(--primary)] text-[var(--primary)]" : "",
+                          )}
+                          strokeWidth={1.5}
+                        />
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void updateTask(task.id, { isFeatured: !task.isFeatured })}
+                        className="inline-flex rounded-[6px] p-1.5 text-[rgba(255,255,255,0.35)] transition hover:bg-[rgba(255,255,255,0.06)]"
+                        aria-label={task.isFeatured ? lt("Unfeature task") : lt("Feature task in highlights")}
+                      >
+                        <Star
+                          className={cn(
+                            "h-4 w-4",
+                            task.isFeatured ? "fill-[var(--primary)] text-[var(--primary)]" : "",
+                          )}
+                          strokeWidth={1.5}
+                        />
+                      </button>
+                    )}
                   </td>
                   <td className="w-10 text-center" onClick={(event) => event.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={() => setTaskDeleteDialog({ id: task.id, name: task.name })}
-                      className="inline-flex rounded-[6px] p-1.5 text-[rgba(255,255,255,0.3)] opacity-0 transition hover:text-[#ef4444] group-hover/row:opacity-100"
-                      aria-label={lt("Delete task")}
-                    >
-                      <Trash2 className="h-[14px] w-[14px]" strokeWidth={1.75} />
-                    </button>
+                    {!isRocketRideClient ? (
+                      <button
+                        type="button"
+                        onClick={() => setTaskDeleteDialog({ id: task.id, name: task.name })}
+                        className="inline-flex rounded-[6px] p-1.5 text-[rgba(255,255,255,0.3)] opacity-0 transition hover:text-[#ef4444] group-hover/row:opacity-100"
+                        aria-label={lt("Delete task")}
+                      >
+                        <Trash2 className="h-[14px] w-[14px]" strokeWidth={1.75} />
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
               ))}
-              <tr className="cursor-pointer border-t border-[var(--border)] transition-colors hover:bg-[rgba(255,255,255,0.03)]">
-                <td colSpan={6} className="py-3">
-                  <button
-                    type="button"
-                    onClick={openTaskModal}
-                    className="flex w-full items-center justify-center gap-2 text-xs font-light text-[rgba(255,255,255,0.4)] hover:text-[var(--muted)]"
-                  >
-                    <Plus className="h-4 w-4" strokeWidth={1.5} />
-                    {lt("Add task")}
-                  </button>
-                </td>
-              </tr>
+              {!isRocketRideClient ? (
+                <tr className="cursor-pointer border-t border-[var(--border)] transition-colors hover:bg-[rgba(255,255,255,0.03)]">
+                  <td colSpan={7} className="py-3">
+                    <button
+                      type="button"
+                      onClick={openTaskModal}
+                      className="flex w-full items-center justify-center gap-2 text-xs font-light text-[rgba(255,255,255,0.4)] hover:text-[var(--muted)]"
+                    >
+                      <Plus className="h-4 w-4" strokeWidth={1.5} />
+                      {lt("Add task")}
+                    </button>
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -1364,7 +1726,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
         </div>
       </Card>
 
-      {modalOpen ? (
+      {modalOpen && !isRocketRideClient ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
           <div className="w-full max-w-xl rounded-[8px] border border-[var(--border)] bg-[#161616] p-5">
             <div className="mb-4 flex items-start justify-between gap-3">
@@ -1504,7 +1866,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
             <div className="space-y-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  {panelEditingName ? (
+                  {isRocketRideClient ? (
+                    <h2 className="text-2xl font-light text-white">{activeTask.name}</h2>
+                  ) : panelEditingName ? (
                     <input
                       autoFocus
                       value={activeTask.name}
@@ -1524,41 +1888,47 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     </button>
                   )}
                   <div className="relative mt-3 inline-block">
-                    <button
-                      type="button"
-                      onClick={() => setPanelStatusOpen((prev) => !prev)}
-                      className="text-left"
-                    >
+                    {isRocketRideClient ? (
                       <TaskRowStatusBadge status={activeTask.status} />
-                    </button>
-                    {panelStatusOpen ? (
-                      <div className="absolute left-0 top-[calc(100%+6px)] z-20 w-56 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2">
-                        {groupedStatuses.map((group) => (
-                          <div key={group.group} className="mb-2 last:mb-0">
-                            <p className="px-2 py-1 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-                              {lt(group.group)}
-                            </p>
-                            {group.options.map((option) => (
-                              <button
-                                key={option.value}
-                                type="button"
-                                onClick={() => {
-                                  void updateTask(activeTask.id, { status: option.value });
-                                  setPanelStatusOpen(false);
-                                }}
-                                className={cn(
-                                  "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
-                                  activeTask.status === option.value && "bg-[rgba(255,255,255,0.04)]",
-                                )}
-                              >
-                                <span className={cn("h-1.5 w-1.5 rounded-full", option.dotClass)} aria-hidden />
-                                {lt(option.value)}
-                              </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setPanelStatusOpen((prev) => !prev)}
+                          className="text-left"
+                        >
+                          <TaskRowStatusBadge status={activeTask.status} />
+                        </button>
+                        {panelStatusOpen ? (
+                          <div className="absolute left-0 top-[calc(100%+6px)] z-20 w-56 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2">
+                            {groupedStatuses.map((group) => (
+                              <div key={group.group} className="mb-2 last:mb-0">
+                                <p className="px-2 py-1 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+                                  {lt(group.group)}
+                                </p>
+                                {group.options.map((option) => (
+                                  <button
+                                    key={option.value}
+                                    type="button"
+                                    onClick={() => {
+                                      void updateTask(activeTask.id, { status: option.value });
+                                      setPanelStatusOpen(false);
+                                    }}
+                                    className={cn(
+                                      "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
+                                      activeTask.status === option.value && "bg-[rgba(255,255,255,0.04)]",
+                                    )}
+                                  >
+                                    <span className={cn("h-1.5 w-1.5 rounded-full", option.dotClass)} aria-hidden />
+                                    {lt(option.value)}
+                                  </button>
+                                ))}
+                              </div>
                             ))}
                           </div>
-                        ))}
-                      </div>
-                    ) : null}
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 </div>
                 <button
@@ -1574,7 +1944,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
                 <div className="grid grid-cols-[120px_1fr] gap-y-3">
                   <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Owner")}</span>
                   <div>
-                    {panelOwnerEditing ? (
+                    {isRocketRideClient ? (
+                      <OwnerAvatars names={[activeTask.owner]} />
+                    ) : panelOwnerEditing ? (
                       <select
                         autoFocus
                         value={activeTask.owner}
@@ -1597,7 +1969,15 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
                   <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Due date")}</span>
                   <div>
-                    {panelDueDateEditing ? (
+                    {isRocketRideClient ? (
+                      <span className="text-sm font-light text-[rgba(255,255,255,0.7)]">
+                        {activeTask.dueDate ? (
+                          <span className="mono-num">{formatDisplayDate(activeTask.dueDate)}</span>
+                        ) : (
+                          "—"
+                        )}
+                      </span>
+                    ) : panelDueDateEditing ? (
                       <input
                         type="date"
                         autoFocus
@@ -1625,166 +2005,202 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   <span className="text-sm font-light text-[rgba(255,255,255,0.7)]">{project.name}</span>
 
                   <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Priority")}</span>
-                  <select
-                    value={panelPriority}
-                    onChange={(event) => {
-                      const next = event.target.value as Priority;
-                      setPanelPriority(next);
-                      void updateTask(activeTask.id, { priority: next });
-                    }}
-                    className={cn(
-                      "w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light outline-none",
-                      PRIORITY_OPTIONS.find((option) => option.value === panelPriority)?.textClass,
-                    )}
-                  >
-                    {PRIORITY_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {lt(option.value)}
-                      </option>
-                    ))}
-                  </select>
+                  {isRocketRideClient ? (
+                    <span
+                      className={cn(
+                        "text-sm font-light",
+                        PRIORITY_OPTIONS.find((option) => option.value === panelPriority)?.textClass,
+                      )}
+                    >
+                      {lt(panelPriority)}
+                    </span>
+                  ) : (
+                    <select
+                      value={panelPriority}
+                      onChange={(event) => {
+                        const next = event.target.value as Priority;
+                        setPanelPriority(next);
+                        void updateTask(activeTask.id, { priority: next });
+                      }}
+                      className={cn(
+                        "w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light outline-none",
+                        PRIORITY_OPTIONS.find((option) => option.value === panelPriority)?.textClass,
+                      )}
+                    >
+                      {PRIORITY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {lt(option.value)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               </div>
 
               <div>
                 <p className="section-title mb-2">{lt("Description")}</p>
-                <textarea
-                  ref={panelDescriptionRef}
-                  value={panelDescription}
-                  onChange={(event) => {
-                    onPanelDescriptionChange(event.target.value);
-                    if (taskDescriptionError) setTaskDescriptionError("");
-                  }}
-                  rows={1}
-                  placeholder={lt("Add a task description...")}
-                  className="w-full resize-none overflow-hidden rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
-                />
-                {panelDescription !== panelSavedDescription ? (
-                  <div className="mt-2">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void saveTaskDescription();
-                        }}
-                        className="rounded-[8px] bg-[#ff4500] px-4 py-1.5 text-[0.8rem] font-light text-white transition-colors hover:bg-[#e33f00]"
-                      >
-                        {lt("Save")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPanelDescription(panelSavedDescription);
-                          setTaskDescriptionError("");
-                        }}
-                        className="btn-ghost rounded-[8px] px-3 py-1.5 text-[0.8rem]"
-                      >
-                        {lt("Cancel")}
-                      </button>
-                      {taskDescriptionSavedHint ? <span className="text-[0.75rem] text-[#22c55e]">{lt("Saved")}</span> : null}
-                    </div>
-                    {taskDescriptionError ? (
-                      <p className="mt-1 text-[0.75rem] text-[#ef4444]">{lt(taskDescriptionError)}</p>
+                {isRocketRideClient ? (
+                  <p className="whitespace-pre-wrap rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-[rgba(255,255,255,0.85)]">
+                    {panelDescription.trim() ? panelDescription : "—"}
+                  </p>
+                ) : (
+                  <>
+                    <textarea
+                      ref={panelDescriptionRef}
+                      value={panelDescription}
+                      onChange={(event) => {
+                        onPanelDescriptionChange(event.target.value);
+                        if (taskDescriptionError) setTaskDescriptionError("");
+                      }}
+                      rows={1}
+                      placeholder={lt("Add a task description...")}
+                      className="w-full resize-none overflow-hidden rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
+                    />
+                    {panelDescription !== panelSavedDescription ? (
+                      <div className="mt-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void saveTaskDescription();
+                            }}
+                            className="rounded-[8px] bg-[#ff4500] px-4 py-1.5 text-[0.8rem] font-light text-white transition-colors hover:bg-[#e33f00]"
+                          >
+                            {lt("Save")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPanelDescription(panelSavedDescription);
+                              setTaskDescriptionError("");
+                            }}
+                            className="btn-ghost rounded-[8px] px-3 py-1.5 text-[0.8rem]"
+                          >
+                            {lt("Cancel")}
+                          </button>
+                          {taskDescriptionSavedHint ? <span className="text-[0.75rem] text-[#22c55e]">{lt("Saved")}</span> : null}
+                        </div>
+                        {taskDescriptionError ? (
+                          <p className="mt-1 text-[0.75rem] text-[#ef4444]">{lt(taskDescriptionError)}</p>
+                        ) : null}
+                      </div>
                     ) : null}
-                  </div>
-                ) : null}
+                  </>
+                )}
               </div>
 
               <div>
                 <p className="section-title mb-2">{lt("Attachments")}</p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  multiple
-                  onChange={(event) => void onPanelFileUpload(event.target.files)}
-                />
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      if (!taskAttachmentUploading) fileInputRef.current?.click();
-                    }
-                  }}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    if (!taskAttachmentUploading) void onPanelFileUpload(event.dataTransfer.files);
-                  }}
-                  className="w-full"
-                >
-                  <button
-                    type="button"
-                    disabled={taskAttachmentUploading}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex w-full items-center justify-center gap-2 rounded-[8px] border border-dashed border-[rgba(255,255,255,0.15)] bg-[#161616] px-4 py-6 text-sm font-light text-[rgba(255,255,255,0.5)] disabled:opacity-60"
-                  >
-                    {taskAttachmentUploading ? (
-                      <>
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" strokeWidth={1.5} />
-                        {lt("Uploading…")}
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="h-4 w-4" />
-                        {lt("Click to upload or drag and drop")}
-                      </>
-                    )}
-                  </button>
-                </div>
+                {!isRocketRideClient ? (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      multiple
+                      onChange={(event) => void onPanelFileUpload(event.target.files)}
+                    />
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          if (!taskAttachmentUploading) fileInputRef.current?.click();
+                        }
+                      }}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (!taskAttachmentUploading) void onPanelFileUpload(event.dataTransfer.files);
+                      }}
+                      className="w-full"
+                    >
+                      <button
+                        type="button"
+                        disabled={taskAttachmentUploading}
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex w-full items-center justify-center gap-2 rounded-[8px] border border-dashed border-[rgba(255,255,255,0.15)] bg-[#161616] px-4 py-6 text-sm font-light text-[rgba(255,255,255,0.5)] disabled:opacity-60"
+                      >
+                        {taskAttachmentUploading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 shrink-0 animate-spin" strokeWidth={1.5} />
+                            {lt("Uploading…")}
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4" />
+                            {lt("Click to upload or drag and drop")}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </>
+                ) : null}
                 {taskAttachmentError ? (
                   <p className="mt-2 text-[0.75rem] text-[#ef4444]">{taskAttachmentError}</p>
                 ) : null}
-                <div className="mt-3 space-y-2">
+                <div className="mt-3 space-y-3">
                   {activeTask.attachments.map((attachment) => {
                     const Icon = attachmentKind(attachment.type, attachment.name);
+                    const pk = attachmentPreviewKind(attachment);
+                    const expandHint = lt("Click for full view");
                     return (
                       <div
                         key={attachment.id}
-                        className="flex items-center gap-2 rounded-[8px] border border-[var(--border)] bg-[#161616] px-2 py-2"
+                        className="overflow-hidden rounded-[8px] border border-[var(--border)] bg-[#161616]"
                       >
-                        <Icon className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.55)]" />
-                        <button
-                          type="button"
-                          onClick={() => openTaskAttachmentPreview(attachment)}
-                          className="min-w-0 flex-1 truncate text-left text-sm font-light text-white hover:underline"
-                          title={attachment.name}
-                        >
-                          {attachment.name}
-                        </button>
-                        <span className="mono-num shrink-0 text-xs font-light text-[rgba(255,255,255,0.4)]">
-                          {formatFileSize(attachment.size)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => openTaskAttachmentPreview(attachment)}
-                          className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
-                          aria-label={lt("Preview")}
-                        >
-                          <Eye className="h-4 w-4" strokeWidth={1.5} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => downloadTaskAttachment(attachment)}
-                          className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
-                          aria-label={lt("Download")}
-                        >
-                          <Download className="h-4 w-4" strokeWidth={1.5} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void deleteTaskAttachment(activeTask.id, attachment)}
-                          className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] transition-colors hover:bg-[rgba(239,68,68,0.12)] hover:text-[#ef4444]"
-                          aria-label={lt("Delete attachment")}
-                        >
-                          <X className="h-4 w-4" strokeWidth={1.5} />
-                        </button>
+                        {pk !== "other" ? (
+                          <TaskAttachmentInlineVisual
+                            attachment={attachment}
+                            onExpand={() => openTaskAttachmentPreview(attachment)}
+                            expandHint={expandHint}
+                          />
+                        ) : null}
+                        <div className="flex items-center gap-2 px-2 py-2">
+                          <Icon className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.55)]" />
+                          <button
+                            type="button"
+                            onClick={() => openTaskAttachmentPreview(attachment)}
+                            className="min-w-0 flex-1 truncate text-left text-sm font-light text-white hover:underline"
+                            title={attachment.name}
+                          >
+                            {attachment.name}
+                          </button>
+                          <span className="mono-num shrink-0 text-xs font-light text-[rgba(255,255,255,0.4)]">
+                            {formatFileSize(attachment.size)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openTaskAttachmentPreview(attachment)}
+                            className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+                            aria-label={lt("Preview")}
+                          >
+                            <Eye className="h-4 w-4" strokeWidth={1.5} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadTaskAttachment(attachment)}
+                            className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+                            aria-label={lt("Download")}
+                          >
+                            <Download className="h-4 w-4" strokeWidth={1.5} />
+                          </button>
+                          {!isRocketRideClient ? (
+                            <button
+                              type="button"
+                              onClick={() => void deleteTaskAttachment(activeTask.id, attachment)}
+                              className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] transition-colors hover:bg-[rgba(239,68,68,0.12)] hover:text-[#ef4444]"
+                              aria-label={lt("Delete attachment")}
+                            >
+                              <X className="h-4 w-4" strokeWidth={1.5} />
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     );
                   })}
@@ -1796,39 +2212,51 @@ export function ProjectDetailView({ project }: { project: Project }) {
                 <p className="text-xs font-light text-[rgba(255,255,255,0.4)]">
                   {lt("Shown in Dashboard Highlights when featured")}
                 </p>
-                <input
-                  type="text"
-                  maxLength={200}
-                  value={activeTask.shortDescription}
-                  onChange={(event) => void updateTask(activeTask.id, { shortDescription: event.target.value.slice(0, 200) })}
-                  placeholder={lt("Brief description of this work...")}
-                  className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
-                />
+                {isRocketRideClient ? (
+                  <p className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-[rgba(255,255,255,0.85)]">
+                    {activeTask.shortDescription.trim() ? activeTask.shortDescription : "—"}
+                  </p>
+                ) : (
+                  <input
+                    type="text"
+                    maxLength={200}
+                    value={activeTask.shortDescription}
+                    onChange={(event) => void updateTask(activeTask.id, { shortDescription: event.target.value.slice(0, 200) })}
+                    placeholder={lt("Brief description of this work...")}
+                    className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
+                  />
+                )}
               </div>
 
               <div className="space-y-2 border-t border-[var(--border)] pt-5">
                 <p className="section-title mb-0">{lt("COVER IMAGE")}</p>
-                <input
-                  ref={coverImageInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/*"
-                  className="sr-only"
-                  aria-hidden
-                  tabIndex={-1}
-                  onChange={onCoverImageChange}
-                />
+                {!isRocketRideClient ? (
+                  <input
+                    ref={coverImageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/*"
+                    className="sr-only"
+                    aria-hidden
+                    tabIndex={-1}
+                    onChange={onCoverImageChange}
+                  />
+                ) : null}
                 {activeTask.coverImage ? (
                   <div className="relative w-full overflow-hidden rounded-[6px]">
                     <img src={activeTask.coverImage} alt="" className="h-[160px] w-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={removeCoverImage}
-                      className="absolute right-2 top-2 rounded-[6px] border border-[var(--border)] bg-[rgba(0,0,0,0.65)] p-1.5 text-white"
-                      aria-label={lt("Remove cover image")}
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                    {!isRocketRideClient ? (
+                      <button
+                        type="button"
+                        onClick={removeCoverImage}
+                        className="absolute right-2 top-2 rounded-[6px] border border-[var(--border)] bg-[rgba(0,0,0,0.65)] p-1.5 text-white"
+                        aria-label={lt("Remove cover image")}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    ) : null}
                   </div>
+                ) : isRocketRideClient ? (
+                  <p className="text-sm font-light text-[rgba(255,255,255,0.35)]">—</p>
                 ) : (
                   <button
                     type="button"
@@ -1849,46 +2277,256 @@ export function ProjectDetailView({ project }: { project: Project }) {
                 {coverUploadError ? (
                   <p className="text-[0.75rem] text-[#ef4444]">{coverUploadError}</p>
                 ) : null}
-                <p className="text-[0.72rem] font-light text-[rgba(255,255,255,0.3)]">
-                  {lt("Recommended: 1920×1080px — any size accepted")}
-                </p>
+                {!isRocketRideClient ? (
+                  <p className="text-[0.72rem] font-light text-[rgba(255,255,255,0.3)]">
+                    {lt("Recommended: 1920×1080px — any size accepted")}
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-2 border-t border-[var(--border)] pt-5">
                 <div className="flex items-center justify-between gap-3">
                   <span className="section-title mb-0">{lt("FEATURED IN HIGHLIGHTS")}</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={activeTask.isFeatured}
-                    onClick={() => void updateTask(activeTask.id, { isFeatured: !activeTask.isFeatured })}
-                    className={cn(
-                      "relative h-7 w-12 shrink-0 rounded-full transition-colors",
-                      activeTask.isFeatured ? "bg-[var(--primary)]" : "bg-[rgba(255,255,255,0.15)]",
-                    )}
-                  >
-                    <span
+                  {isRocketRideClient ? (
+                    <span className="text-xs font-light text-[rgba(255,255,255,0.55)]">
+                      {activeTask.isFeatured ? lt("Yes") : lt("No")}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={activeTask.isFeatured}
+                      onClick={() => void updateTask(activeTask.id, { isFeatured: !activeTask.isFeatured })}
                       className={cn(
-                        "absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-[left] duration-200 ease-out",
-                        activeTask.isFeatured ? "left-[calc(100%-1.375rem)]" : "left-1",
+                        "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+                        activeTask.isFeatured ? "bg-[var(--primary)]" : "bg-[rgba(255,255,255,0.15)]",
                       )}
-                    />
-                  </button>
+                    >
+                      <span
+                        className={cn(
+                          "absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-[left] duration-200 ease-out",
+                          activeTask.isFeatured ? "left-[calc(100%-1.375rem)]" : "left-1",
+                        )}
+                      />
+                    </button>
+                  )}
                 </div>
-                {activeTask.isFeatured && !activeTask.coverImage ? (
+                {!isRocketRideClient && activeTask.isFeatured && !activeTask.coverImage ? (
                   <p className="text-xs text-amber-400">{lt("Add a cover image to display in Highlights")}</p>
                 ) : null}
               </div>
 
-              <div className="border-t border-[var(--border)] pt-5">
-                <button
-                  type="button"
-                  onClick={() => setTaskDeleteDialog({ id: activeTask.id, name: activeTask.name })}
-                  className="w-full rounded-[8px] border border-[rgba(239,68,68,0.35)] bg-transparent py-2.5 text-xs font-light text-[#fca5a5] transition-colors hover:bg-[rgba(239,68,68,0.08)]"
-                >
-                  {lt("Delete task")}
-                </button>
-              </div>
+              {!isRocketRideClient ? (
+                <div className="border-t border-[var(--border)] pt-5">
+                  <button
+                    type="button"
+                    onClick={() => setTaskDeleteDialog({ id: activeTask.id, name: activeTask.name })}
+                    className="w-full rounded-[8px] border border-[rgba(239,68,68,0.35)] bg-transparent py-2.5 text-xs font-light text-[#fca5a5] transition-colors hover:bg-[rgba(239,68,68,0.08)]"
+                  >
+                    {lt("Delete task")}
+                  </button>
+                </div>
+              ) : null}
+
+              {isRocketRideClient ? (
+                <div className="border-t border-[var(--border)] pt-6">
+                  <p className="section-title mb-1">{lt("CLIENT REVIEW")}</p>
+                  <p className="mb-4 text-xs font-light text-[rgba(255,255,255,0.45)]">
+                    {lt("Leave feedback, approvals or notes for the team")}
+                  </p>
+
+                  <p className="mb-2 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+                    {lt("Review status")}
+                  </p>
+                  <div className="mb-4 grid gap-2 sm:grid-cols-3">
+                    {(
+                      [
+                        { value: "Approved" as const, icon: Check, activeClass: "border-emerald-500/50 bg-emerald-600/25 text-emerald-100" },
+                        { value: "Needs Changes" as const, icon: AlertCircle, activeClass: "border-amber-500/50 bg-amber-600/20 text-amber-100" },
+                        { value: "Rejected" as const, icon: X, activeClass: "border-red-500/50 bg-red-600/25 text-red-100" },
+                      ] as const
+                    ).map(({ value, icon: ChipIcon, activeClass }) => {
+                      const selected = reviewPendingStatus === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setReviewPendingStatus(value);
+                            setReviewSubmitError("");
+                          }}
+                          className={cn(
+                            "flex flex-col items-center gap-2 rounded-[10px] border px-3 py-4 text-center text-sm font-light transition-colors",
+                            selected
+                              ? activeClass
+                              : "border-[var(--border)] bg-[#161616] text-[rgba(255,255,255,0.55)] hover:border-[rgba(255,255,255,0.2)]",
+                          )}
+                        >
+                          <ChipIcon className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
+                          {value === "Approved"
+                            ? lt("Approved")
+                            : value === "Needs Changes"
+                              ? lt("Needs Changes")
+                              : lt("Rejected")}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <textarea
+                    value={reviewCommentDraft}
+                    onChange={(event) => setReviewCommentDraft(event.target.value)}
+                    rows={4}
+                    placeholder={lt("Add your review comment, feedback or meeting notes...")}
+                    className="mb-3 w-full resize-y rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
+                  />
+
+                  <input
+                    ref={reviewComposerFileRef}
+                    type="file"
+                    className="hidden"
+                    multiple
+                    onChange={(event) => {
+                      const list = event.target.files;
+                      if (!list?.length) return;
+                      setReviewDraftFiles((prev) => [...prev, ...Array.from(list)]);
+                      event.target.value = "";
+                    }}
+                  />
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => reviewComposerFileRef.current?.click()}
+                      disabled={reviewSubmitting}
+                      className="inline-flex items-center gap-2 rounded-[8px] border border-[var(--border)] bg-[#161616] px-3 py-2 text-xs font-light text-white transition-colors hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-50"
+                    >
+                      <Paperclip className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                      {lt("Attach file")}
+                    </button>
+                    {reviewDraftFiles.map((file, idx) => (
+                      <span
+                        key={`${file.name}-${idx}`}
+                        className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--border)] bg-[#141414] py-1 pl-2.5 pr-1 text-[11px] font-light text-[rgba(255,255,255,0.85)]"
+                      >
+                        <span className="max-w-[200px] truncate">{file.name}</span>
+                        <button
+                          type="button"
+                          disabled={reviewSubmitting}
+                          onClick={() => setReviewDraftFiles((prev) => prev.filter((_, i) => i !== idx))}
+                          className="rounded-full p-0.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white"
+                          aria-label={lt("Remove")}
+                        >
+                          <X className="h-3.5 w-3.5" strokeWidth={2} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+
+                  {reviewSubmitError ? (
+                    <p className="mb-2 text-[0.75rem] text-[#ef4444]">{reviewSubmitError}</p>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    disabled={reviewSubmitting}
+                    onClick={() => void submitClientReview()}
+                    className="btn-primary mb-6 w-full rounded-[8px] py-2.5 text-sm font-light disabled:opacity-60"
+                  >
+                    {reviewSubmitting ? (
+                      <span className="inline-flex items-center justify-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.5} aria-hidden />
+                        {lt("Submitting…")}
+                      </span>
+                    ) : (
+                      lt("Submit Review")
+                    )}
+                  </button>
+
+                  <p className="section-title mb-2">{lt("Review history")}</p>
+                  {taskReviewsLoading ? (
+                    <p className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Loading")}</p>
+                  ) : taskReviews.length === 0 ? (
+                    <p className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("No reviews yet")}</p>
+                  ) : (
+                    <ul className="space-y-4">
+                      {taskReviews.map((rev) => {
+                        const atts = Array.isArray(rev.task_review_attachments) ? rev.task_review_attachments : [];
+                        return (
+                          <li
+                            key={rev.id}
+                            className="rounded-[8px] border border-[var(--border)] bg-[#161616] p-3"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] text-[0.65rem] font-light text-white"
+                                style={{ backgroundColor: `hsla(${commentAuthorHue(rev.reviewer_name)}, 35%, 32%, 1)` }}
+                              >
+                                {commentAuthorInitials(rev.reviewer_name)}
+                              </div>
+                              <span className="text-sm font-medium text-white">{rev.reviewer_name}</span>
+                              {reviewHistoryStatusBadge(rev.status, lt)}
+                              <span className="mono-num text-[0.72rem] font-light text-[rgba(255,255,255,0.4)]">
+                                {formatCommentTimestamp(rev.created_at)}
+                              </span>
+                            </div>
+                            {rev.comment?.trim() ? (
+                              <p className="mt-2 whitespace-pre-wrap text-sm font-light text-[rgba(255,255,255,0.85)]">
+                                {rev.comment}
+                              </p>
+                            ) : null}
+                            {atts.length > 0 ? (
+                              <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
+                                {atts.map((att) => {
+                                  const ta = reviewAttachmentRowToTaskAttachment(att);
+                                  const Icon = attachmentKind(ta.type, ta.name);
+                                  const pk = attachmentPreviewKind(ta);
+                                  const expandHint = lt("Click for full view");
+                                  return (
+                                    <div
+                                      key={att.id}
+                                      className="overflow-hidden rounded-[8px] border border-[var(--border)] bg-[#141414]"
+                                    >
+                                      {pk !== "other" ? (
+                                        <TaskAttachmentInlineVisual
+                                          attachment={ta}
+                                          onExpand={() => openTaskAttachmentPreview(ta)}
+                                          expandHint={expandHint}
+                                        />
+                                      ) : null}
+                                      <div className="flex items-center gap-2 px-2 py-2">
+                                        <Icon className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.55)]" />
+                                        <span className="min-w-0 flex-1 truncate text-sm font-light text-white" title={ta.name}>
+                                          {ta.name}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => openTaskAttachmentPreview(ta)}
+                                          className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+                                          aria-label={lt("Preview")}
+                                        >
+                                          <Eye className="h-4 w-4" strokeWidth={1.5} />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => downloadTaskAttachment(ta)}
+                                          className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+                                          aria-label={lt("Download")}
+                                        >
+                                          <Download className="h-4 w-4" strokeWidth={1.5} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </aside>

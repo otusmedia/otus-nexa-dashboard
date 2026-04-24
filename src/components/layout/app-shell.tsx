@@ -26,6 +26,7 @@ import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/modal";
+import HeroSection from "@/components/layout/hero-section";
 
 const moduleLinks: Array<{
   key: ModuleKey;
@@ -596,7 +597,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
-          <main className="min-h-0 min-w-0 flex-1 px-4 py-6 lg:px-8">{children}</main>
+          <div className="shrink-0">
+            <HeroSection />
+          </div>
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div
+              key={pathname}
+              className="platform-route-content min-h-0 flex-1 px-6 pt-6 pb-6 lg:px-8"
+            >
+              {children}
+            </div>
+          </main>
           <a
             ref={waLinkRef}
             href="https://chat.whatsapp.com/GM1ODG5EMHuLf03W6kn1b9?mode=gi_t"

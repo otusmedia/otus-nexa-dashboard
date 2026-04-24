@@ -161,3 +161,22 @@ td {
 .kpi-active {
   border-color: var(--kpi-active-border);
 }
+
+@keyframes platformRouteFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.platform-route-content {
+  animation: platformRouteFadeIn 0.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .platform-route-content {
+    animation: none;
+  }
+}
