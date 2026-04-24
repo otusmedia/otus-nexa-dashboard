@@ -44,6 +44,7 @@ export function CalendarEventPopover({
   onEdit,
   onDelete,
   publishingScheduleMode = false,
+  publishingScheduledPostAllowEdit = true,
   onEditScheduledPost,
   onDeleteScheduledPost,
 }: {
@@ -54,6 +55,8 @@ export function CalendarEventPopover({
   onDelete: () => void;
   /** When true, scheduled Publishing posts show Edit/Delete instead of read-only calendar messaging. */
   publishingScheduleMode?: boolean;
+  /** When false (e.g. RocketRide client org), hide Edit for scheduled posts; Delete may still show if `onDeleteScheduledPost` is set. */
+  publishingScheduledPostAllowEdit?: boolean;
   onEditScheduledPost?: (postId: string) => void;
   onDeleteScheduledPost?: (postId: string) => void;
 }) {
@@ -256,35 +259,41 @@ export function CalendarEventPopover({
       ) : scheduledManage ? (
         <div className="space-y-2 border-t border-[var(--border)] p-3">
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (event.source_id && onEditScheduledPost) onEditScheduledPost(event.source_id);
-                onClose();
-              }}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border)] py-2 text-xs font-medium text-white transition hover:bg-[var(--surface-elevated)]"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (
-                  typeof window !== "undefined" &&
-                  window.confirm("Delete this scheduled post?") &&
-                  event.source_id &&
-                  onDeleteScheduledPost
-                ) {
-                  onDeleteScheduledPost(event.source_id);
+            {publishingScheduledPostAllowEdit && onEditScheduledPost ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (event.source_id) onEditScheduledPost(event.source_id);
                   onClose();
-                }
-              }}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[rgba(239,68,68,0.35)] py-2 text-xs font-medium text-[#fca5a5] transition hover:bg-[rgba(239,68,68,0.1)]"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete
-            </button>
+                }}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border)] py-2 text-xs font-medium text-white transition hover:bg-[var(--surface-elevated)]"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </button>
+            ) : null}
+            {onDeleteScheduledPost ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    typeof window !== "undefined" &&
+                    window.confirm("Delete this scheduled post?") &&
+                    event.source_id
+                  ) {
+                    onDeleteScheduledPost(event.source_id);
+                    onClose();
+                  }
+                }}
+                className={cn(
+                  "flex items-center justify-center gap-2 rounded-lg border border-[rgba(239,68,68,0.35)] py-2 text-xs font-medium text-[#fca5a5] transition hover:bg-[rgba(239,68,68,0.1)]",
+                  publishingScheduledPostAllowEdit && onEditScheduledPost ? "flex-1" : "w-full",
+                )}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            ) : null}
           </div>
         </div>
       ) : (

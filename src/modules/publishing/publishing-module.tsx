@@ -149,8 +149,13 @@ export function PublishingModule() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { currentUser, logTaskPublishedToActivity } = useAppContext();
+  /** RocketRide org users are treated as clients (schedule-only here), same as Projects `isRocketRideClient`. */
+  const isRocketRideUser = currentUser.company === "rocketride";
+  const canCompose = !isRocketRideUser;
 
-  const [mainTab, setMainTab] = useState<"compose" | "schedule">("compose");
+  const [mainTab, setMainTab] = useState<"compose" | "schedule">(() =>
+    currentUser.company === "rocketride" ? "schedule" : "compose",
+  );
   const [platforms, setPlatforms] = useState<Set<Platform>>(new Set(["instagram"]));
   const [content, setContent] = useState("");
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
@@ -249,12 +254,25 @@ export function PublishingModule() {
   }, [fetchScheduled]);
 
   useEffect(() => {
+    if (!canCompose) {
+      setMainTab("schedule");
+      const tab = searchParams.get("tab");
+      const edit = searchParams.get("edit");
+      if (tab === "compose" || edit) {
+        router.replace("/publishing?tab=schedule", { scroll: false });
+      }
+      return;
+    }
     const tab = searchParams.get("tab");
     if (tab === "schedule") setMainTab("schedule");
     else if (tab === "compose") setMainTab("compose");
-  }, [searchParams]);
+  }, [canCompose, searchParams, router]);
 
   useEffect(() => {
+    if (!canCompose) {
+      setEditingId(null);
+      return;
+    }
     const edit = searchParams.get("edit");
     if (!edit) {
       setEditingId(null);
@@ -272,7 +290,7 @@ export function PublishingModule() {
       setScheduleLocal(toDatetimeLocalValue(row.scheduled_at));
       setMediaItems([]);
     })();
-  }, [searchParams]);
+  }, [searchParams, canCompose]);
 
   useEffect(() => {
     const post = searchParams.get("post");
@@ -550,39 +568,45 @@ export function PublishingModule() {
     <div className="min-h-[calc(100vh-4rem)] bg-[#0a0a0a] px-4 py-6 text-white lg:px-8">
       <PageHeader
         title="Publishing"
-        subtitle="Create and schedule content for LinkedIn, X and Instagram"
+        subtitle={
+          canCompose
+            ? "Create and schedule content for LinkedIn, X and Instagram"
+            : "View your scheduled and published posts"
+        }
       />
 
-      <div className="mb-6 inline-flex rounded-full border border-[rgba(255,255,255,0.08)] bg-[#111] p-1">
-        <button
-          type="button"
-          onClick={() => {
-            setMainTab("compose");
-            router.replace("/publishing?tab=compose", { scroll: false });
-          }}
-          className={cn(
-            "rounded-full px-5 py-2 text-sm font-medium transition",
-            mainTab === "compose" ? "bg-[rgba(255,69,0,0.25)] text-[#FF4500]" : "text-[rgba(255,255,255,0.45)] hover:text-white",
-          )}
-        >
-          Compose
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setMainTab("schedule");
-            router.replace("/publishing?tab=schedule", { scroll: false });
-          }}
-          className={cn(
-            "rounded-full px-5 py-2 text-sm font-medium transition",
-            mainTab === "schedule" ? "bg-[rgba(255,69,0,0.25)] text-[#FF4500]" : "text-[rgba(255,255,255,0.45)] hover:text-white",
-          )}
-        >
-          Schedule
-        </button>
-      </div>
+      {canCompose ? (
+        <div className="mb-6 inline-flex rounded-full border border-[rgba(255,255,255,0.08)] bg-[#111] p-1">
+          <button
+            type="button"
+            onClick={() => {
+              setMainTab("compose");
+              router.replace("/publishing?tab=compose", { scroll: false });
+            }}
+            className={cn(
+              "rounded-full px-5 py-2 text-sm font-medium transition",
+              mainTab === "compose" ? "bg-[rgba(255,69,0,0.25)] text-[#FF4500]" : "text-[rgba(255,255,255,0.45)] hover:text-white",
+            )}
+          >
+            Compose
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMainTab("schedule");
+              router.replace("/publishing?tab=schedule", { scroll: false });
+            }}
+            className={cn(
+              "rounded-full px-5 py-2 text-sm font-medium transition",
+              mainTab === "schedule" ? "bg-[rgba(255,69,0,0.25)] text-[#FF4500]" : "text-[rgba(255,255,255,0.45)] hover:text-white",
+            )}
+          >
+            Schedule
+          </button>
+        </div>
+      ) : null}
 
-      {mainTab === "compose" ? (
+      {mainTab === "compose" && canCompose ? (
         <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
           <Card className="border-[var(--border)] bg-[#111] p-5">
             <p className="mb-3 text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Platforms</p>
@@ -820,10 +844,15 @@ export function PublishingModule() {
             onEdit={() => {}}
             onDelete={() => {}}
             publishingScheduleMode
-            onEditScheduledPost={(postId) => {
-              router.replace(`/publishing?tab=compose&edit=${encodeURIComponent(postId)}`, { scroll: false });
-              setMainTab("compose");
-            }}
+            publishingScheduledPostAllowEdit={canCompose}
+            onEditScheduledPost={
+              canCompose
+                ? (postId) => {
+                    router.replace(`/publishing?tab=compose&edit=${encodeURIComponent(postId)}`, { scroll: false });
+                    setMainTab("compose");
+                  }
+                : undefined
+            }
             onDeleteScheduledPost={(postId) => void handleDeletePost(postId)}
           />
         </div>
@@ -1000,21 +1029,26 @@ export function PublishingModule() {
               </>
             ) : null}
             <div className="flex gap-2 pt-2">
+              {canCompose ? (
+                <button
+                  type="button"
+                  className="btn-primary rounded-lg px-3 py-2 text-xs"
+                  onClick={() => {
+                    const id = detailPost.id;
+                    setDetailPost(null);
+                    router.replace(`/publishing?tab=compose&edit=${encodeURIComponent(id)}`, { scroll: false });
+                    setMainTab("compose");
+                  }}
+                >
+                  Edit
+                </button>
+              ) : null}
               <button
                 type="button"
-                className="btn-primary rounded-lg px-3 py-2 text-xs"
-                onClick={() => {
-                  const id = detailPost.id;
-                  setDetailPost(null);
-                  router.replace(`/publishing?tab=compose&edit=${encodeURIComponent(id)}`, { scroll: false });
-                  setMainTab("compose");
-                }}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                className="btn-ghost rounded-lg border border-[rgba(239,68,68,0.35)] px-3 py-2 text-xs text-red-300"
+                className={cn(
+                  "btn-ghost rounded-lg border border-[rgba(239,68,68,0.35)] px-3 py-2 text-xs text-red-300",
+                  !canCompose && "w-full",
+                )}
                 onClick={() => {
                   if (typeof window !== "undefined" && window.confirm("Delete this scheduled post?")) {
                     void handleDeletePost(detailPost.id);
