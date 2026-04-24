@@ -129,6 +129,8 @@ interface AppContextValue {
   }) => void;
   /** Inserts dashboard Activity Summary row (nexa/otus) when a client submits a task review. */
   logTaskReviewActivity: (input: { reviewerName: string; taskName: string; reviewStatusLabel: string }) => void;
+  /** Activity when a task is published with one or more platforms selected. */
+  logTaskPublishedToActivity: (input: { userName: string; taskName: string; platforms: string[] }) => void;
   query: string;
   setQuery: (value: string) => void;
   projectsByColumn: ProjectsByColumn;
@@ -286,6 +288,7 @@ type DbTaskRow = {
   cover_image: string | null;
   short_description: string | null;
   review_status: string | null;
+  published_to: string[] | null;
 };
 
 const toTaskStatus = (status: string | null | undefined): TaskStatus =>
@@ -340,6 +343,7 @@ function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTask
         coverImage: task.cover_image,
         shortDescription: task.short_description ?? "",
         reviewStatus: task.review_status?.trim() ? String(task.review_status) : null,
+        publishedTo: Array.isArray(task.published_to) ? task.published_to.map(String) : [],
       }));
     return {
       id: row.id,
@@ -439,6 +443,15 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     const action = `${actor} reviewed task: ${input.taskName} — ${input.reviewStatusLabel}`;
     void supabase.from("activity").insert({ action, user_name: actor }).then(({ error }) => {
       if (error) console.error("[supabase] task review activity insert failed:", error.message);
+    });
+  }, []);
+
+  const logTaskPublishedToActivity = useCallback((input: { userName: string; taskName: string; platforms: string[] }) => {
+    if (!input.platforms.length) return;
+    const actor = input.userName.trim() || "User";
+    const action = `${actor} published ${input.taskName} to ${input.platforms.join(", ")}`;
+    void supabase.from("activity").insert({ action, user_name: actor }).then(({ error }) => {
+      if (error) console.error("[supabase] task published activity insert failed:", error.message);
     });
   }, []);
   const tagsFromText = (text: string) =>
@@ -1311,6 +1324,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       dismissNotification: (id) => setNotifications((prev) => prev.filter((item) => item.id !== id)),
       notifyProjectComment,
       logTaskReviewActivity,
+      logTaskPublishedToActivity,
       query,
       setQuery,
       projectsByColumn,
@@ -1585,6 +1599,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       pushNotification,
       notifyProjectComment,
       logTaskReviewActivity,
+      logTaskPublishedToActivity,
       query,
       projectsByColumn,
       projectsLoading,

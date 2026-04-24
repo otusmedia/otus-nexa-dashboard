@@ -483,6 +483,16 @@ const platformPtBR: Record<string, string> = {
   // EN / PT selector labels
   "EN — English": "EN — English",
   "PT — Português (Brasil)": "PT — Português (Brasil)",
+
+  // Published-to modal
+  "Where was this published?": "Onde isso foi publicado?",
+  "Select all platforms where this content was published":
+    "Selecione todas as plataformas onde este conteúdo foi publicado",
+  "+ Add platform": "+ Adicionar plataforma",
+  Add: "Adicionar",
+  "Platform name": "Nome da plataforma",
+  "Skip — mark as published without specifying":
+    "Pular — marcar como publicado sem especificar",
 };
 
 export const translations = {

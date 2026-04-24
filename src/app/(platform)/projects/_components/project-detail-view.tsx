@@ -40,6 +40,7 @@ import {
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { Card } from "@/components/ui/card";
+import { PublishedToModal } from "@/components/ui/published-to-modal";
 import { supabase } from "@/lib/supabase";
 import { OwnerAvatars } from "./owner-avatars";
 import { ProgressInline } from "./progress-inline";
@@ -86,6 +87,7 @@ type DbProjectTaskRow = {
   description: string | null;
   priority: string | null;
   review_status: string | null;
+  published_to: string[] | null;
 };
 
 type ClientReviewDecision = "Approved" | "Needs Changes" | "Rejected";
@@ -376,6 +378,7 @@ const BOARD_TASK_KEYS = new Set<keyof ProjectTaskRow>([
   "coverImage",
   "shortDescription",
   "reviewStatus",
+  "publishedTo",
 ]);
 
 export function ProjectDetailView({ project }: { project: Project }) {
@@ -388,6 +391,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     currentUser,
     notifyProjectComment,
     logTaskReviewActivity,
+    logTaskPublishedToActivity,
   } = useAppContext();
   const { t: lt } = useLanguage();
   const isRocketRideClient = currentUser.company === "rocketride";
@@ -440,6 +444,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [reviewDeleteDialog, setReviewDeleteDialog] = useState<{ id: string } | null>(null);
   const reviewComposerFileRef = useRef<HTMLInputElement>(null);
   const editReviewFileRef = useRef<HTMLInputElement>(null);
+  const [publishedToModal, setPublishedToModal] = useState<{ taskId: string; taskName: string } | null>(null);
   const [projectStatusDropdownOpen, setProjectStatusDropdownOpen] = useState(false);
   const [projectOwnersDropdownOpen, setProjectOwnersDropdownOpen] = useState(false);
   const [comments, setComments] = useState<ProjectComment[]>([]);
@@ -532,6 +537,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
             description: row.description ?? "",
             priority,
             reviewStatus: row.review_status?.trim() ? String(row.review_status) : null,
+            publishedTo: Array.isArray(row.published_to) ? row.published_to.map(String) : [],
             attachments: [],
           } satisfies LocalTask;
         });
@@ -755,6 +761,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     if (updates.description !== undefined) dbPatch.description = updates.description;
     if (updates.priority !== undefined) dbPatch.priority = updates.priority;
     if (updates.reviewStatus !== undefined) dbPatch.review_status = updates.reviewStatus;
+    if (updates.publishedTo !== undefined) dbPatch.published_to = updates.publishedTo;
 
     if (Object.keys(dbPatch).length === 0) {
       setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, ...updates } : task)));
@@ -857,9 +864,36 @@ export function ProjectDetailView({ project }: { project: Project }) {
     }
   };
 
-  const onRowStatusChange = (taskId: string, status: TaskRowStatus) => {
+  const handleTaskStatusSelect = async (taskId: string, status: TaskRowStatus) => {
+    if (status === "Published") {
+      const name = tasks.find((t) => t.id === taskId)?.name ?? "";
+      const ok = await updateTask(taskId, { status: "Published" });
+      if (!ok) return;
+      setPublishedToModal({ taskId, taskName: name });
+      setRowStatusMenu(null);
+      setPanelStatusOpen(false);
+      return;
+    }
     void updateTask(taskId, { status });
     setRowStatusMenu(null);
+    setPanelStatusOpen(false);
+  };
+
+  const handlePublishedToConfirm = async (platforms: string[]) => {
+    if (!publishedToModal) return;
+    await updateTask(publishedToModal.taskId, { publishedTo: platforms });
+    if (platforms.length > 0) {
+      logTaskPublishedToActivity({
+        userName: currentUser.name.trim() || "User",
+        taskName: publishedToModal.taskName,
+        platforms,
+      });
+    }
+    setPublishedToModal(null);
+  };
+
+  const handlePublishedToSkip = () => {
+    setPublishedToModal(null);
   };
 
   const downloadTaskAttachment = (attachment: TaskAttachment) => {
@@ -1115,6 +1149,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
       description: row.description ?? "",
       priority: row.priority === "Low" || row.priority === "Medium" || row.priority === "High" || row.priority === "Urgent" ? row.priority : "Medium",
       reviewStatus: row.review_status?.trim() ? String(row.review_status) : null,
+      publishedTo: Array.isArray(row.published_to) ? row.published_to.map(String) : [],
       attachments: [],
     };
     const nextTasks = [...tasks, createdTask];
@@ -1129,6 +1164,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
       coverImage: createdTask.coverImage,
       shortDescription: createdTask.shortDescription,
       reviewStatus: createdTask.reviewStatus,
+      publishedTo: createdTask.publishedTo,
     };
     addBoardProjectTask(project.id, boardRow);
     void syncProjectProgressFromLocalTasks(nextTasks);
@@ -1722,7 +1758,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   <td className="relative" onClick={(event) => event.stopPropagation()}>
                     {isRocketRideClient ? (
                       <div className="px-2 py-1">
-                        <TaskRowStatusBadge status={task.status} />
+                        <TaskRowStatusBadge status={task.status} publishedTo={task.publishedTo} />
                       </div>
                     ) : (
                       <>
@@ -1738,7 +1774,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                           }}
                           className="text-left"
                         >
-                          <TaskRowStatusBadge status={task.status} />
+                          <TaskRowStatusBadge status={task.status} publishedTo={task.publishedTo} />
                         </button>
                         {rowStatusMenu?.taskId === task.id
                           ? createPortal(
@@ -1757,7 +1793,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                                       <button
                                         key={option.value}
                                         type="button"
-                                        onClick={() => onRowStatusChange(task.id, option.value)}
+                                        onClick={() => void handleTaskStatusSelect(task.id, option.value)}
                                         className={cn(
                                           "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
                                           task.status === option.value && "bg-[rgba(255,255,255,0.04)]",
@@ -2060,7 +2096,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   )}
                   <div className="relative mt-3 inline-block">
                     {isRocketRideClient ? (
-                      <TaskRowStatusBadge status={activeTask.status} />
+                      <TaskRowStatusBadge status={activeTask.status} publishedTo={activeTask.publishedTo} />
                     ) : (
                       <>
                         <button
@@ -2068,7 +2104,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                           onClick={() => setPanelStatusOpen((prev) => !prev)}
                           className="text-left"
                         >
-                          <TaskRowStatusBadge status={activeTask.status} />
+                          <TaskRowStatusBadge status={activeTask.status} publishedTo={activeTask.publishedTo} />
                         </button>
                         {panelStatusOpen ? (
                           <div className="absolute left-0 top-[calc(100%+6px)] z-20 w-56 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2">
@@ -2081,10 +2117,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                                   <button
                                     key={option.value}
                                     type="button"
-                                    onClick={() => {
-                                      void updateTask(activeTask.id, { status: option.value });
-                                      setPanelStatusOpen(false);
-                                    }}
+                                    onClick={() => void handleTaskStatusSelect(activeTask.id, option.value)}
                                     className={cn(
                                       "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
                                       activeTask.status === option.value && "bg-[rgba(255,255,255,0.04)]",
@@ -2976,6 +3009,22 @@ export function ProjectDetailView({ project }: { project: Project }) {
             document.body,
           )
         : null}
+
+      <PublishedToModal
+        open={publishedToModal !== null}
+        title={lt("Where was this published?")}
+        subtitle={lt("Select all platforms where this content was published")}
+        addPlatformLabel={lt("+ Add platform")}
+        addEntryLabel={lt("Add")}
+        customPlaceholder={lt("Platform name")}
+        confirmLabel={lt("Confirm")}
+        skipLabel={lt("Skip — mark as published without specifying")}
+        onConfirm={(platforms) => {
+          void handlePublishedToConfirm(platforms);
+        }}
+        onSkip={handlePublishedToSkip}
+        onClose={handlePublishedToSkip}
+      />
 
       <DeleteConfirmModal
         open={taskDeleteDialog !== null}

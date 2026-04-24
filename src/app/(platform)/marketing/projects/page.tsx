@@ -8,6 +8,7 @@ import { ModuleGuard } from "@/components/layout/module-guard";
 import { useAppContext } from "@/components/providers/app-providers";
 import { Card } from "@/components/ui/card";
 import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
+import { PublishedToModal } from "@/components/ui/published-to-modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
@@ -41,6 +42,7 @@ type MarketingTask = {
   reminderAt: string | null;
   reminderNote: string;
   attachments: TaskAttachment[];
+  publishedTo: string[];
 };
 
 type MarketingProject = {
@@ -172,6 +174,7 @@ function marketingTaskFromRow(row: Record<string, unknown>): MarketingTask {
     reminderAt: row.reminder_at ? String(row.reminder_at) : null,
     reminderNote: String(row.reminder_note ?? ""),
     attachments: [],
+    publishedTo: Array.isArray(row.published_to) ? row.published_to.map(String) : [],
   };
 }
 
@@ -192,6 +195,7 @@ function marketingTaskPatchToDb(patch: Partial<MarketingTask>): Record<string, u
   if (patch.shortDescription !== undefined) o.short_description = patch.shortDescription;
   if (patch.reminderAt !== undefined) o.reminder_at = patch.reminderAt;
   if (patch.reminderNote !== undefined) o.reminder_note = patch.reminderNote;
+  if (patch.publishedTo !== undefined) o.published_to = patch.publishedTo;
   return o;
 }
 
@@ -259,7 +263,7 @@ function formatMetaCampaignBudget(c: MetaAdsCampaignOption): string {
 }
 
 export default function MarketingProjectsPage() {
-  const { t } = useAppContext();
+  const { t, currentUser, logTaskPublishedToActivity } = useAppContext();
   const { t: lt } = useLanguage();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -311,6 +315,7 @@ export default function MarketingProjectsPage() {
   const [taskAttachmentError, setTaskAttachmentError] = useState("");
   const [taskAttachmentUploading, setTaskAttachmentUploading] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState<TaskAttachment | null>(null);
+  const [publishedToModal, setPublishedToModal] = useState<{ taskId: string; taskName: string } | null>(null);
 
   const persistMarketingProject = useCallback(async (projectId: string, dbPayload: Record<string, unknown>) => {
     const keys = Object.keys(dbPayload);
@@ -710,6 +715,34 @@ export default function MarketingProjectsPage() {
       await persistMarketingProject(merged.projectId, { progress: prog });
     }
     return true;
+  };
+
+  const handleMarketingTaskStatusSelect = async (taskId: string, next: MarketingTaskStatus) => {
+    if (next === "Published") {
+      const row = tasks.find((x) => x.id === taskId);
+      const ok = await updateTask(taskId, { status: "Published" });
+      if (!ok) return;
+      setPublishedToModal({ taskId, taskName: row?.title ?? "" });
+      return;
+    }
+    void updateTask(taskId, { status: next });
+  };
+
+  const handleMarketingPublishedToConfirm = async (platforms: string[]) => {
+    if (!publishedToModal) return;
+    await updateTask(publishedToModal.taskId, { publishedTo: platforms });
+    if (platforms.length > 0) {
+      logTaskPublishedToActivity({
+        userName: currentUser.name.trim() || "User",
+        taskName: publishedToModal.taskName,
+        platforms,
+      });
+    }
+    setPublishedToModal(null);
+  };
+
+  const handleMarketingPublishedToSkip = () => {
+    setPublishedToModal(null);
   };
 
   const createTask = async (event: React.FormEvent) => {
@@ -1446,7 +1479,7 @@ export default function MarketingProjectsPage() {
                         <td className="px-2 py-2">
                           <select
                             value={task.status}
-                            onChange={(e) => void updateTask(task.id, { status: e.target.value as MarketingTaskStatus })}
+                            onChange={(e) => void handleMarketingTaskStatusSelect(task.id, e.target.value as MarketingTaskStatus)}
                             className="rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-1.5 py-1 text-xs text-white"
                           >
                             {TASK_STATUSES.map((value) => <option key={value}>{value}</option>)}
@@ -1720,6 +1753,22 @@ export default function MarketingProjectsPage() {
             </form>
           </div>
         ) : null}
+
+        <PublishedToModal
+          open={publishedToModal !== null}
+          title={lt("Where was this published?")}
+          subtitle={lt("Select all platforms where this content was published")}
+          addPlatformLabel={lt("+ Add platform")}
+          addEntryLabel={lt("Add")}
+          customPlaceholder={lt("Platform name")}
+          confirmLabel={lt("Confirm")}
+          skipLabel={lt("Skip — mark as published without specifying")}
+          onConfirm={(platforms) => {
+            void handleMarketingPublishedToConfirm(platforms);
+          }}
+          onSkip={handleMarketingPublishedToSkip}
+          onClose={handleMarketingPublishedToSkip}
+        />
 
         <DeleteConfirmModal
           open={campaignDelete !== null}

@@ -23,6 +23,8 @@ export interface ProjectTaskRow {
   shortDescription: string;
   /** Latest client review outcome from `tasks.review_status` (Approved | Needs Changes | Rejected). */
   reviewStatus: string | null;
+  /** Platforms selected when status is Published (`tasks.published_to`). */
+  publishedTo: string[];
 }
 
 export interface TaskStatusOption {
