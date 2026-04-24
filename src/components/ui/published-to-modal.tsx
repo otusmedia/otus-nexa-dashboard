@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Globe, Instagram, Linkedin, Plus, X } from "lucide-react";
+import { Globe, Instagram, Linkedin, Plus, Tag, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const PRESET_KEYS = ["Blog", "Instagram", "X", "LinkedIn"] as const;
@@ -37,7 +37,7 @@ const PRESET_META: Record<
   },
 };
 
-function normalizePresetKey(name: string): PresetKey | null {
+export function normalizePublishedPresetKey(name: string): PresetKey | null {
   const t = name.trim();
   if (t === "Blog") return "Blog";
   if (t === "Instagram") return "Instagram";
@@ -46,15 +46,50 @@ function normalizePresetKey(name: string): PresetKey | null {
   return null;
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function combineLocalDateTimeToIso(dateYmd: string, timeHm: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateYmd) || !/^\d{1,2}:\d{2}$/.test(timeHm)) return null;
+  const [y, m, d] = dateYmd.split("-").map(Number);
+  const [hh, mm] = timeHm.split(":").map(Number);
+  if (![y, m, d, hh, mm].every((v) => Number.isFinite(v))) return null;
+  const local = new Date(y, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0, 0, 0);
+  if (Number.isNaN(local.getTime())) return null;
+  return local.toISOString();
+}
+
 /** Tailwind classes for tiny platform chips (task table / status badge). */
 export function publishedPlatformChipClass(name: string): string {
-  const p = normalizePresetKey(name);
+  const p = normalizePublishedPresetKey(name);
   if (p === "Blog") return "border-[#FF4500]/40 bg-[#FF4500]/15 text-[#FF9a7a]";
   if (p === "Instagram") return "border-[#E1306C]/40 bg-[#E1306C]/15 text-[#f472b6]";
   if (p === "X") return "border-white/30 bg-white/10 text-white/90";
   if (p === "LinkedIn") return "border-[#0A66C2]/40 bg-[#0A66C2]/15 text-[#93c5fd]";
   return "border-[rgba(255,255,255,0.15)] bg-[rgba(255,255,255,0.06)] text-[rgba(255,255,255,0.65)]";
 }
+
+/** Same Lucide marks / colors as preset chips in this modal, for task rows and detail. */
+export function PublishedPlatformGlyph({ platform }: { platform: string }) {
+  const key = normalizePublishedPresetKey(platform);
+  const iconClass = "h-3.5 w-3.5 shrink-0";
+  if (key === "Blog") {
+    return <Globe className={cn(iconClass, "text-[#FF4500]")} strokeWidth={1.75} aria-hidden />;
+  }
+  if (key === "Instagram") {
+    return <Instagram className={cn(iconClass, "text-[#E1306C]")} strokeWidth={1.75} aria-hidden />;
+  }
+  if (key === "X") {
+    return <X className={cn(iconClass, "text-white/90")} strokeWidth={1.75} aria-hidden />;
+  }
+  if (key === "LinkedIn") {
+    return <Linkedin className={cn(iconClass, "text-[#0A66C2]")} strokeWidth={1.75} aria-hidden />;
+  }
+  return <Tag className={cn(iconClass, "text-[rgba(255,255,255,0.45)]")} strokeWidth={1.75} aria-hidden />;
+}
+
+export type PublishedToConfirmPayload = { platforms: string[]; publishedAt: string };
 
 export function PublishedToModal({
   open,
@@ -65,6 +100,7 @@ export function PublishedToModal({
   customPlaceholder,
   confirmLabel,
   skipLabel,
+  collectPublishedTimestamp = false,
   onConfirm,
   onSkip,
   onClose,
@@ -77,21 +113,33 @@ export function PublishedToModal({
   customPlaceholder: string;
   confirmLabel: string;
   skipLabel: string;
-  onConfirm: (platforms: string[]) => void;
+  /** When true, show PUBLISHED ON date/time (required) and pass user-selected ISO `publishedAt` on confirm. */
+  collectPublishedTimestamp?: boolean;
+  onConfirm: (payload: PublishedToConfirmPayload) => void;
   onSkip: () => void;
   onClose: () => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [customDraft, setCustomDraft] = useState("");
   const [showCustom, setShowCustom] = useState(false);
+  const [publishedDate, setPublishedDate] = useState("");
+  const [publishedTime, setPublishedTime] = useState("");
 
   useEffect(() => {
     if (!open) {
       setSelected(new Set());
       setCustomDraft("");
       setShowCustom(false);
+      setPublishedDate("");
+      setPublishedTime("");
+      return;
     }
-  }, [open]);
+    if (collectPublishedTimestamp) {
+      const now = new Date();
+      setPublishedDate(`${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`);
+      setPublishedTime(`${pad2(now.getHours())}:${pad2(now.getMinutes())}`);
+    }
+  }, [open, collectPublishedTimestamp]);
 
   if (!open) return null;
 
@@ -112,7 +160,7 @@ export function PublishedToModal({
     setShowCustom(false);
   };
 
-  const customSelected = Array.from(selected).filter((label) => !normalizePresetKey(label));
+  const customSelected = Array.from(selected).filter((label) => !normalizePublishedPresetKey(label));
 
   return (
     <div
@@ -192,14 +240,63 @@ export function PublishedToModal({
           )}
         </div>
 
+        {collectPublishedTimestamp ? (
+          <div className="mt-5 space-y-3 border-t border-[var(--border)] pt-4">
+            <p className="text-[0.65rem] font-medium uppercase tracking-[0.12em] text-[rgba(255,255,255,0.45)]">
+              PUBLISHED ON
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-xs font-light text-[rgba(255,255,255,0.5)]">
+                Date
+                <input
+                  type="date"
+                  value={publishedDate}
+                  onChange={(e) => setPublishedDate(e.target.value)}
+                  required
+                  className="mt-1 w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white outline-none"
+                />
+              </label>
+              <label className="block text-xs font-light text-[rgba(255,255,255,0.5)]">
+                Time
+                <input
+                  type="time"
+                  value={publishedTime}
+                  onChange={(e) => setPublishedTime(e.target.value)}
+                  required
+                  className="mt-1 w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white outline-none"
+                />
+              </label>
+            </div>
+          </div>
+        ) : null}
+
         <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-4">
           <button type="button" onClick={() => onSkip()} className="btn-ghost rounded-[8px] px-3 py-2 text-xs font-light">
             {skipLabel}
           </button>
           <button
             type="button"
-            onClick={() => onConfirm(Array.from(selected))}
-            className="btn-primary rounded-[8px] px-4 py-2 text-xs font-light"
+            disabled={
+              selected.size === 0 ||
+              (collectPublishedTimestamp &&
+                (!publishedDate ||
+                  !publishedTime ||
+                  combineLocalDateTimeToIso(publishedDate, publishedTime) === null))
+            }
+            onClick={() => {
+              const platforms = Array.from(selected);
+              if (platforms.length === 0) return;
+              let publishedAt: string;
+              if (collectPublishedTimestamp) {
+                const iso = combineLocalDateTimeToIso(publishedDate, publishedTime);
+                if (!iso) return;
+                publishedAt = iso;
+              } else {
+                publishedAt = new Date().toISOString();
+              }
+              onConfirm({ platforms, publishedAt });
+            }}
+            className="btn-primary rounded-[8px] px-4 py-2 text-xs font-light disabled:cursor-not-allowed disabled:opacity-45"
           >
             {confirmLabel}
           </button>

@@ -885,9 +885,10 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setPanelStatusOpen(false);
   };
 
-  const handlePublishedToConfirm = async (platforms: string[]) => {
+  const handlePublishedToConfirm = async ({ platforms, publishedAt }: { platforms: string[]; publishedAt: string }) => {
     if (!publishedToModal) return;
-    await updateTask(publishedToModal.taskId, { publishedTo: platforms });
+    const ok = await updateTask(publishedToModal.taskId, { publishedTo: platforms });
+    if (!ok) return;
     if (platforms.length > 0) {
       logTaskPublishedToActivity({
         userName: currentUser.name.trim() || "User",
@@ -895,7 +896,30 @@ export function ProjectDetailView({ project }: { project: Project }) {
         platforms,
       });
     }
+    const task = tasks.find((t) => t.id === publishedToModal.taskId);
+    if (task) {
+      const content = task.name + (task.shortDescription?.trim() ? ` — ${task.shortDescription}` : "");
+      const { error: postErr } = await supabase.from("scheduled_posts").insert([
+        {
+          content,
+          platforms,
+          media_urls: [] as string[],
+          scheduled_at: publishedAt,
+          published_at: publishedAt,
+          status: "published",
+          created_by: currentUser.name ?? null,
+          linked_task_id: task.id,
+          media_description: task.description ?? "",
+        },
+      ]);
+      if (postErr) {
+        console.error("[supabase] scheduled_posts insert from Published task:", postErr.message);
+      }
+    }
     setPublishedToModal(null);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("rr:dashboard-posts-published-refresh"));
+    }
   };
 
   const handlePublishedToSkip = () => {
@@ -3046,8 +3070,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
         customPlaceholder={lt("Platform name")}
         confirmLabel={lt("Confirm")}
         skipLabel={lt("Skip — mark as published without specifying")}
-        onConfirm={(platforms) => {
-          void handlePublishedToConfirm(platforms);
+        collectPublishedTimestamp
+        onConfirm={(payload) => {
+          void handlePublishedToConfirm(payload);
         }}
         onSkip={handlePublishedToSkip}
         onClose={handlePublishedToSkip}

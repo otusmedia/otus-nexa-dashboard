@@ -1774,8 +1774,8 @@ export default function MarketingProjectsPage() {
           customPlaceholder={lt("Platform name")}
           confirmLabel={lt("Confirm")}
           skipLabel={lt("Skip — mark as published without specifying")}
-          onConfirm={(platforms) => {
-            void handleMarketingPublishedToConfirm(platforms);
+          onConfirm={(payload) => {
+            void handleMarketingPublishedToConfirm(payload.platforms);
           }}
           onSkip={handleMarketingPublishedToSkip}
           onClose={handleMarketingPublishedToSkip}
