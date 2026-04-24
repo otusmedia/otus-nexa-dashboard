@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -18,6 +18,7 @@ import {
   FileVideo,
   Loader2,
   Paperclip,
+  Pencil,
   Plus,
   Star,
   Target,
@@ -121,13 +122,14 @@ function normalizeClientReviewDecision(value: string | null | undefined): Client
 }
 
 function reviewAttachmentRowToTaskAttachment(row: TaskReviewAttachmentRow): TaskAttachment {
+  const url = row.url;
   return {
     id: row.id,
     name: row.name,
     size: Number(row.size) || 0,
     type: row.type ?? "",
-    url: row.url,
-    storagePath: "",
+    url,
+    storagePath: getTaskReviewAttachmentStoragePathFromUrl(url),
   };
 }
 
@@ -225,6 +227,17 @@ function getTaskAttachmentStoragePathFromUrl(url: string): string {
   const idx = url.indexOf(marker);
   if (idx === -1) return "";
   return decodeURIComponent(url.slice(idx + marker.length));
+}
+
+function getTaskReviewAttachmentStoragePathFromUrl(url: string): string {
+  const marker = "/storage/v1/object/public/task-reviews/";
+  const idx = url.indexOf(marker);
+  if (idx === -1) return "";
+  return decodeURIComponent(url.slice(idx + marker.length));
+}
+
+function clientReviewAuthorMatches(reviewerName: string, currentUserName: string): boolean {
+  return reviewerName.trim().toLowerCase() === currentUserName.trim().toLowerCase();
 }
 
 function taskAttachmentFromRow(row: Record<string, unknown>): TaskAttachment {
@@ -417,7 +430,16 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [reviewDraftFiles, setReviewDraftFiles] = useState<File[]>([]);
   const [reviewSubmitError, setReviewSubmitError] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [editingReviewId, setEditingReviewId] = useState<string | null>(null);
+  const [editReviewStatus, setEditReviewStatus] = useState<ClientReviewDecision | null>(null);
+  const [editReviewComment, setEditReviewComment] = useState("");
+  const [editReviewNewFiles, setEditReviewNewFiles] = useState<File[]>([]);
+  const [editReviewRemovedAttachmentIds, setEditReviewRemovedAttachmentIds] = useState<string[]>([]);
+  const [editReviewError, setEditReviewError] = useState("");
+  const [editReviewSubmitting, setEditReviewSubmitting] = useState(false);
+  const [reviewDeleteDialog, setReviewDeleteDialog] = useState<{ id: string } | null>(null);
   const reviewComposerFileRef = useRef<HTMLInputElement>(null);
+  const editReviewFileRef = useRef<HTMLInputElement>(null);
   const [projectStatusDropdownOpen, setProjectStatusDropdownOpen] = useState(false);
   const [projectOwnersDropdownOpen, setProjectOwnersDropdownOpen] = useState(false);
   const [comments, setComments] = useState<ProjectComment[]>([]);
@@ -568,12 +590,26 @@ export function ProjectDetailView({ project }: { project: Project }) {
       setReviewCommentDraft("");
       setReviewDraftFiles([]);
       setReviewSubmitError("");
+      setEditingReviewId(null);
+      setEditReviewStatus(null);
+      setEditReviewComment("");
+      setEditReviewNewFiles([]);
+      setEditReviewRemovedAttachmentIds([]);
+      setEditReviewError("");
+      setReviewDeleteDialog(null);
       return;
     }
     setReviewPendingStatus(null);
     setReviewCommentDraft("");
     setReviewDraftFiles([]);
     setReviewSubmitError("");
+    setEditingReviewId(null);
+    setEditReviewStatus(null);
+    setEditReviewComment("");
+    setEditReviewNewFiles([]);
+    setEditReviewRemovedAttachmentIds([]);
+    setEditReviewError("");
+    setReviewDeleteDialog(null);
     let cancelled = false;
     setTaskReviewsLoading(true);
     void supabase
@@ -1133,8 +1169,165 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setCommentDraft("");
   };
 
+  const reloadTaskReviews = useCallback(async () => {
+    if (!activeTaskId) return;
+    const { data, error } = await supabase
+      .from("task_reviews")
+      .select("*, task_review_attachments(*)")
+      .eq("task_id", activeTaskId)
+      .order("created_at", { ascending: false });
+    if (error) {
+      console.error("[supabase] task_reviews refresh failed:", error.message);
+      return;
+    }
+    setTaskReviews((data as TaskReviewRow[]) ?? []);
+  }, [activeTaskId]);
+
+  const syncTaskReviewStatusFromDb = useCallback(
+    async (taskId: string) => {
+      const { data, error } = await supabase
+        .from("task_reviews")
+        .select("status")
+        .eq("task_id", taskId)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (error) {
+        console.error("[supabase] task_reviews latest status fetch failed:", error.message);
+        return;
+      }
+      const first = Array.isArray(data) && data.length > 0 ? (data[0] as { status?: unknown }) : null;
+      const raw = first?.status != null ? String(first.status) : "";
+      const nextStatus = raw.trim() ? raw : null;
+      const { error: upErr } = await supabase
+        .from("tasks")
+        .update({ review_status: nextStatus })
+        .eq("id", taskId)
+        .eq("project_id", project.id);
+      if (upErr) {
+        console.error("[supabase] tasks review_status sync failed:", upErr.message);
+        return;
+      }
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, reviewStatus: nextStatus } : t)));
+      updateBoardProjectTask(project.id, taskId, { reviewStatus: nextStatus });
+    },
+    [project.id, updateBoardProjectTask],
+  );
+
+  const cancelEditReview = () => {
+    setEditingReviewId(null);
+    setEditReviewStatus(null);
+    setEditReviewComment("");
+    setEditReviewNewFiles([]);
+    setEditReviewRemovedAttachmentIds([]);
+    setEditReviewError("");
+    if (editReviewFileRef.current) editReviewFileRef.current.value = "";
+  };
+
+  const saveEditedReview = async () => {
+    if (!isRocketRideClient || !activeTask || !editingReviewId) return;
+    const rev = taskReviews.find((r) => r.id === editingReviewId);
+    if (!rev || !clientReviewAuthorMatches(rev.reviewer_name, currentUser.name)) return;
+    if (!editReviewStatus) {
+      setEditReviewError(lt("Select a review status before submitting."));
+      return;
+    }
+    setEditReviewSubmitting(true);
+    setEditReviewError("");
+    try {
+      const { error: rowErr } = await supabase
+        .from("task_reviews")
+        .update({
+          status: editReviewStatus,
+          comment: editReviewComment.trim() || null,
+        })
+        .eq("id", editingReviewId);
+      if (rowErr) {
+        console.error("[supabase] task_reviews update failed:", rowErr.message);
+        setEditReviewError(rowErr.message || "Failed to update review.");
+        return;
+      }
+
+      const existingAtts = Array.isArray(rev.task_review_attachments) ? rev.task_review_attachments : [];
+      for (const attId of editReviewRemovedAttachmentIds) {
+        const att = existingAtts.find((a) => a.id === attId);
+        const path = att?.url ? getTaskReviewAttachmentStoragePathFromUrl(att.url) : "";
+        if (path) {
+          const { error: stErr } = await supabase.storage.from("task-reviews").remove([path]);
+          if (stErr) console.error("[supabase] task-reviews storage remove:", stErr.message);
+        }
+        const { error: delAttErr } = await supabase.from("task_review_attachments").delete().eq("id", attId);
+        if (delAttErr) {
+          console.error("[supabase] task_review_attachments delete failed:", delAttErr.message);
+          setEditReviewError(delAttErr.message || "Failed to remove an attachment.");
+          return;
+        }
+      }
+
+      for (const file of editReviewNewFiles) {
+        const path = `${editingReviewId}/${Date.now()}-${file.name.replace(/[^\w.\-]+/g, "_")}`;
+        const { data: upData, error: upErr } = await supabase.storage.from("task-reviews").upload(path, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+        if (upErr || !upData?.path) {
+          console.error("[supabase] task-reviews upload failed:", upErr?.message ?? "no path");
+          setEditReviewError(upErr?.message || "Failed to upload an attachment.");
+          return;
+        }
+        const { data: urlData } = supabase.storage.from("task-reviews").getPublicUrl(upData.path);
+        const { error: insAttErr } = await supabase.from("task_review_attachments").insert({
+          review_id: editingReviewId,
+          name: file.name,
+          url: urlData.publicUrl,
+          type: file.type || "application/octet-stream",
+          size: file.size,
+        });
+        if (insAttErr) {
+          console.error("[supabase] task_review_attachments insert failed:", insAttErr.message);
+          setEditReviewError(insAttErr.message || "Failed to save attachment.");
+          return;
+        }
+      }
+
+      await syncTaskReviewStatusFromDb(activeTask.id);
+      await reloadTaskReviews();
+      cancelEditReview();
+    } finally {
+      setEditReviewSubmitting(false);
+    }
+  };
+
+  const confirmDeleteClientReview = async () => {
+    if (!isRocketRideClient || !activeTask || !reviewDeleteDialog) return;
+    const reviewId = reviewDeleteDialog.id;
+    const rev = taskReviews.find((r) => r.id === reviewId);
+    if (!rev || !clientReviewAuthorMatches(rev.reviewer_name, currentUser.name)) {
+      setReviewDeleteDialog(null);
+      return;
+    }
+    const atts = Array.isArray(rev.task_review_attachments) ? rev.task_review_attachments : [];
+    for (const att of atts) {
+      const path = att.url ? getTaskReviewAttachmentStoragePathFromUrl(att.url) : "";
+      if (path) {
+        const { error: stErr } = await supabase.storage.from("task-reviews").remove([path]);
+        if (stErr) console.error("[supabase] task-reviews storage remove:", stErr.message);
+      }
+    }
+    const { error } = await supabase.from("task_reviews").delete().eq("id", reviewId);
+    if (error) {
+      console.error("[supabase] task_reviews delete failed:", error.message);
+      setReviewDeleteDialog(null);
+      return;
+    }
+    if (editingReviewId === reviewId) cancelEditReview();
+    setReviewDeleteDialog(null);
+    await syncTaskReviewStatusFromDb(activeTask.id);
+    await reloadTaskReviews();
+  };
+
   const submitClientReview = async () => {
     if (!isRocketRideClient || !activeTask) return;
+    if (editingReviewId) return;
     if (!reviewPendingStatus) {
       setReviewSubmitError(lt("Select a review status before submitting."));
       return;
@@ -1186,35 +1379,13 @@ export function ProjectDetailView({ project }: { project: Project }) {
       }
 
       const statusLabel = reviewPendingStatus;
-      const { error: taskUpdErr } = await supabase
-        .from("tasks")
-        .update({ review_status: statusLabel })
-        .eq("id", activeTask.id)
-        .eq("project_id", project.id);
-      if (taskUpdErr) {
-        console.error("[supabase] tasks review_status update failed:", taskUpdErr.message);
-        setReviewSubmitError(taskUpdErr.message || "Failed to update task.");
-        return;
-      }
-
-      setTasks((prev) =>
-        prev.map((t) => (t.id === activeTask.id ? { ...t, reviewStatus: statusLabel } : t)),
-      );
-      updateBoardProjectTask(project.id, activeTask.id, { reviewStatus: statusLabel });
+      await syncTaskReviewStatusFromDb(activeTask.id);
       logTaskReviewActivity({
         reviewerName,
         taskName: activeTask.name,
         reviewStatusLabel: statusLabel,
       });
-
-      const { data: listData, error: listErr } = await supabase
-        .from("task_reviews")
-        .select("*, task_review_attachments(*)")
-        .eq("task_id", activeTask.id)
-        .order("created_at", { ascending: false });
-      if (!listErr && listData) {
-        setTaskReviews((listData as TaskReviewRow[]) ?? []);
-      }
+      await reloadTaskReviews();
       setReviewCommentDraft("");
       setReviewDraftFiles([]);
       setReviewPendingStatus(null);
@@ -2335,6 +2506,10 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     {lt("Leave feedback, approvals or notes for the team")}
                   </p>
 
+                  {editingReviewId ? (
+                    <p className="mb-3 text-[0.75rem] font-light text-amber-200/90">{lt("Finish or cancel your edit before submitting a new review.")}</p>
+                  ) : null}
+                  <div className={cn(editingReviewId ? "pointer-events-none opacity-40" : undefined)}>
                   <p className="mb-2 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
                     {lt("Review status")}
                   </p>
@@ -2428,7 +2603,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
                   <button
                     type="button"
-                    disabled={reviewSubmitting}
+                    disabled={reviewSubmitting || Boolean(editingReviewId)}
                     onClick={() => void submitClientReview()}
                     className="btn-primary mb-6 w-full rounded-[8px] py-2.5 text-sm font-light disabled:opacity-60"
                   >
@@ -2441,6 +2616,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                       lt("Submit Review")
                     )}
                   </button>
+                  </div>
 
                   <p className="section-title mb-2">{lt("Review history")}</p>
                   {taskReviewsLoading ? (
@@ -2451,12 +2627,15 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     <ul className="space-y-4">
                       {taskReviews.map((rev) => {
                         const atts = Array.isArray(rev.task_review_attachments) ? rev.task_review_attachments : [];
+                        const isMine = clientReviewAuthorMatches(rev.reviewer_name, currentUser.name || "");
+                        const isEditing = editingReviewId === rev.id;
+                        const visibleAtts = atts.filter((a) => !editReviewRemovedAttachmentIds.includes(a.id));
                         return (
                           <li
                             key={rev.id}
                             className="rounded-[8px] border border-[var(--border)] bg-[#161616] p-3"
                           >
-                            <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex w-full flex-wrap items-center gap-2">
                               <div
                                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] text-[0.65rem] font-light text-white"
                                 style={{ backgroundColor: `hsla(${commentAuthorHue(rev.reviewer_name)}, 35%, 32%, 1)` }}
@@ -2464,62 +2643,274 @@ export function ProjectDetailView({ project }: { project: Project }) {
                                 {commentAuthorInitials(rev.reviewer_name)}
                               </div>
                               <span className="text-sm font-medium text-white">{rev.reviewer_name}</span>
-                              {reviewHistoryStatusBadge(rev.status, lt)}
+                              {!isEditing ? reviewHistoryStatusBadge(rev.status, lt) : null}
                               <span className="mono-num text-[0.72rem] font-light text-[rgba(255,255,255,0.4)]">
                                 {formatCommentTimestamp(rev.created_at)}
                               </span>
+                              {isMine && !isEditing ? (
+                                <div className="ml-auto flex shrink-0 items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingReviewId(rev.id);
+                                      setEditReviewStatus(normalizeClientReviewDecision(rev.status) ?? "Approved");
+                                      setEditReviewComment(rev.comment ?? "");
+                                      setEditReviewNewFiles([]);
+                                      setEditReviewRemovedAttachmentIds([]);
+                                      setEditReviewError("");
+                                      if (editReviewFileRef.current) editReviewFileRef.current.value = "";
+                                    }}
+                                    className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--border)] px-2 py-1 text-[11px] font-light text-[rgba(255,255,255,0.75)] transition-colors hover:bg-[rgba(255,255,255,0.06)]"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                                    {lt("Edit")}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setReviewDeleteDialog({ id: rev.id })}
+                                    className="inline-flex items-center gap-1 rounded-[6px] border border-[rgba(239,68,68,0.35)] px-2 py-1 text-[11px] font-light text-[#fca5a5] transition-colors hover:bg-[rgba(239,68,68,0.1)]"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                                    {lt("Delete review")}
+                                  </button>
+                                </div>
+                              ) : null}
                             </div>
-                            {rev.comment?.trim() ? (
-                              <p className="mt-2 whitespace-pre-wrap text-sm font-light text-[rgba(255,255,255,0.85)]">
-                                {rev.comment}
-                              </p>
-                            ) : null}
-                            {atts.length > 0 ? (
-                              <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
-                                {atts.map((att) => {
-                                  const ta = reviewAttachmentRowToTaskAttachment(att);
-                                  const Icon = attachmentKind(ta.type, ta.name);
-                                  const pk = attachmentPreviewKind(ta);
-                                  const expandHint = lt("Click for full view");
-                                  return (
-                                    <div
-                                      key={att.id}
-                                      className="overflow-hidden rounded-[8px] border border-[var(--border)] bg-[#141414]"
+
+                            {isEditing ? (
+                              <div className="mt-4 border-t border-[var(--border)] pt-4">
+                                <p className="mb-2 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+                                  {lt("Review status")}
+                                </p>
+                                <div className="mb-3 grid gap-2 sm:grid-cols-3">
+                                  {(
+                                    [
+                                      { value: "Approved" as const, icon: Check, activeClass: "border-emerald-500/50 bg-emerald-600/25 text-emerald-100" },
+                                      { value: "Needs Changes" as const, icon: AlertCircle, activeClass: "border-amber-500/50 bg-amber-600/20 text-amber-100" },
+                                      { value: "Rejected" as const, icon: X, activeClass: "border-red-500/50 bg-red-600/25 text-red-100" },
+                                    ] as const
+                                  ).map(({ value, icon: ChipIcon, activeClass }) => {
+                                    const selected = editReviewStatus === value;
+                                    return (
+                                      <button
+                                        key={value}
+                                        type="button"
+                                        disabled={editReviewSubmitting}
+                                        onClick={() => {
+                                          setEditReviewStatus(value);
+                                          setEditReviewError("");
+                                        }}
+                                        className={cn(
+                                          "flex flex-col items-center gap-2 rounded-[10px] border px-3 py-3 text-center text-sm font-light transition-colors disabled:opacity-50",
+                                          selected
+                                            ? activeClass
+                                            : "border-[var(--border)] bg-[#141414] text-[rgba(255,255,255,0.55)] hover:border-[rgba(255,255,255,0.2)]",
+                                        )}
+                                      >
+                                        <ChipIcon className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
+                                        {value === "Approved"
+                                          ? lt("Approved")
+                                          : value === "Needs Changes"
+                                            ? lt("Needs Changes")
+                                            : lt("Rejected")}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <textarea
+                                  value={editReviewComment}
+                                  onChange={(event) => setEditReviewComment(event.target.value)}
+                                  rows={4}
+                                  disabled={editReviewSubmitting}
+                                  placeholder={lt("Add your review comment, feedback or meeting notes...")}
+                                  className="mb-3 w-full resize-y rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)] disabled:opacity-50"
+                                />
+                                <input
+                                  ref={editReviewFileRef}
+                                  type="file"
+                                  className="hidden"
+                                  multiple
+                                  disabled={editReviewSubmitting}
+                                  onChange={(event) => {
+                                    const list = event.target.files;
+                                    if (!list?.length) return;
+                                    setEditReviewNewFiles((prev) => [...prev, ...Array.from(list)]);
+                                    event.target.value = "";
+                                  }}
+                                />
+                                <div className="mb-3 flex flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={editReviewSubmitting}
+                                    onClick={() => editReviewFileRef.current?.click()}
+                                    className="inline-flex items-center gap-2 rounded-[8px] border border-[var(--border)] bg-[#141414] px-3 py-2 text-xs font-light text-white transition-colors hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-50"
+                                  >
+                                    <Paperclip className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                                    {lt("Attach file")}
+                                  </button>
+                                  {editReviewNewFiles.map((file, idx) => (
+                                    <span
+                                      key={`${file.name}-e-${idx}`}
+                                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--border)] bg-[#141414] py-1 pl-2.5 pr-1 text-[11px] font-light text-[rgba(255,255,255,0.85)]"
                                     >
-                                      {pk !== "other" ? (
-                                        <TaskAttachmentInlineVisual
-                                          attachment={ta}
-                                          onExpand={() => openTaskAttachmentPreview(ta)}
-                                          expandHint={expandHint}
-                                        />
-                                      ) : null}
-                                      <div className="flex items-center gap-2 px-2 py-2">
-                                        <Icon className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.55)]" />
-                                        <span className="min-w-0 flex-1 truncate text-sm font-light text-white" title={ta.name}>
-                                          {ta.name}
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={() => openTaskAttachmentPreview(ta)}
-                                          className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
-                                          aria-label={lt("Preview")}
+                                      <span className="max-w-[160px] truncate">{file.name}</span>
+                                      <button
+                                        type="button"
+                                        disabled={editReviewSubmitting}
+                                        onClick={() => setEditReviewNewFiles((prev) => prev.filter((_, i) => i !== idx))}
+                                        className="rounded-full p-0.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white"
+                                        aria-label={lt("Remove")}
+                                      >
+                                        <X className="h-3.5 w-3.5" strokeWidth={2} />
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                                {visibleAtts.length > 0 ? (
+                                  <div className="mb-3 space-y-2">
+                                    {visibleAtts.map((att) => {
+                                      const ta = reviewAttachmentRowToTaskAttachment(att);
+                                      const Icon = attachmentKind(ta.type, ta.name);
+                                      const pk = attachmentPreviewKind(ta);
+                                      const expandHint = lt("Click for full view");
+                                      return (
+                                        <div
+                                          key={att.id}
+                                          className="overflow-hidden rounded-[8px] border border-[var(--border)] bg-[#141414]"
                                         >
-                                          <Eye className="h-4 w-4" strokeWidth={1.5} />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => downloadTaskAttachment(ta)}
-                                          className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
-                                          aria-label={lt("Download")}
-                                        >
-                                          <Download className="h-4 w-4" strokeWidth={1.5} />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
+                                          {pk !== "other" ? (
+                                            <TaskAttachmentInlineVisual
+                                              attachment={ta}
+                                              onExpand={() => openTaskAttachmentPreview(ta)}
+                                              expandHint={expandHint}
+                                            />
+                                          ) : null}
+                                          <div className="flex items-center gap-2 px-2 py-2">
+                                            <Icon className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.55)]" />
+                                            <span className="min-w-0 flex-1 truncate text-sm font-light text-white" title={ta.name}>
+                                              {ta.name}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              disabled={editReviewSubmitting}
+                                              onClick={() => openTaskAttachmentPreview(ta)}
+                                              className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white disabled:opacity-50"
+                                              aria-label={lt("Preview")}
+                                            >
+                                              <Eye className="h-4 w-4" strokeWidth={1.5} />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              disabled={editReviewSubmitting}
+                                              onClick={() => downloadTaskAttachment(ta)}
+                                              className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white disabled:opacity-50"
+                                              aria-label={lt("Download")}
+                                            >
+                                              <Download className="h-4 w-4" strokeWidth={1.5} />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              disabled={editReviewSubmitting}
+                                              onClick={() =>
+                                                setEditReviewRemovedAttachmentIds((prev) =>
+                                                  prev.includes(att.id) ? prev : [...prev, att.id],
+                                                )
+                                              }
+                                              className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] transition-colors hover:bg-[rgba(239,68,68,0.12)] hover:text-[#ef4444] disabled:opacity-50"
+                                              aria-label={lt("Remove")}
+                                            >
+                                              <X className="h-4 w-4" strokeWidth={1.5} />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : null}
+                                {editReviewError ? (
+                                  <p className="mb-2 text-[0.75rem] text-[#ef4444]">{editReviewError}</p>
+                                ) : null}
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={editReviewSubmitting}
+                                    onClick={() => void saveEditedReview()}
+                                    className="btn-primary rounded-[8px] px-4 py-2 text-xs font-light disabled:opacity-60"
+                                  >
+                                    {editReviewSubmitting ? (
+                                      <span className="inline-flex items-center gap-2">
+                                        <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.5} aria-hidden />
+                                        {lt("Submitting…")}
+                                      </span>
+                                    ) : (
+                                      lt("Save changes")
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={editReviewSubmitting}
+                                    onClick={cancelEditReview}
+                                    className="rounded-[8px] border border-[var(--border)] bg-transparent px-4 py-2 text-xs font-light text-[rgba(255,255,255,0.65)] transition-colors hover:bg-[rgba(255,255,255,0.04)] disabled:opacity-50"
+                                  >
+                                    {lt("Cancel")}
+                                  </button>
+                                </div>
                               </div>
-                            ) : null}
+                            ) : (
+                              <>
+                                {rev.comment?.trim() ? (
+                                  <p className="mt-2 whitespace-pre-wrap text-sm font-light text-[rgba(255,255,255,0.85)]">
+                                    {rev.comment}
+                                  </p>
+                                ) : null}
+                                {atts.length > 0 ? (
+                                  <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
+                                    {atts.map((att) => {
+                                      const ta = reviewAttachmentRowToTaskAttachment(att);
+                                      const Icon = attachmentKind(ta.type, ta.name);
+                                      const pk = attachmentPreviewKind(ta);
+                                      const expandHint = lt("Click for full view");
+                                      return (
+                                        <div
+                                          key={att.id}
+                                          className="overflow-hidden rounded-[8px] border border-[var(--border)] bg-[#141414]"
+                                        >
+                                          {pk !== "other" ? (
+                                            <TaskAttachmentInlineVisual
+                                              attachment={ta}
+                                              onExpand={() => openTaskAttachmentPreview(ta)}
+                                              expandHint={expandHint}
+                                            />
+                                          ) : null}
+                                          <div className="flex items-center gap-2 px-2 py-2">
+                                            <Icon className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.55)]" />
+                                            <span className="min-w-0 flex-1 truncate text-sm font-light text-white" title={ta.name}>
+                                              {ta.name}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => openTaskAttachmentPreview(ta)}
+                                              className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+                                              aria-label={lt("Preview")}
+                                            >
+                                              <Eye className="h-4 w-4" strokeWidth={1.5} />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => downloadTaskAttachment(ta)}
+                                              className="shrink-0 rounded-[6px] p-1.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+                                              aria-label={lt("Download")}
+                                            >
+                                              <Download className="h-4 w-4" strokeWidth={1.5} />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : null}
+                              </>
+                            )}
                           </li>
                         );
                       })}
@@ -2599,6 +2990,18 @@ export function ProjectDetailView({ project }: { project: Project }) {
         onCancel={() => setTaskDeleteDialog(null)}
         onConfirm={() => {
           void confirmDeleteTask();
+        }}
+      />
+
+      <DeleteConfirmModal
+        open={reviewDeleteDialog !== null}
+        title={lt("Delete review")}
+        message={lt("Delete this review? This cannot be undone.")}
+        confirmLabel={lt("Delete")}
+        cancelLabel={lt("Cancel")}
+        onCancel={() => setReviewDeleteDialog(null)}
+        onConfirm={() => {
+          void confirmDeleteClientReview();
         }}
       />
     </div>

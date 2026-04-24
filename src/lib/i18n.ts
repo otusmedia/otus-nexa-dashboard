@@ -448,6 +448,11 @@ const platformPtBR: Record<string, string> = {
   "Review history": "Histórico de revisões",
   "No reviews yet": "Nenhuma revisão ainda",
   "Submitting…": "Enviando…",
+  "Delete review": "Excluir revisão",
+  "Save changes": "Salvar alterações",
+  "Delete this review? This cannot be undone.": "Excluir esta revisão? Esta ação não pode ser desfeita.",
+  "Finish or cancel your edit before submitting a new review.":
+    "Conclua ou cancele a edição antes de enviar uma nova revisão.",
   "Open Google Analytics": "Abrir Google Analytics",
   "Using cached data": "Usando dados em cache",
   "No page data yet": "Nenhum dado de página ainda",
