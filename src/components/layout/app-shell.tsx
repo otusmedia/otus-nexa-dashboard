@@ -24,6 +24,7 @@ import {
 import type { ModuleKey } from "@/types";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
+import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/modal";
 import HeroSection from "@/components/layout/hero-section";
@@ -55,6 +56,8 @@ const moduleLinks: Array<{
   { key: "files", labelKey: "files", href: "/files", icon: FileUp },
   { key: "contracts", labelKey: "contracts", href: "/contracts", icon: FileText },
 ];
+
+const GUEST_USER_ID = "__guest__";
 
 const WHATSAPP_POS_KEY = "whatsapp-button-position";
 const WH_BTN = 36;
@@ -132,6 +135,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [profileEmail, setProfileEmail] = useState(`${currentUser.name.toLowerCase().replace(/\s+/g, ".")}@rocketride.com`);
   const [profilePassword, setProfilePassword] = useState("");
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [latestClientUpdateAt, setLatestClientUpdateAt] = useState<string | null>(null);
 
   const isAdmin = currentUser.role === "admin";
   const canAccessMarketing =
@@ -141,6 +145,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     link.key === "marketing" ? allowedModules.includes(link.key) && canAccessMarketing : allowedModules.includes(link.key),
   );
   const avatarInitial = profileName.trim().slice(0, 1).toUpperCase() || "U";
+
+  const onUpdatesPage = pathname.startsWith("/updates");
+  let updatesLastSeen: string | null = null;
+  if (typeof window !== "undefined") {
+    try {
+      updatesLastSeen = localStorage.getItem(`updates-last-seen-${currentUser.id}`);
+    } catch {
+      updatesLastSeen = null;
+    }
+  }
+  const lastSeenMs = updatesLastSeen ? new Date(updatesLastSeen).getTime() : NaN;
+  const lastSeenValid = Number.isFinite(lastSeenMs);
+  const latestMs = latestClientUpdateAt ? new Date(latestClientUpdateAt).getTime() : NaN;
+  const latestValid = Number.isFinite(latestMs);
+  const showUpdatesUnreadDot =
+    currentUser.id !== GUEST_USER_ID &&
+    !onUpdatesPage &&
+    latestValid &&
+    (!lastSeenValid || latestMs > lastSeenMs);
   useEffect(() => {
     setProfileName(currentUser.name);
     setProfileEmail(`${currentUser.name.toLowerCase().replace(/\s+/g, ".")}@rocketride.com`);
@@ -153,6 +176,54 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (pathname.startsWith("/crm")) setCrmMenuOpen(true);
   }, [pathname]);
+
+  useEffect(() => {
+    if (currentUser.id === GUEST_USER_ID) {
+      setLatestClientUpdateAt(null);
+      return;
+    }
+    let cancelled = false;
+
+    const fetchLatest = async () => {
+      const { data, error } = await supabase
+        .from("client_updates")
+        .select("created_at")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        console.error("[app-shell] client_updates latest:", error.message);
+        setLatestClientUpdateAt(null);
+        return;
+      }
+      const raw = data?.created_at;
+      setLatestClientUpdateAt(raw != null ? String(raw) : null);
+    };
+
+    void fetchLatest();
+
+    const channel = supabase
+      .channel("updates-notification")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "client_updates" },
+        (payload: { new?: Record<string, unknown> }) => {
+          const ts = payload.new?.created_at;
+          if (typeof ts === "string") {
+            setLatestClientUpdateAt(ts);
+          } else {
+            void fetchLatest();
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [currentUser.id]);
 
   useEffect(() => {
     if (!langMenuOpen) return;
@@ -418,6 +489,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     href={link.href}
                     className={cn(
                       "flex items-center gap-3 rounded-lg border-l-2 border-transparent px-3 py-2 text-sm transition [border-image:none]",
+                      link.key === "updates" && "relative",
                       isActive
                         ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
                         : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
@@ -425,6 +497,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   >
                     <Icon className="h-4 w-4" strokeWidth={1.5} />
                     {t(link.labelKey)}
+                    {link.key === "updates" && showUpdatesUnreadDot ? (
+                      <span
+                        className="pointer-events-none absolute right-2 top-2 h-2 w-2 shrink-0 rounded-full bg-[#FF4500]"
+                        aria-hidden
+                      />
+                    ) : null}
                   </Link>
                 );
               })}
