@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Heart, Instagram, Linkedin, MessageCircle, Share2, X as XIcon } from "lucide-react";
+import { Clock, Heart, Instagram, Linkedin, MessageCircle, Share2, X as XIcon } from "lucide-react";
 import { CalendarGrid } from "@/components/calendar/CalendarGrid";
 import { CalendarHeader } from "@/components/calendar/CalendarHeader";
 import { CalendarEventPopover } from "@/components/calendar/CalendarEventPopover";
@@ -16,6 +17,9 @@ import { useAppContext } from "@/components/providers/app-providers";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@/types/calendar";
+
+/** Dispatched after logging a published post so the Dashboard KPI can refetch. */
+export const DASHBOARD_POSTS_PUBLISHED_KPI_EVENT = "rr:dashboard-posts-published-refresh";
 
 type Platform = "instagram" | "linkedin" | "x";
 
@@ -43,7 +47,11 @@ type ScheduledPostRow = {
   created_by: string | null;
   published_at: string | null;
   created_at: string;
+  linked_task_id?: string | null;
+  media_description?: string | null;
 };
+
+type TaskLinkMeta = { title: string; projectId: string; projectName: string };
 
 function pillColorForPlatforms(platforms: string[]): string {
   const p = (platforms[0] ?? "instagram").toLowerCase();
@@ -60,21 +68,39 @@ function toDatetimeLocalValue(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function mapRowToCalendarEvent(row: Record<string, unknown>, pillColor: string): CalendarEvent {
+function mapRowToCalendarEvent(
+  row: Record<string, unknown>,
+  pillColor: string,
+  linkMeta: TaskLinkMeta | null,
+): CalendarEvent {
   const id = String(row.id ?? "");
   const content = String(row.content ?? "");
+  const status = String(row.status ?? "scheduled");
   const scheduledAt = String(row.scheduled_at ?? "");
+  const publishedAt = String(row.published_at ?? "");
+  const at =
+    status.toLowerCase() === "published" && publishedAt.trim()
+      ? publishedAt
+      : scheduledAt;
   const platforms = Array.isArray(row.platforms) ? row.platforms.map(String) : [];
-  const startMs = new Date(scheduledAt).getTime();
+  const startMs = new Date(at).getTime();
   const endIso = new Date(startMs + 60 * 60 * 1000).toISOString();
   const trimmed = content.trim();
   const title =
-    trimmed.length === 0 ? "Scheduled post" : trimmed.length > 44 ? `${trimmed.slice(0, 44)}…` : trimmed;
+    trimmed.length === 0
+      ? status.toLowerCase() === "published"
+        ? "Published post"
+        : "Scheduled post"
+      : trimmed.length > 44
+        ? `${trimmed.slice(0, 44)}…`
+        : trimmed;
+  const linkedRaw = row.linked_task_id;
+  const linkedId = linkedRaw != null && String(linkedRaw).trim() !== "" ? String(linkedRaw) : "";
   return {
     id: `spost-${id}`,
     title,
     description: content,
-    start_at: scheduledAt,
+    start_at: at,
     end_at: endIso,
     all_day: false,
     type: "other",
@@ -88,7 +114,10 @@ function mapRowToCalendarEvent(row: Record<string, unknown>, pillColor: string):
     source_id: id,
     is_scheduled_post: true,
     publishing_platforms: platforms,
-    publishing_status: String(row.status ?? "scheduled"),
+    publishing_status: status,
+    scheduled_post_linked_task_id: linkedId || null,
+    scheduled_post_project_id: linkMeta?.projectId ?? null,
+    scheduled_post_task_name: linkMeta?.title ?? null,
   };
 }
 
@@ -100,10 +129,26 @@ function inRange(ev: CalendarEvent, rangeStart: Date, rangeEnd: Date): boolean {
   return s <= b && e >= a;
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function combineLocalDateTimeToIso(dateYmd: string, timeHm: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateYmd) || !/^\d{1,2}:\d{2}$/.test(timeHm)) return null;
+  const [y, m, d] = dateYmd.split("-").map(Number);
+  const [hh, mm] = timeHm.split(":").map(Number);
+  if (![y, m, d, hh, mm].every((v) => Number.isFinite(v))) return null;
+  const local = new Date(y, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0, 0, 0);
+  if (Number.isNaN(local.getTime())) return null;
+  return local.toISOString();
+}
+
+const LOG_PLATFORM_PRESETS = ["Instagram", "LinkedIn", "X", "Blog"] as const;
+
 export function PublishingModule() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { currentUser } = useAppContext();
+  const { currentUser, logTaskPublishedToActivity } = useAppContext();
 
   const [mainTab, setMainTab] = useState<"compose" | "schedule">("compose");
   const [platforms, setPlatforms] = useState<Set<Platform>>(new Set(["instagram"]));
@@ -119,8 +164,21 @@ export function PublishingModule() {
   const { view, setView, currentDate, weekStart, goToday, goPrev, goNext } = useCalendar();
   const [scheduleLoading, setScheduleLoading] = useState(true);
   const [scheduleRows, setScheduleRows] = useState<ScheduledPostRow[]>([]);
+  const [taskLinkById, setTaskLinkById] = useState<Record<string, TaskLinkMeta>>({});
   const [popover, setPopover] = useState<{ event: CalendarEvent; x: number; y: number } | null>(null);
   const [detailPost, setDetailPost] = useState<ScheduledPostRow | null>(null);
+
+  const [logPastOpen, setLogPastOpen] = useState(false);
+  const [logPastSaving, setLogPastSaving] = useState(false);
+  const [logPastNotice, setLogPastNotice] = useState("");
+  const [logPastNoticeIsError, setLogPastNoticeIsError] = useState(false);
+  const [logContent, setLogContent] = useState("");
+  const [logPlatforms, setLogPlatforms] = useState<Set<string>>(() => new Set(["Instagram"]));
+  const [logCustomPlatform, setLogCustomPlatform] = useState("");
+  const [logDate, setLogDate] = useState("");
+  const [logTime, setLogTime] = useState("");
+  const [logTaskId, setLogTaskId] = useState("");
+  const [logMediaDescription, setLogMediaDescription] = useState("");
 
   const range = useMemo(() => {
     if (view === "month") {
@@ -133,24 +191,57 @@ export function PublishingModule() {
   const scheduleEvents = useMemo(() => {
     const { rangeStart, rangeEnd } = range;
     return scheduleRows
-      .filter((r) => r.status === "scheduled" && r.scheduled_at)
-      .map((r) => mapRowToCalendarEvent(r as unknown as Record<string, unknown>, pillColorForPlatforms(r.platforms)))
+      .filter((r) => {
+        if (r.status === "scheduled" && r.scheduled_at) return true;
+        if (r.status === "published" && r.published_at) return true;
+        return false;
+      })
+      .map((r) => {
+        const lid = (r.linked_task_id ?? "").trim();
+        const meta = lid ? taskLinkById[lid] ?? null : null;
+        return mapRowToCalendarEvent(r as unknown as Record<string, unknown>, pillColorForPlatforms(r.platforms), meta);
+      })
       .filter((ev) => inRange(ev, rangeStart, rangeEnd));
-  }, [scheduleRows, range]);
+  }, [scheduleRows, range, taskLinkById]);
 
   const fetchScheduled = useCallback(async () => {
     setScheduleLoading(true);
-    const { data, error } = await supabase
-      .from("scheduled_posts")
-      .select("*")
-      .order("scheduled_at", { ascending: true, nullsFirst: false });
-    if (error) {
-      console.error("[publishing] scheduled_posts:", error.message);
-      setScheduleRows([]);
-    } else {
-      setScheduleRows((data as ScheduledPostRow[]) ?? []);
+    try {
+      const [postsRes, tasksRes] = await Promise.all([
+        supabase
+          .from("scheduled_posts")
+          .select("*")
+          .order("scheduled_at", { ascending: true, nullsFirst: false }),
+        supabase.from("tasks").select("id, title, project_id, projects(name)").order("title", { ascending: true }),
+      ]);
+
+      if (tasksRes.data) {
+        const lookup: Record<string, TaskLinkMeta> = {};
+        for (const raw of tasksRes.data as Array<Record<string, unknown>>) {
+          const tid = String(raw.id ?? "");
+          if (!tid) continue;
+          const proj = raw.projects as { name?: string } | null | undefined;
+          lookup[tid] = {
+            title: String(raw.title ?? "Task"),
+            projectId: String(raw.project_id ?? ""),
+            projectName: proj?.name ? String(proj.name) : "Project",
+          };
+        }
+        setTaskLinkById(lookup);
+      } else {
+        setTaskLinkById({});
+        if (tasksRes.error) console.error("[publishing] tasks lookup:", tasksRes.error.message);
+      }
+
+      if (postsRes.error) {
+        console.error("[publishing] scheduled_posts:", postsRes.error.message);
+        setScheduleRows([]);
+      } else {
+        setScheduleRows((postsRes.data as ScheduledPostRow[]) ?? []);
+      }
+    } finally {
+      setScheduleLoading(false);
     }
-    setScheduleLoading(false);
   }, []);
 
   useEffect(() => {
@@ -277,6 +368,9 @@ export function PublishingModule() {
       setScheduleNote(note);
       await fetchScheduled();
       resetCompose({ clearSuccessMessage: false });
+      if (status === "published" && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(DASHBOARD_POSTS_PUBLISHED_KPI_EVENT));
+      }
     } finally {
       setSaving(false);
     }
@@ -312,6 +406,128 @@ export function PublishingModule() {
     if (error) console.error(error.message);
     setDetailPost(null);
     await fetchScheduled();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(DASHBOARD_POSTS_PUBLISHED_KPI_EVENT));
+    }
+  };
+
+  const openLogPastModal = useCallback(() => {
+    setLogPastNotice("");
+    setLogPastNoticeIsError(false);
+    setLogContent("");
+    setLogPlatforms(new Set(["Instagram"]));
+    setLogCustomPlatform("");
+    setLogTaskId("");
+    setLogMediaDescription("");
+    const now = new Date();
+    setLogDate(`${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`);
+    setLogTime(`${pad2(now.getHours())}:${pad2(now.getMinutes())}`);
+    setLogPastOpen(true);
+  }, []);
+
+  const taskOptionsForLog = useMemo(
+    () =>
+      Object.entries(taskLinkById)
+        .map(([id, m]) => ({ id, label: `${m.projectName} — ${m.title}` }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [taskLinkById],
+  );
+
+  const toggleLogPlatformPreset = (label: string) => {
+    setLogPlatforms((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) {
+        if (next.size > 1) next.delete(label);
+      } else {
+        next.add(label);
+      }
+      return next;
+    });
+  };
+
+  const addLogCustomPlatform = () => {
+    const t = logCustomPlatform.trim();
+    if (!t) return;
+    setLogPlatforms((prev) => new Set(prev).add(t));
+    setLogCustomPlatform("");
+  };
+
+  const removeLogPlatform = (label: string) => {
+    setLogPlatforms((prev) => {
+      if (prev.size <= 1 && prev.has(label)) return prev;
+      const next = new Set(prev);
+      next.delete(label);
+      return next;
+    });
+  };
+
+  const saveLogPublishedPost = async () => {
+    const contentTrim = logContent.trim();
+    if (!contentTrim || logPlatforms.size === 0) return;
+    const iso = combineLocalDateTimeToIso(logDate, logTime);
+    if (!iso) {
+      setLogPastNoticeIsError(true);
+      setLogPastNotice("Invalid date or time.");
+      return;
+    }
+    const platformsArr = [...logPlatforms];
+    const linkedId = logTaskId.trim() || null;
+    const mediaDesc = logMediaDescription.trim();
+
+    setLogPastSaving(true);
+    setLogPastNotice("");
+    setLogPastNoticeIsError(false);
+    try {
+      const insertPayload: Record<string, unknown> = {
+        content: contentTrim,
+        platforms: platformsArr,
+        media_urls: [] as string[],
+        scheduled_at: iso,
+        published_at: iso,
+        status: "published",
+        created_by: currentUser.name ?? null,
+        linked_task_id: linkedId,
+        ...(mediaDesc ? { media_description: mediaDesc } : { media_description: null }),
+      };
+
+      const { error: insErr } = await supabase.from("scheduled_posts").insert([insertPayload]);
+      if (insErr) {
+        console.error("[publishing] log past post:", insErr.message);
+        setLogPastNoticeIsError(true);
+        setLogPastNotice(`Could not save: ${insErr.message}`);
+        return;
+      }
+
+      if (linkedId) {
+        const { error: taskErr } = await supabase
+          .from("tasks")
+          .update({ status: "Published", published_to: platformsArr })
+          .eq("id", linkedId);
+        if (taskErr) {
+          console.error("[publishing] task sync:", taskErr.message);
+        } else {
+          const taskName = taskLinkById[linkedId]?.title ?? "task";
+          logTaskPublishedToActivity({
+            userName: currentUser.name.trim() || "User",
+            taskName,
+            platforms: platformsArr,
+          });
+        }
+      }
+
+      setLogPastNoticeIsError(false);
+      setLogPastNotice("Post logged.");
+      await fetchScheduled();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(DASHBOARD_POSTS_PUBLISHED_KPI_EVENT));
+      }
+      window.setTimeout(() => {
+        setLogPastOpen(false);
+        setLogPastNotice("");
+      }, 900);
+    } finally {
+      setLogPastSaving(false);
+    }
   };
 
   const previewPlatforms = useMemo(() => [...platforms], [platforms]);
@@ -541,6 +757,16 @@ export function PublishingModule() {
             onPrev={goPrev}
             onNext={goNext}
             onToday={goToday}
+            trailingActions={
+              <button
+                type="button"
+                onClick={openLogPastModal}
+                className="btn-ghost inline-flex items-center gap-1.5 rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-[var(--muted)] transition hover:border-white/35 hover:text-white"
+              >
+                <Clock className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                Log Past Post
+              </button>
+            }
           />
           {view === "month" ? (
             <CalendarGrid
@@ -603,6 +829,136 @@ export function PublishingModule() {
         </div>
       )}
 
+      <Modal open={logPastOpen} title="Log Published Post" onClose={() => setLogPastOpen(false)} closeLabel="Close">
+        <p className="-mt-1 mb-4 text-sm text-[var(--muted)]">Record a post that was already published</p>
+        <div className="max-h-[min(70vh,520px)] space-y-4 overflow-y-auto pr-1">
+          <label className="block">
+            <span className="mb-1.5 block text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Content</span>
+            <textarea
+              value={logContent}
+              onChange={(e) => setLogContent(e.target.value)}
+              placeholder="Post content or description..."
+              className="min-h-[120px] w-full resize-y rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] px-3 py-2 text-sm text-white placeholder:text-[rgba(255,255,255,0.3)] focus:border-[rgba(255,69,0,0.45)] focus:outline-none"
+            />
+          </label>
+          <div>
+            <span className="mb-2 block text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Platforms</span>
+            <div className="flex flex-wrap gap-2">
+              {LOG_PLATFORM_PRESETS.map((label) => {
+                const active = logPlatforms.has(label);
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => toggleLogPlatformPreset(label)}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                      active
+                        ? "border-[rgba(255,69,0,0.45)] bg-[rgba(255,69,0,0.18)] text-[#FF4500]"
+                        : "border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.04)] text-[var(--muted)] hover:text-white",
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+              {[...logPlatforms]
+                .filter((p) => !(LOG_PLATFORM_PRESETS as readonly string[]).includes(p))
+                .map((label) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => removeLogPlatform(label)}
+                    className="rounded-full border border-[rgba(255,255,255,0.2)] bg-[rgba(255,255,255,0.08)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[rgba(255,255,255,0.12)]"
+                    title="Click to remove"
+                  >
+                    {label} ×
+                  </button>
+                ))}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <input
+                type="text"
+                value={logCustomPlatform}
+                onChange={(e) => setLogCustomPlatform(e.target.value)}
+                placeholder="Custom platform name…"
+                className="min-w-[12rem] flex-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] px-3 py-2 text-xs text-white placeholder:text-[rgba(255,255,255,0.3)]"
+              />
+              <button
+                type="button"
+                onClick={addLogCustomPlatform}
+                className="btn-ghost rounded-lg border border-[var(--border)] px-3 py-2 text-xs"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs text-[var(--muted)]">
+              Published date
+              <input
+                type="date"
+                value={logDate}
+                onChange={(e) => setLogDate(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] px-3 py-2 text-sm text-white"
+              />
+            </label>
+            <label className="block text-xs text-[var(--muted)]">
+              Published time
+              <input
+                type="time"
+                value={logTime}
+                onChange={(e) => setLogTime(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] px-3 py-2 text-sm text-white"
+              />
+            </label>
+          </div>
+          <label className="block text-xs text-[var(--muted)]">
+            Link to Task <span className="font-normal text-[rgba(255,255,255,0.35)]">(optional)</span>
+            <select
+              value={logTaskId}
+              onChange={(e) => setLogTaskId(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] px-3 py-2 text-sm text-white"
+            >
+              <option value="">— None —</option>
+              {taskOptionsForLog.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs text-[var(--muted)]">
+            Media description <span className="font-normal text-[rgba(255,255,255,0.35)]">(optional)</span>
+            <input
+              type="text"
+              value={logMediaDescription}
+              onChange={(e) => setLogMediaDescription(e.target.value)}
+              placeholder="Describe the media used..."
+              className="mt-1 w-full rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] px-3 py-2 text-sm text-white placeholder:text-[rgba(255,255,255,0.3)]"
+            />
+          </label>
+        </div>
+        {logPastNotice ? (
+          <p className={cn("mt-3 text-sm", logPastNoticeIsError ? "text-red-400" : "text-[rgba(255,255,255,0.65)]")}>
+            {logPastNotice}
+          </p>
+        ) : null}
+        <div className="mt-6 flex justify-end gap-2">
+          <button type="button" className="btn-ghost rounded-lg px-3 py-2 text-xs" onClick={() => setLogPastOpen(false)}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={logPastSaving || !logContent.trim() || logPlatforms.size === 0}
+            onClick={() => void saveLogPublishedPost()}
+            className="btn-primary rounded-lg px-4 py-2 text-xs disabled:opacity-50"
+          >
+            {logPastSaving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </Modal>
+
       <Modal
         open={detailPost !== null}
         title="Scheduled post"
@@ -617,8 +973,32 @@ export function PublishingModule() {
             <p>{detailPost.platforms.join(", ")}</p>
             <p className="text-[var(--muted)]">Scheduled</p>
             <p>{detailPost.scheduled_at ? new Date(detailPost.scheduled_at).toLocaleString() : "—"}</p>
+            {detailPost.published_at ? (
+              <>
+                <p className="text-[var(--muted)]">Published</p>
+                <p>{new Date(detailPost.published_at).toLocaleString()}</p>
+              </>
+            ) : null}
             <p className="text-[var(--muted)]">Status</p>
             <p className="capitalize">{detailPost.status}</p>
+            {detailPost.media_description ? (
+              <>
+                <p className="text-[var(--muted)]">Media</p>
+                <p className="text-white">{detailPost.media_description}</p>
+              </>
+            ) : null}
+            {detailPost.linked_task_id && taskLinkById[detailPost.linked_task_id]?.projectId ? (
+              <>
+                <p className="text-[var(--muted)]">Linked task</p>
+                <Link
+                  href={`/projects/${encodeURIComponent(taskLinkById[detailPost.linked_task_id]!.projectId)}?taskId=${encodeURIComponent(detailPost.linked_task_id)}`}
+                  className="inline-block font-medium text-[#10b981] underline-offset-2 hover:underline"
+                  onClick={() => setDetailPost(null)}
+                >
+                  {taskLinkById[detailPost.linked_task_id]!.projectName} — {taskLinkById[detailPost.linked_task_id]!.title}
+                </Link>
+              </>
+            ) : null}
             <div className="flex gap-2 pt-2">
               <button
                 type="button"

@@ -13,3 +13,7 @@ create table if not exists scheduled_posts (
 
 alter table scheduled_posts enable row level security;
 create policy "Allow anon scheduled_posts" on scheduled_posts for all to anon using (true) with check (true);
+
+-- Linked project task + optional media note (run in Supabase SQL editor if table already exists)
+alter table scheduled_posts add column if not exists linked_task_id uuid references tasks (id);
+alter table scheduled_posts add column if not exists media_description text;

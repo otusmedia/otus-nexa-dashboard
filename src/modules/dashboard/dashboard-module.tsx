@@ -174,7 +174,10 @@ function normalizeMetaCreativeApiRow(raw: unknown): MetaCreativeApiRow | null {
   const id = typeof o.id === "string" ? o.id : String(o.id ?? "");
   if (!id) return null;
   const name = typeof o.name === "string" ? o.name : String(o.name ?? "Ad");
-  const imageUrl = typeof o.imageUrl === "string" ? o.imageUrl : String(o.imageUrl ?? "");
+  const camel = typeof o.imageUrl === "string" ? o.imageUrl.trim() : String(o.imageUrl ?? "").trim();
+  const snakeImg = typeof o.image_url === "string" ? o.image_url.trim() : "";
+  const snakeThumb = typeof o.thumbnail_url === "string" ? o.thumbnail_url.trim() : "";
+  const imageUrl = camel || snakeThumb || snakeImg;
   let impressions = Math.max(0, Math.round(coerceCreativeMetricNumber(o.impressions)));
   let ctr = coerceCreativeMetricNumber(o.ctr);
   if (ctr > 0 && ctr <= 1) ctr *= 100;
@@ -1254,6 +1257,23 @@ export function DashboardModule() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const evt = "rr:dashboard-posts-published-refresh";
+    const refreshPostsPublishedKpi = () => {
+      void supabase.from("scheduled_posts").select("id, status").then(({ data, error }) => {
+        if (error) {
+          console.error("[dashboard] scheduled_posts KPI refresh failed:", error.message);
+          return;
+        }
+        const pubRows = (data as Array<{ status?: string | null }> | null) ?? [];
+        const published = pubRows.filter((r) => String(r.status ?? "").toLowerCase() === "published").length;
+        setKpiPostsPublished(published);
+      });
+    };
+    window.addEventListener(evt, refreshPostsPublishedKpi);
+    return () => window.removeEventListener(evt, refreshPostsPublishedKpi);
   }, []);
 
   const featuredSlides = useMemo(() => {

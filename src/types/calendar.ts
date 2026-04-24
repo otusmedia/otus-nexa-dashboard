@@ -37,6 +37,10 @@ export interface CalendarEvent {
   is_scheduled_post?: boolean;
   publishing_platforms?: string[] | null;
   publishing_status?: string | null;
+  /** When a published scheduled post is tied to a project task (Publishing calendar). */
+  scheduled_post_linked_task_id?: string | null;
+  scheduled_post_project_id?: string | null;
+  scheduled_post_task_name?: string | null;
 }
 
 export type CalendarView = "month" | "week" | "day";

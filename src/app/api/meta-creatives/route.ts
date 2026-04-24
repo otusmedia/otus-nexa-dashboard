@@ -14,7 +14,35 @@ type GraphCreative = {
   body?: string;
   image_url?: string;
   thumbnail_url?: string;
+  picture?: string;
+  object_story_spec?: Record<string, unknown>;
 };
+
+function extractImageFromObjectStorySpec(spec: Record<string, unknown> | undefined): string | null {
+  if (!spec || typeof spec !== "object") return null;
+  const linkData = spec.link_data as Record<string, unknown> | undefined;
+  if (linkData && typeof linkData === "object") {
+    for (const k of ["picture", "image_url", "url"] as const) {
+      const v = linkData[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+  }
+  const videoData = spec.video_data as Record<string, unknown> | undefined;
+  if (videoData && typeof videoData === "object") {
+    for (const k of ["image_url", "imageUrl", "picture"] as const) {
+      const v = videoData[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+  }
+  const photoData = spec.photo_data as Record<string, unknown> | undefined;
+  if (photoData && typeof photoData === "object") {
+    for (const k of ["url", "image_url", "picture"] as const) {
+      const v = photoData[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+  }
+  return null;
+}
 
 type GraphInsights = {
   impressions?: string | number;
@@ -36,7 +64,9 @@ function parseCreativeImageUrl(cr: GraphCreative | undefined): string | null {
   if (!cr) return null;
   const thumb = (cr.thumbnail_url ?? "").trim();
   const full = (cr.image_url ?? "").trim();
-  return thumb || full || null;
+  const picture = (cr.picture ?? "").trim();
+  const fromSpec = extractImageFromObjectStorySpec(cr.object_story_spec);
+  return thumb || full || picture || fromSpec || null;
 }
 
 function parseMetricsFromInsightObject(ins: GraphInsights | undefined) {
@@ -56,9 +86,18 @@ function pickCreativeFromInsightRow(row: InsightApiRow): GraphCreative | undefin
   const ac = row.adcreatives as { data?: GraphCreative[] } | undefined;
   if (Array.isArray(ac?.data) && ac.data.length > 0) return ac.data[0];
   const single = row.adcreatives as GraphCreative | undefined;
-  if (single && typeof single === "object" && ("thumbnail_url" in single || "image_url" in single)) {
+  if (
+    single &&
+    typeof single === "object" &&
+    ("thumbnail_url" in single ||
+      "image_url" in single ||
+      "picture" in single ||
+      "object_story_spec" in single)
+  ) {
     return single;
   }
+  const acArr = row.adcreatives as GraphCreative[] | undefined;
+  if (Array.isArray(acArr) && acArr.length > 0) return acArr[0];
   return undefined;
 }
 
@@ -93,10 +132,7 @@ function mapAdsToCreatives(ads: GraphAd[]) {
     }
     const spend = parseFloat(String(ins?.spend ?? "0")) || 0;
     const cr = ad.creative;
-    const imageUrl =
-      (cr?.thumbnail_url && String(cr.thumbnail_url).trim()) ||
-      (cr?.image_url && String(cr.image_url).trim()) ||
-      "";
+    const imageUrl = parseCreativeImageUrl(cr) ?? "";
     return {
       id: String(ad.id ?? ""),
       name: String(ad.name ?? cr?.title ?? "Ad"),
@@ -125,7 +161,7 @@ export async function GET() {
   try {
     // 1) Insights-first (account insights, level=ad)
     const insightFields = encodeURIComponent(
-      "ad_id,ad_name,impressions,clicks,ctr,spend,adcreatives{thumbnail_url,image_url,body,title}",
+      "ad_id,ad_name,impressions,clicks,ctr,spend,adcreatives{thumbnail_url,image_url,body,title,picture,object_story_spec}",
     );
     const insightsUrl = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${insightFields}&date_preset=maximum&level=ad&sort=impressions_descending&limit=3&access_token=${ACCESS_TOKEN}`;
 
@@ -164,7 +200,9 @@ export async function GET() {
       const creatives = mapInsightRowsToCreatives(insightRows)
         .filter((c) => c.id.length > 0)
         .slice(0, 3);
-      if (creatives.length > 0) {
+      const hasPreviewImage = creatives.some((c) => c.imageUrl.length > 0);
+      // Insights often omit nested creative images; only short-circuit when we actually have URLs.
+      if (creatives.length > 0 && hasPreviewImage) {
         return NextResponse.json({
           creatives,
           source: "api",
@@ -175,7 +213,7 @@ export async function GET() {
 
     // 2) Ads + nested insights, sort client-side, top 3
     const adsFields = encodeURIComponent(
-      "id,name,creative{thumbnail_url,image_url,effective_object_story_id},insights.date_preset(maximum){impressions,clicks,ctr,spend}",
+      "id,name,creative{thumbnail_url,image_url,picture,effective_object_story_id,object_story_spec},insights.date_preset(maximum){impressions,clicks,ctr,spend}",
     );
     const adsUrl = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/ads?fields=${adsFields}&limit=20&access_token=${ACCESS_TOKEN}`;
     const adsRes = await fetch(adsUrl, { next: { revalidate: 300 } });

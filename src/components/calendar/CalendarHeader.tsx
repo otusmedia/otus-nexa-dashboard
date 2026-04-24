@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CalendarView } from "@/types/calendar";
@@ -24,6 +24,7 @@ export function CalendarHeader({
   onNext,
   onToday,
   titleClassName,
+  trailingActions,
 }: {
   view: CalendarView;
   onViewChange: (v: CalendarView) => void;
@@ -33,6 +34,8 @@ export function CalendarHeader({
   onNext: () => void;
   onToday: () => void;
   titleClassName?: string;
+  /** Rendered to the right of the title block, before the month/week toggle (e.g. Publishing actions). */
+  trailingActions?: ReactNode;
 }) {
   const title =
     view === "month" ? formatMonthYear(currentDate) : view === "week" ? formatWeekRangeLabel(weekStart) : formatMonthYear(currentDate);
@@ -68,22 +71,25 @@ export function CalendarHeader({
         </button>
       </div>
 
-      <div className="inline-flex" style={toggleShellStyle} role="group" aria-label="Calendar view">
-        {(["month", "week"] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => onViewChange(v)}
-            className={cn(
-              "rounded-2xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-              view === v
-                ? "bg-[rgba(255,69,0,0.2)] text-[#FF4500] shadow-[inset_0_0_0_1px_rgba(255,69,0,0.35)]"
-                : "text-[var(--muted)] hover:text-white",
-            )}
-          >
-            {v === "month" ? "Month" : "Week"}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {trailingActions}
+        <div className="inline-flex" style={toggleShellStyle} role="group" aria-label="Calendar view">
+          {(["month", "week"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => onViewChange(v)}
+              className={cn(
+                "rounded-2xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
+                view === v
+                  ? "bg-[rgba(255,69,0,0.2)] text-[#FF4500] shadow-[inset_0_0_0_1px_rgba(255,69,0,0.35)]"
+                  : "text-[var(--muted)] hover:text-white",
+              )}
+            >
+              {v === "month" ? "Month" : "Week"}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

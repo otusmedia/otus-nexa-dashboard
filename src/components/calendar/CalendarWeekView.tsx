@@ -1,5 +1,6 @@
 "use client";
 
+import { Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@/types/calendar";
 import {
@@ -110,25 +111,32 @@ export function CalendarWeekView({
           </div>
           {days.map((day, col) => (
             <div key={`allday-${day.toISOString()}`} className="space-y-0.5 border-r border-[rgba(255,255,255,0.06)] p-1 last:border-r-0">
-              {allDayByDay[col].map((ev) => (
-                <button
-                  key={ev.id}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEventClick(ev, e);
-                  }}
-                  title={ev.title}
-                  className="w-full truncate rounded-md px-1.5 py-0.5 text-left text-[0.65rem] font-medium"
-                  style={{
-                    backgroundColor: "rgba(24, 119, 242, 0.15)",
-                    borderLeft: `3px solid ${eventDisplayColor(ev)}`,
-                    color: eventDisplayColor(ev),
-                  }}
-                >
-                  {ev.title}
-                </button>
-              ))}
+              {allDayByDay[col].map((ev) => {
+                const showTaskLink =
+                  Boolean(ev.is_scheduled_post || ev.source === "scheduled_post") &&
+                  Boolean(ev.scheduled_post_linked_task_id) &&
+                  String(ev.publishing_status ?? "").toLowerCase() === "published";
+                return (
+                  <button
+                    key={ev.id}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEventClick(ev, e);
+                    }}
+                    title={ev.title}
+                    className="flex w-full max-w-full items-center gap-0.5 truncate rounded-md px-1.5 py-0.5 text-left text-[0.65rem] font-medium"
+                    style={{
+                      backgroundColor: "rgba(24, 119, 242, 0.15)",
+                      borderLeft: `3px solid ${eventDisplayColor(ev)}`,
+                      color: eventDisplayColor(ev),
+                    }}
+                  >
+                    {showTaskLink ? <Link2 className="h-3 w-3 shrink-0 opacity-90" strokeWidth={2} aria-hidden /> : null}
+                    <span className="min-w-0 flex-1 truncate">{ev.title}</span>
+                  </button>
+                );
+              })}
             </div>
           ))}
         </div>
@@ -185,6 +193,10 @@ export function CalendarWeekView({
                     const pos = clampEventToWeekView(ev, day);
                     if (!pos) return null;
                     const col = eventDisplayColor(ev);
+                    const showTaskLink =
+                      Boolean(ev.is_scheduled_post || ev.source === "scheduled_post") &&
+                      Boolean(ev.scheduled_post_linked_task_id) &&
+                      String(ev.publishing_status ?? "").toLowerCase() === "published";
                     return (
                       <button
                         key={ev.id}
@@ -203,7 +215,12 @@ export function CalendarWeekView({
                           color: "#fff",
                         }}
                       >
-                        <span className="line-clamp-3">{ev.title}</span>
+                        <span className="flex items-start gap-0.5">
+                          {showTaskLink ? (
+                            <Link2 className="mt-0.5 h-3 w-3 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+                          ) : null}
+                          <span className="line-clamp-3 min-w-0 flex-1">{ev.title}</span>
+                        </span>
                       </button>
                     );
                   })}

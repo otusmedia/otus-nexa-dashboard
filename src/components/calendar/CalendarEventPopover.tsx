@@ -164,6 +164,22 @@ export function CalendarEventPopover({
           </p>
         ) : null}
 
+        {publishingScheduleMode &&
+        event.scheduled_post_linked_task_id &&
+        event.scheduled_post_project_id &&
+        event.scheduled_post_task_name ? (
+          <p className="text-sm">
+            <span className="text-[var(--muted)]">Linked task: </span>
+            <Link
+              href={`/projects/${encodeURIComponent(event.scheduled_post_project_id)}?taskId=${encodeURIComponent(event.scheduled_post_linked_task_id)}`}
+              className="font-medium text-[#10b981] underline-offset-2 hover:underline"
+              onClick={() => onClose()}
+            >
+              {event.scheduled_post_task_name}
+            </Link>
+          </p>
+        ) : null}
+
         {publishingReadOnly && event.source_id && !publishingScheduleMode ? (
           <Link
             href={`/publishing?tab=schedule&post=${encodeURIComponent(event.source_id)}`}
