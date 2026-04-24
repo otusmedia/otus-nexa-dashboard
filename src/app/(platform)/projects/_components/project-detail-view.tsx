@@ -455,6 +455,8 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const coverImageInputRef = useRef<HTMLInputElement | null>(null);
   const panelDescriptionRef = useRef<HTMLTextAreaElement | null>(null);
+  /** Avoid resetting description/priority draft when `tasks` gets a new object for the same row (e.g. after updateTask or attachment fetch). */
+  const lastPanelSyncedTaskIdRef = useRef<string | null>(null);
 
   const groupedStatuses = [
     { group: "To-do", options: TASK_STATUS_OPTIONS.filter((option) => option.group === "To-do") },
@@ -804,23 +806,34 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const activeTask = useMemo(() => tasks.find((task) => task.id === activeTaskId) || null, [tasks, activeTaskId]);
 
   useEffect(() => {
-    if (!activeTask) {
+    if (!activeTaskId) {
+      lastPanelSyncedTaskIdRef.current = null;
       setCoverUploadLoading(false);
       setCoverUploadError("");
       return;
     }
-    setPanelDescription(activeTask.description);
-    setPanelSavedDescription(activeTask.description);
+    const task = tasks.find((t) => t.id === activeTaskId) ?? null;
+    if (!task) {
+      lastPanelSyncedTaskIdRef.current = null;
+      setCoverUploadLoading(false);
+      setCoverUploadError("");
+      return;
+    }
+    const switchedTask = lastPanelSyncedTaskIdRef.current !== activeTaskId;
+    if (!switchedTask) return;
+    lastPanelSyncedTaskIdRef.current = activeTaskId;
+    setPanelDescription(task.description);
+    setPanelSavedDescription(task.description);
     setTaskDescriptionSavedHint(false);
     setTaskDescriptionError("");
-    setPanelPriority(activeTask.priority);
+    setPanelPriority(task.priority);
     setPanelStatusOpen(false);
     setPanelEditingName(false);
     setPanelOwnerEditing(false);
     setPanelDueDateEditing(false);
     setCoverUploadError("");
     setCoverUploadLoading(false);
-  }, [activeTask]);
+  }, [activeTaskId, tasks]);
 
   useEffect(() => {
     if (!panelDescriptionRef.current) return;

@@ -1407,19 +1407,25 @@ export function DashboardModule() {
         const rawAcct = crJson.metaAdAccountId;
         const acctStr =
           typeof rawAcct === "string" ? rawAcct.trim() : rawAcct != null ? String(rawAcct).trim() : "";
-        if (!cErr && Array.isArray(creatives) && creatives.length > 0) {
+        if (cErr) {
+          setCreativesLive(null);
+          setCreativesApiError(cErr);
+          setMetaCreativesAdAccountId(null);
+          console.error("[dashboard] Meta creatives API:", cErr);
+        } else if (Array.isArray(creatives)) {
           const normalized = creatives
             .map((row) => normalizeMetaCreativeApiRow(row))
             .filter((row): row is MetaCreativeApiRow => row !== null);
-          console.log("[dashboard] Meta creatives normalized sample:", normalized.slice(0, 3));
+          if (normalized.length > 0) {
+            console.log("[dashboard] Meta creatives normalized sample:", normalized.slice(0, 3));
+          }
           setCreativesLive(normalized.length > 0 ? normalized : null);
           setCreativesApiError(null);
           setMetaCreativesAdAccountId(acctStr || null);
         } else {
           setCreativesLive(null);
-          setCreativesApiError(cErr ?? "Creatives unavailable");
+          setCreativesApiError("Creatives unavailable");
           setMetaCreativesAdAccountId(null);
-          if (cErr) console.error("[dashboard] Meta creatives API:", cErr);
         }
       })
       .catch((e) => {
@@ -2439,7 +2445,12 @@ export function DashboardModule() {
                   const thumbInner = (
                     <>
                       {creative.imageUrl && creative.imageUrl.length > 0 ? (
-                        <img src={creative.imageUrl} alt="" className="h-full w-full object-cover" />
+                        <img
+                          src={creative.imageUrl}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center bg-[#1a1a1a]">
                           <ImageIcon className="h-5 w-5 text-[rgba(255,255,255,0.12)]" strokeWidth={1.5} />

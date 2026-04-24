@@ -26,6 +26,16 @@ function extractImageFromObjectStorySpec(spec: Record<string, unknown> | undefin
       const v = linkData[k];
       if (typeof v === "string" && v.trim()) return v.trim();
     }
+    const childAtt = linkData.child_attachments as { data?: Array<Record<string, unknown>> } | undefined;
+    if (Array.isArray(childAtt?.data)) {
+      for (const child of childAtt.data) {
+        if (!child || typeof child !== "object") continue;
+        for (const k of ["picture", "image_url"] as const) {
+          const v = child[k];
+          if (typeof v === "string" && v.trim()) return v.trim();
+        }
+      }
+    }
   }
   const videoData = spec.video_data as Record<string, unknown> | undefined;
   if (videoData && typeof videoData === "object") {
@@ -120,6 +130,51 @@ function mapInsightRowsToCreatives(rows: InsightApiRow[]) {
   });
 }
 
+type MetaCreativeRow = {
+  id: string;
+  name: string;
+  imageUrl: string;
+  ctr: number;
+  impressions: number;
+  spend: number;
+  platform: "Meta";
+};
+
+const AD_CREATIVE_FIELDS = encodeURIComponent(
+  "creative{thumbnail_url,image_url,picture,object_story_spec}",
+);
+
+/** Insights rows often omit usable images; fetch each ad's creative node for thumbnails. */
+async function enrichCreativesImageUrls(rows: MetaCreativeRow[], accessToken: string): Promise<MetaCreativeRow[]> {
+  const missing = rows.filter((r) => !r.imageUrl?.trim() && r.id.length > 0);
+  if (missing.length === 0) return rows;
+
+  const fetched = await Promise.all(
+    missing.map(async (row) => {
+      const url = `https://graph.facebook.com/v19.0/${row.id}?fields=${AD_CREATIVE_FIELDS}&access_token=${accessToken}`;
+      try {
+        const res = await fetch(url, { next: { revalidate: 300 } });
+        const j = (await res.json()) as { creative?: GraphCreative; error?: { message?: string } };
+        if (j.error?.message) {
+          console.warn(`[meta-creatives] ad ${row.id} creative:`, j.error.message);
+          return { id: row.id, imageUrl: "" };
+        }
+        const imageUrl = parseCreativeImageUrl(j.creative) ?? "";
+        return { id: row.id, imageUrl };
+      } catch {
+        return { id: row.id, imageUrl: "" };
+      }
+    }),
+  );
+  const byId = new Map(fetched.map((f) => [f.id, f.imageUrl]));
+  return rows.map((r) => {
+    const next = byId.get(r.id);
+    if (next === undefined) return r;
+    if (!next?.trim()) return r;
+    return { ...r, imageUrl: next.trim() };
+  });
+}
+
 function mapAdsToCreatives(ads: GraphAd[]) {
   return ads.map((ad) => {
     const ins = ad.insights?.data?.[0];
@@ -190,6 +245,26 @@ export async function GET() {
       insightRows = Array.isArray(insightPayload.data) ? insightPayload.data : [];
     }
 
+    // Some accounts return no rows / errors for date_preset=maximum; try bounded windows.
+    if (insightRows.length === 0) {
+      const simpleFields = encodeURIComponent("ad_id,ad_name,impressions,clicks,ctr,spend");
+      for (const preset of ["last_90d", "last_30d"] as const) {
+        const fbUrl = `https://graph.facebook.com/v19.0/act_${AD_ACCOUNT_ID}/insights?fields=${simpleFields}&date_preset=${preset}&level=ad&sort=impressions_descending&limit=3&access_token=${ACCESS_TOKEN}`;
+        const fbPayload = (await (await fetch(fbUrl, { next: { revalidate: 300 } })).json()) as {
+          data?: InsightApiRow[];
+          error?: { message?: string };
+        };
+        const rows = Array.isArray(fbPayload.data) ? fbPayload.data : [];
+        if (fbPayload.error?.message) {
+          console.warn(`[meta-creatives] insights (${preset}) error:`, fbPayload.error.message);
+        }
+        if (rows.length > 0) {
+          insightRows = rows;
+          break;
+        }
+      }
+    }
+
     if (insightRows.length > 0) {
       const first = insightRows[0];
       console.log("[meta-creatives] first raw insights row (full):", JSON.stringify(first));
@@ -200,11 +275,13 @@ export async function GET() {
       const creatives = mapInsightRowsToCreatives(insightRows)
         .filter((c) => c.id.length > 0)
         .slice(0, 3);
-      const hasPreviewImage = creatives.some((c) => c.imageUrl.length > 0);
-      // Insights often omit nested creative images; only short-circuit when we actually have URLs.
-      if (creatives.length > 0 && hasPreviewImage) {
+      // Return insights as soon as we have ad rows — images are often missing on insights; the UI
+      // uses a placeholder. Previously we required a preview URL, which forced the /ads fallback
+      // and produced empty results + "Live data unavailable" when that call failed or returned no rows.
+      if (creatives.length > 0) {
+        const withImages = await enrichCreativesImageUrls(creatives, ACCESS_TOKEN);
         return NextResponse.json({
-          creatives,
+          creatives: withImages,
           source: "api",
           metaAdAccountId: AD_ACCOUNT_ID,
         });
@@ -236,9 +313,10 @@ export async function GET() {
       .sort((a, b) => b.impressions - a.impressions);
 
     const creatives = scored.slice(0, 3);
+    const withImages = await enrichCreativesImageUrls(creatives, ACCESS_TOKEN);
 
     return NextResponse.json({
-      creatives,
+      creatives: withImages,
       source: "api",
       metaAdAccountId: AD_ACCOUNT_ID,
     });
