@@ -147,7 +147,7 @@ async function ensureAppUsersSeeded(): Promise<void> {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { isReady, sessionUserId, login } = useAuth();
+  const { isReady, sessionUserId, login, logout } = useAuth();
   const [bootstrapped, setBootstrapped] = useState(false);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -174,7 +174,11 @@ export default function LoginPage() {
     let cancelled = false;
     void (async () => {
       const { data, error } = await supabase.from("app_users").select("*").eq("id", sessionUserId).maybeSingle();
-      if (cancelled || error || !data) return;
+      if (cancelled) return;
+      if (error || !data) {
+        logout();
+        return;
+      }
       const appUser = rowToAppUser(mapRecordToRow(data as Record<string, unknown>));
       login(appUser);
       const path = appUser.role === "admin" ? "/dashboard" : "/projects";
@@ -183,7 +187,7 @@ export default function LoginPage() {
     return () => {
       cancelled = true;
     };
-  }, [isReady, sessionUserId, router, login]);
+  }, [isReady, sessionUserId, router, login, logout]);
 
   const finishLogin = (user: AppUser) => {
     console.log("Login success, setting user:", user);

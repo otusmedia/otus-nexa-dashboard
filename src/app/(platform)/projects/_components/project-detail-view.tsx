@@ -44,6 +44,7 @@ import { PublishedToModal } from "@/components/ui/published-to-modal";
 import { MentionTextarea } from "@/components/ui/mention-textarea";
 import { supabase } from "@/lib/supabase";
 import { getTaskHighlightCoverUrl } from "@/lib/task-highlight-cover";
+import { fetchPublishedAtByTaskIds } from "@/lib/task-published-at-from-scheduled-posts";
 import { OwnerAvatars } from "./owner-avatars";
 import { ProgressInline } from "./progress-inline";
 import { ProjectStatusBadge } from "./project-status-badge";
@@ -90,6 +91,7 @@ type DbProjectTaskRow = {
   priority: string | null;
   review_status: string | null;
   published_to: string[] | null;
+  published_at: string | null;
 };
 
 type ClientReviewDecision = "Approved" | "Needs Changes" | "Rejected";
@@ -381,6 +383,7 @@ const BOARD_TASK_KEYS = new Set<keyof ProjectTaskRow>([
   "shortDescription",
   "reviewStatus",
   "publishedTo",
+  "publishedAt",
 ]);
 
 const TASK_TABLE_FILTER_ORDER: TaskRowStatus[] = [
@@ -566,49 +569,63 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
   useEffect(() => {
     let mounted = true;
-    void supabase
-      .from("tasks")
-      .select("*")
-      .eq("project_id", project.id)
-      .order("created_at", { ascending: true })
-      .then(({ data, error }) => {
-        if (!mounted) return;
-        if (error) {
-          console.error("[supabase] project tasks fetch failed:", error.message);
-          setTasks([]);
-          return;
-        }
-        const mapped = ((data as DbProjectTaskRow[] | null) ?? []).map((row) => {
-          const status: TaskRowStatus =
-            row.status === "In Progress" ||
-            row.status === "Waiting for Approval" ||
-            row.status === "Done" ||
-            row.status === "Scheduled" ||
-            row.status === "Published"
-              ? row.status
-              : "Not Started";
-          const priority: Priority =
-            row.priority === "Low" || row.priority === "Medium" || row.priority === "High" || row.priority === "Urgent"
-              ? row.priority
-              : "Medium";
-          return {
-            id: row.id,
-            name: row.title ?? "",
-            dueDate: row.due_date,
-            owner: row.assigned_to ?? "",
-            status,
-            isFeatured: Boolean(row.is_featured),
-            coverImage: row.cover_image,
-            shortDescription: row.short_description ?? "",
-            description: row.description ?? "",
-            priority,
-            reviewStatus: row.review_status?.trim() ? String(row.review_status) : null,
-            publishedTo: Array.isArray(row.published_to) ? row.published_to.map(String) : [],
-            attachments: [],
-          } satisfies LocalTask;
-        });
-        setTasks(mapped);
+    void (async () => {
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("*")
+        .eq("project_id", project.id)
+        .order("created_at", { ascending: true });
+      if (!mounted) return;
+      if (error) {
+        console.error("[supabase] project tasks fetch failed:", error.message);
+        setTasks([]);
+        return;
+      }
+      const mapped = ((data as DbProjectTaskRow[] | null) ?? []).map((row) => {
+        const status: TaskRowStatus =
+          row.status === "In Progress" ||
+          row.status === "Waiting for Approval" ||
+          row.status === "Done" ||
+          row.status === "Scheduled" ||
+          row.status === "Published"
+            ? row.status
+            : "Not Started";
+        const priority: Priority =
+          row.priority === "Low" || row.priority === "Medium" || row.priority === "High" || row.priority === "Urgent"
+            ? row.priority
+            : "Medium";
+        return {
+          id: row.id,
+          name: row.title ?? "",
+          dueDate: row.due_date,
+          owner: row.assigned_to ?? "",
+          status,
+          isFeatured: Boolean(row.is_featured),
+          coverImage: row.cover_image,
+          shortDescription: row.short_description ?? "",
+          description: row.description ?? "",
+          priority,
+          reviewStatus: row.review_status?.trim() ? String(row.review_status) : null,
+          publishedTo: Array.isArray(row.published_to) ? row.published_to.map(String) : [],
+          publishedAt: row.published_at?.trim() ? String(row.published_at) : null,
+          attachments: [],
+        } satisfies LocalTask;
       });
+      const needFallback = mapped.filter((t) => t.status === "Published" && !t.publishedAt);
+      const fromPosts =
+        needFallback.length > 0
+          ? await fetchPublishedAtByTaskIds(
+              supabase,
+              needFallback.map((t) => t.id),
+            )
+          : new Map<string, string>();
+      setTasks(
+        mapped.map((t) => ({
+          ...t,
+          publishedAt: t.publishedAt ?? fromPosts.get(t.id) ?? null,
+        })),
+      );
+    })();
     return () => {
       mounted = false;
     };
@@ -838,6 +855,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     if (updates.priority !== undefined) dbPatch.priority = updates.priority;
     if (updates.reviewStatus !== undefined) dbPatch.review_status = updates.reviewStatus;
     if (updates.publishedTo !== undefined) dbPatch.published_to = updates.publishedTo;
+    if (updates.publishedAt !== undefined) dbPatch.published_at = updates.publishedAt;
 
     if (Object.keys(dbPatch).length === 0) {
       setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, ...updates } : task)));
@@ -969,7 +987,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
   const handlePublishedToConfirm = async ({ platforms, publishedAt }: { platforms: string[]; publishedAt: string }) => {
     if (!publishedToModal) return;
-    const ok = await updateTask(publishedToModal.taskId, { publishedTo: platforms });
+    const ok = await updateTask(publishedToModal.taskId, { publishedTo: platforms, publishedAt });
     if (!ok) return;
     if (platforms.length > 0) {
       logTaskPublishedToActivity({
@@ -1276,6 +1294,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
       priority: row.priority === "Low" || row.priority === "Medium" || row.priority === "High" || row.priority === "Urgent" ? row.priority : "Medium",
       reviewStatus: row.review_status?.trim() ? String(row.review_status) : null,
       publishedTo: Array.isArray(row.published_to) ? row.published_to.map(String) : [],
+      publishedAt: row.published_at?.trim() ? String(row.published_at) : null,
       attachments: [],
     };
     const nextTasks = [...tasks, createdTask];
@@ -1291,6 +1310,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
       shortDescription: createdTask.shortDescription,
       reviewStatus: createdTask.reviewStatus,
       publishedTo: createdTask.publishedTo,
+      publishedAt: createdTask.publishedAt,
       attachments: [],
     };
     addBoardProjectTask(project.id, boardRow);
@@ -1934,8 +1954,8 @@ export function ProjectDetailView({ project }: { project: Project }) {
                 <th className="kpi-label border-[var(--border)] bg-[#101010] py-2.5">{lt("Due date")}</th>
                 <th className="kpi-label border-[var(--border)] bg-[#101010] py-2.5">{lt("Status")}</th>
                 <th className="kpi-label border-[var(--border)] bg-[#101010] py-2.5">{lt("Review")}</th>
-                <th className="kpi-label w-12 border-[var(--border)] bg-[#101010] py-2.5 text-center" aria-label={lt("Featured")}>
-                  <Star className="mx-auto h-4 w-4 text-[rgba(255,255,255,0.35)]" strokeWidth={1.5} />
+                <th className="kpi-label w-12 border-[var(--border)] bg-[#101010] py-2.5 text-center text-[0.65rem] font-normal uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+                  {lt("Highlight")}
                 </th>
                 <th className="kpi-label w-10 border-[var(--border)] bg-[#101010] py-2.5" aria-label={lt("Actions")} />
               </tr>
@@ -1961,7 +1981,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   <td className="relative" onClick={(event) => event.stopPropagation()}>
                     {isRocketRideClient ? (
                       <div className="px-2 py-1">
-                        <TaskRowStatusBadge status={task.status} publishedTo={task.publishedTo} />
+                        <TaskRowStatusBadge status={task.status} publishedTo={task.publishedTo} publishedAt={task.publishedAt} />
                       </div>
                     ) : (
                       <>
@@ -1977,7 +1997,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                           }}
                           className="text-left"
                         >
-                          <TaskRowStatusBadge status={task.status} publishedTo={task.publishedTo} />
+                          <TaskRowStatusBadge status={task.status} publishedTo={task.publishedTo} publishedAt={task.publishedAt} />
                         </button>
                         {rowStatusMenu?.taskId === task.id
                           ? createPortal(
@@ -2366,7 +2386,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   )}
                   <div className="relative mt-3 inline-block">
                     {isRocketRideClient ? (
-                      <TaskRowStatusBadge status={activeTask.status} publishedTo={activeTask.publishedTo} />
+                      <TaskRowStatusBadge status={activeTask.status} publishedTo={activeTask.publishedTo} publishedAt={activeTask.publishedAt} />
                     ) : (
                       <>
                         <button
@@ -2374,7 +2394,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                           onClick={() => setPanelStatusOpen((prev) => !prev)}
                           className="text-left"
                         >
-                          <TaskRowStatusBadge status={activeTask.status} publishedTo={activeTask.publishedTo} />
+                          <TaskRowStatusBadge status={activeTask.status} publishedTo={activeTask.publishedTo} publishedAt={activeTask.publishedAt} />
                         </button>
                         {panelStatusOpen ? (
                           <div className="absolute left-0 top-[calc(100%+6px)] z-20 w-56 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2">

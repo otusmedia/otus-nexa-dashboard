@@ -16,6 +16,7 @@ import {
   type ProjectsByColumn,
 } from "@/app/(platform)/projects/data";
 import { parseTaskAttachmentsNested } from "@/lib/task-highlight-cover";
+import { fetchPublishedAtByTaskIds } from "@/lib/task-published-at-from-scheduled-posts";
 import {
   activityLog as activitySeed,
   contracts as contractsSeed,
@@ -59,6 +60,8 @@ interface AppContextValue {
   availableUsers: AppUser[];
   allowedModules: ModuleKey[];
   users: AppUser[];
+  /** `true` after the initial `app_users` fetch from Supabase finishes (success or error). */
+  appUsersReady: boolean;
   setUserModules: (userId: string, modules: AppUser["modules"]) => void;
   addUser: (input: {
     name: string;
@@ -290,6 +293,7 @@ type DbTaskRow = {
   short_description: string | null;
   review_status: string | null;
   published_to: string[] | null;
+  published_at: string | null;
   task_attachments?: unknown;
 };
 
@@ -353,6 +357,7 @@ function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTask
         shortDescription: task.short_description ?? "",
         reviewStatus: task.review_status?.trim() ? String(task.review_status) : null,
         publishedTo: Array.isArray(task.published_to) ? task.published_to.map(String) : [],
+        publishedAt: task.published_at?.trim() ? String(task.published_at) : null,
         attachments: parseTaskAttachmentsNested(task.task_attachments),
       }));
     return {
@@ -386,6 +391,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const { sessionUserId, persistedUser, logout } = useAuth();
   const { language, setLanguage, t: tLine } = useLanguage();
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [appUsersReady, setAppUsersReady] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
@@ -473,33 +479,37 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
     void (async () => {
-      const { count, error: countError } = await supabase.from("app_users").select("*", { count: "exact", head: true });
-      if (!mounted) return;
-      if (countError) {
-        console.error("[supabase] app_users count failed:", countError.message);
-      }
-      if (count === 0) {
-        const { error: seedError } = await supabase.from("app_users").insert(
-          APP_USERS_SEED.map((u) => ({
-            name: u.name,
-            email: u.email,
-            company: u.company,
-            role: u.role,
-            modules: u.modules,
-          })),
-        );
-        if (seedError) {
-          console.error("[supabase] app_users seed failed:", seedError.message);
+      try {
+        const { count, error: countError } = await supabase.from("app_users").select("*", { count: "exact", head: true });
+        if (!mounted) return;
+        if (countError) {
+          console.error("[supabase] app_users count failed:", countError.message);
         }
+        if (count === 0) {
+          const { error: seedError } = await supabase.from("app_users").insert(
+            APP_USERS_SEED.map((u) => ({
+              name: u.name,
+              email: u.email,
+              company: u.company,
+              role: u.role,
+              modules: u.modules,
+            })),
+          );
+          if (seedError) {
+            console.error("[supabase] app_users seed failed:", seedError.message);
+          }
+        }
+        const { data, error } = await supabase.from("app_users").select("*").order("name", { ascending: true });
+        if (!mounted) return;
+        if (error) {
+          console.error("[supabase] app_users fetch failed:", error.message);
+          setUsers([]);
+          return;
+        }
+        setUsers(((data as Array<Record<string, unknown>> | null) ?? []).map((row) => appUserFromAppUsersRow(row)));
+      } finally {
+        if (mounted) setAppUsersReady(true);
       }
-      const { data, error } = await supabase.from("app_users").select("*").order("name", { ascending: true });
-      if (!mounted) return;
-      if (error) {
-        console.error("[supabase] app_users fetch failed:", error.message);
-        setUsers([]);
-        return;
-      }
-      setUsers(((data as Array<Record<string, unknown>> | null) ?? []).map((row) => appUserFromAppUsersRow(row)));
     })();
     return () => {
       mounted = false;
@@ -727,37 +737,47 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    void Promise.all([
-      supabase.from("projects").select("*").order("created_at", { ascending: false }),
-      supabase
-        .from("tasks")
-        .select("*, task_attachments(*)")
-        .not("project_id", "is", null)
-        .order("created_at", { ascending: false }),
-    ])
-      .then(([projectsRes, tasksRes]) => {
-        if (!mounted) return;
-        if (projectsRes.error || tasksRes.error) {
-          if (projectsRes.error) console.error("[supabase] projects fetch failed:", projectsRes.error.message);
-          if (tasksRes.error) console.error("[supabase] project tasks fetch failed:", tasksRes.error.message);
-          setProjectsByColumn(splitProjectsByColumn([]));
-          return;
-        }
-        setProjectsByColumn(
-          mapRowsToProjectsByColumn(
-            (projectsRes.data as DbProjectRow[] | null) ?? [],
-            (tasksRes.data as DbTaskRow[] | null) ?? [],
-          ),
-        );
-      })
-      .then(
-        () => {
-          if (mounted) setProjectsLoading(false);
-        },
-        () => {
-          if (mounted) setProjectsLoading(false);
-        },
+    void (async () => {
+      const [projectsRes, tasksRes] = await Promise.all([
+        supabase.from("projects").select("*").order("created_at", { ascending: false }),
+        supabase
+          .from("tasks")
+          .select("*, task_attachments(*)")
+          .not("project_id", "is", null)
+          .order("created_at", { ascending: false }),
+      ]);
+      if (!mounted) return;
+      if (projectsRes.error || tasksRes.error) {
+        if (projectsRes.error) console.error("[supabase] projects fetch failed:", projectsRes.error.message);
+        if (tasksRes.error) console.error("[supabase] project tasks fetch failed:", tasksRes.error.message);
+        setProjectsByColumn(splitProjectsByColumn([]));
+        if (mounted) setProjectsLoading(false);
+        return;
+      }
+      let taskRows = (tasksRes.data as DbTaskRow[] | null) ?? [];
+      const needFromPublishing = taskRows.filter(
+        (t) => t.status === "Published" && !String(t.published_at ?? "").trim(),
       );
+      if (needFromPublishing.length > 0) {
+        const fromPosts = await fetchPublishedAtByTaskIds(
+          supabase,
+          needFromPublishing.map((t) => t.id),
+        );
+        taskRows = taskRows.map((t) => {
+          if (t.status !== "Published" || String(t.published_at ?? "").trim()) return t;
+          const iso = fromPosts.get(t.id);
+          if (!iso) return t;
+          return { ...t, published_at: iso };
+        });
+      }
+      setProjectsByColumn(
+        mapRowsToProjectsByColumn(
+          (projectsRes.data as DbProjectRow[] | null) ?? [],
+          taskRows,
+        ),
+      );
+      if (mounted) setProjectsLoading(false);
+    })();
     return () => {
       mounted = false;
     };
@@ -942,6 +962,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       availableUsers: users,
       allowedModules,
       users,
+      appUsersReady,
       setUserModules: (userId, modules) => {
         setUsers((prev) =>
           prev.map((user) => {
@@ -1650,6 +1671,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       currentUser,
       sessionUserId,
       users,
+      appUsersReady,
       allowedModules,
       logout,
       tasks,

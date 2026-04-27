@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ModuleKey } from "@/types";
 import { useAppContext } from "@/components/providers/app-providers";
 
@@ -11,6 +11,7 @@ type ModuleGuardProps =
 
 export function ModuleGuard(props: ModuleGuardProps) {
   const router = useRouter();
+  const pathname = usePathname() ?? "";
   const { allowedModules, currentUser } = useAppContext();
 
   const allowed =
@@ -21,10 +22,12 @@ export function ModuleGuard(props: ModuleGuardProps) {
         : false;
 
   useEffect(() => {
-    if (!allowed) {
-      router.replace("/projects");
+    if (allowed) return;
+    if (pathname === "/projects" || pathname.startsWith("/projects/")) {
+      return;
     }
-  }, [allowed, router]);
+    router.replace("/projects");
+  }, [allowed, router, pathname]);
 
   if (!allowed) {
     return null;

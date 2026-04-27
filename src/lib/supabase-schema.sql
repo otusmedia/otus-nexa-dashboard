@@ -23,6 +23,7 @@ create table if not exists tasks (
   is_featured boolean default false,
   cover_image text,
   short_description text,
+  published_at timestamptz,
   created_at timestamptz default now()
 );
 

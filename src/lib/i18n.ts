@@ -29,6 +29,7 @@ const platformPtBR: Record<string, string> = {
   "Digital Growth": "Crescimento Digital",
   "Paid Media Growth": "Crescimento em Mídia Paga",
   Highlights: "Destaques",
+  Highlight: "Destaque",
   "View Task": "Ver Tarefa",
   "Instagram Performance": "Performance do Instagram",
   "Monthly follower growth": "Crescimento Mensal de Seguidores",

@@ -27,6 +27,8 @@ export interface ProjectTaskRow {
   reviewStatus: string | null;
   /** Platforms selected when status is Published (`tasks.published_to`). */
   publishedTo: string[];
+  /** When the task was marked published (`tasks.published_at`), ISO string. */
+  publishedAt: string | null;
   /** From `task_attachments` — used for Highlights when no dedicated cover. */
   attachments: TaskHighlightAttachment[];
 }
@@ -141,4 +143,16 @@ export function getProjectById(id: string): Project | undefined {
 export function formatDisplayDate(iso: string | null): string {
   if (!iso) return "—";
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(iso));
+}
+
+/** Date + time for publishing timestamp in task tables. */
+export function formatPublishedAt(iso: string | null | undefined): string {
+  if (!iso?.trim()) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(iso));
 }

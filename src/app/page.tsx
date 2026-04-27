@@ -9,7 +9,7 @@ import type { AppUser } from "@/types";
 export default function HomePage() {
   const router = useRouter();
   const { isReady, sessionUserId, logout, persistedUser } = useAuth();
-  const { users } = useAppContext();
+  const { users, appUsersReady } = useAppContext();
 
   useEffect(() => {
     if (!isReady) return;
@@ -32,17 +32,20 @@ export default function HomePage() {
       return;
     }
 
-    const u = users.find((x) => x.id === sessionUserId) ?? (persistedUser?.id === sessionUserId ? persistedUser : undefined);
-    if (!u) {
-      if (users.length === 0) {
-        return;
-      }
-      logout();
-      router.replace("/login");
+    const u =
+      users.find((x) => x.id === sessionUserId) ?? (persistedUser?.id === sessionUserId ? persistedUser : undefined);
+    if (u) {
+      router.replace(u.role === "admin" ? "/dashboard" : "/projects");
       return;
     }
-    router.replace(u.role === "admin" ? "/dashboard" : "/projects");
-  }, [isReady, sessionUserId, users, router, logout, persistedUser]);
+
+    if (!appUsersReady) {
+      return;
+    }
+
+    logout();
+    router.replace("/login");
+  }, [isReady, sessionUserId, users, router, logout, persistedUser, appUsersReady]);
 
   return null;
 }

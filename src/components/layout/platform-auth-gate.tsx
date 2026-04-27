@@ -8,7 +8,7 @@ import { useAppContext } from "@/components/providers/app-providers";
 export function PlatformAuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { sessionUserId, isReady, logout, persistedUser } = useAuth();
-  const { users } = useAppContext();
+  const { users, appUsersReady } = useAppContext();
 
   const inUsersList = Boolean(sessionUserId && users.some((u) => u.id === sessionUserId));
   const persistedOk = Boolean(sessionUserId && persistedUser?.id === sessionUserId);
@@ -20,11 +20,19 @@ export function PlatformAuthGate({ children }: { children: React.ReactNode }) {
       router.replace("/login");
       return;
     }
+    if (!appUsersReady) {
+      return;
+    }
+    if (users.length === 0 && !persistedOk) {
+      logout();
+      router.replace("/login");
+      return;
+    }
     if (users.length > 0 && !inUsersList && !persistedOk) {
       logout();
       router.replace("/login");
     }
-  }, [isReady, sessionUserId, users, router, logout, inUsersList, persistedOk]);
+  }, [isReady, sessionUserId, users, router, logout, inUsersList, persistedOk, appUsersReady]);
 
   if (!isReady || !sessionUserId) {
     return null;
