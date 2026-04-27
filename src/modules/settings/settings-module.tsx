@@ -156,6 +156,7 @@ export function SettingsModule() {
   const [editTarget, setEditTarget] = useState<AppUser | null>(null);
   const [editForm, setEditForm] = useState<EditFormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null);
+  const [pendingModuleChanges, setPendingModuleChanges] = useState<Record<string, ModuleKey[]>>({});
 
   const viewerScopeModuleKeys = useMemo(() => modulesInViewerScope(currentUser), [currentUser]);
 
@@ -175,6 +176,18 @@ export function SettingsModule() {
     isNexaOtusAdmin(currentUser) ||
     isNexaOtusManager(currentUser) ||
     isRocketRideAdmin(currentUser);
+
+  const pendingModuleChangeCount = useMemo(() => {
+    let count = 0;
+    for (const user of users) {
+      const draft = pendingModuleChanges[user.id];
+      if (!draft) continue;
+      const a = [...draft].sort();
+      const b = [...user.modules].sort();
+      if (a.length !== b.length || a.some((m, i) => m !== b[i])) count += 1;
+    }
+    return count;
+  }, [pendingModuleChanges, users]);
 
   const useStaticBadges =
     currentUser.company !== "nexa" && currentUser.company !== "otus" && currentUser.company !== "rocketride";
@@ -271,9 +284,30 @@ export function SettingsModule() {
   const toggleModuleForUser = (user: AppUser, key: ModuleKey) => {
     if (!canEditTargetUserModules(currentUser, user)) return;
     if (!moduleKeyToggleableByViewer(currentUser, key)) return;
-    const has = user.modules.includes(key);
-    const next = has ? user.modules.filter((m) => m !== key) : [...user.modules, key];
-    updateUser(user.id, { modules: next });
+    const source = pendingModuleChanges[user.id] ?? user.modules;
+    const has = source.includes(key);
+    const next = has ? source.filter((m) => m !== key) : [...source, key];
+    setPendingModuleChanges((prev) => ({ ...prev, [user.id]: next }));
+  };
+
+  const effectiveModulesForUser = (user: AppUser): ModuleKey[] => pendingModuleChanges[user.id] ?? user.modules;
+
+  const saveAllPermissionChanges = () => {
+    if (pendingModuleChangeCount === 0) return;
+    for (const user of users) {
+      const draft = pendingModuleChanges[user.id];
+      if (!draft) continue;
+      const a = [...draft].sort();
+      const b = [...user.modules].sort();
+      const changed = a.length !== b.length || a.some((m, i) => m !== b[i]);
+      if (!changed) continue;
+      updateUser(user.id, { modules: draft });
+    }
+    setPendingModuleChanges({});
+  };
+
+  const discardAllPermissionChanges = () => {
+    setPendingModuleChanges({});
   };
 
   const displayModulesForStaticBadges = (user: AppUser) => user.modules;
@@ -299,11 +333,23 @@ export function SettingsModule() {
       <Card className="overflow-hidden p-0">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <h2 className="text-xs font-normal uppercase tracking-[0.12em] text-[var(--muted)]">{lt("USERS")}</h2>
-          {canAddUsers ? (
-            <button type="button" onClick={openAdd} className="btn-primary rounded-lg px-3 py-2 text-sm">
-              {lt("Add User")}
-            </button>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {pendingModuleChangeCount > 0 ? (
+              <>
+                <button type="button" onClick={discardAllPermissionChanges} className="btn-ghost rounded-lg px-3 py-2 text-sm">
+                  {lt("Discard changes")}
+                </button>
+                <button type="button" onClick={saveAllPermissionChanges} className="btn-primary rounded-lg px-3 py-2 text-sm">
+                  {lt("Save permissions")} ({pendingModuleChangeCount})
+                </button>
+              </>
+            ) : null}
+            {canAddUsers ? (
+              <button type="button" onClick={openAdd} className="btn-primary rounded-lg px-3 py-2 text-sm">
+                {lt("Add User")}
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -369,7 +415,7 @@ export function SettingsModule() {
                       ) : (
                         <div className="flex max-w-[520px] flex-wrap gap-1">
                           {viewerScopeModuleKeys.map((key) => {
-                            const active = user.modules.includes(key);
+                            const active = effectiveModulesForUser(user).includes(key);
                             const interactive =
                               rowCanEditModules && moduleKeyToggleableByViewer(currentUser, key);
                             const chipClass = moduleChipClass(active, interactive);

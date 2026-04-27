@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { MentionTextarea } from "@/components/ui/mention-textarea";
 import { useAppContext } from "@/components/providers/app-providers";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -155,7 +156,7 @@ function isNexaOtusAdmin(role: string, company: string) {
 }
 
 export function ClientUpdatesModule() {
-  const { currentUser } = useAppContext();
+  const { currentUser, users } = useAppContext();
   const adminNexaOtus = isNexaOtusAdmin(currentUser.role, currentUser.company);
   const [updates, setUpdates] = useState<ClientUpdateRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -204,6 +205,7 @@ export function ClientUpdatesModule() {
   }, []);
 
   const pinnedList = useMemo(() => updates.filter((u) => u.is_pinned), [updates]);
+  const mentionOptions = useMemo(() => users.map((u) => u.name), [users]);
 
   const resetComposer = () => {
     setComposerContent("");
@@ -370,12 +372,14 @@ export function ClientUpdatesModule() {
             className="mb-6 rounded-[8px] border p-4"
             style={{ backgroundColor: "#161616", borderColor: "rgba(255,255,255,0.06)" }}
           >
-            <textarea
+            <MentionTextarea
               value={composerContent}
-              onChange={(e) => setComposerContent(e.target.value)}
-              placeholder="Share an update, meeting note, transcript or highlight..."
+              onChange={setComposerContent}
+              mentionOptions={mentionOptions}
+              placeholder="Share an update, meeting note, transcript or highlight... Use @ to mention teammates."
               disabled={posting}
               className="min-h-[120px] w-full resize-y rounded-lg border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.04)] px-3 py-2.5 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.35)] focus:border-[rgba(255,69,0,0.45)] focus:outline-none disabled:opacity-60"
+              rows={5}
             />
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <select

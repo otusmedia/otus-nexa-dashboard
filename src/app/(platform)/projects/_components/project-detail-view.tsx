@@ -41,6 +41,7 @@ import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { Card } from "@/components/ui/card";
 import { PublishedToModal } from "@/components/ui/published-to-modal";
+import { MentionTextarea } from "@/components/ui/mention-textarea";
 import { supabase } from "@/lib/supabase";
 import { getTaskHighlightCoverUrl } from "@/lib/task-highlight-cover";
 import { OwnerAvatars } from "./owner-avatars";
@@ -415,6 +416,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     deleteBoardProjectTask,
     updateBoardProject,
     currentUser,
+    users,
     notifyProjectComment,
     logTaskReviewActivity,
     logTaskPublishedToActivity,
@@ -488,6 +490,8 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const panelDescriptionRef = useRef<HTMLTextAreaElement | null>(null);
   /** Avoid resetting description/priority draft when `tasks` gets a new object for the same row (e.g. after updateTask or attachment fetch). */
   const lastPanelSyncedTaskIdRef = useRef<string | null>(null);
+  /** Avoid closing preview on unrelated rerenders; only reset when task changes. */
+  const lastAttachmentTaskIdRef = useRef<string | null>(null);
 
   const groupedStatuses = [
     { group: "To-do", options: TASK_STATUS_OPTIONS.filter((option) => option.group === "To-do") },
@@ -495,6 +499,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     { group: "Complete", options: TASK_STATUS_OPTIONS.filter((option) => option.group === "Complete") },
   ] as const;
   const completedStatuses = new Set<TaskRowStatus>(["Done", "Published"]);
+  const mentionOptions = useMemo(() => users.map((u) => u.name), [users]);
   const progressPercentage = useMemo(() => {
     if (tasks.length === 0) return 0;
     const completed = tasks.filter((task) => completedStatuses.has(task.status)).length;
@@ -619,11 +624,16 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
   useEffect(() => {
     if (!activeTaskId) {
+      lastAttachmentTaskIdRef.current = null;
       setPreviewAttachment(null);
       setTaskAttachmentError("");
       return;
     }
-    setPreviewAttachment(null);
+    const switchedTask = lastAttachmentTaskIdRef.current !== activeTaskId;
+    lastAttachmentTaskIdRef.current = activeTaskId;
+    if (switchedTask) {
+      setPreviewAttachment(null);
+    }
     setTaskAttachmentError("");
     let cancelled = false;
     void (async () => {
@@ -2081,16 +2091,17 @@ export function ProjectDetailView({ project }: { project: Project }) {
         <h2 className="section-title mb-3">{lt("COMMENTS")}</h2>
         <div className="space-y-3">
           <div>
-            <textarea
+            <MentionTextarea
               value={commentDraft}
-              onChange={(event) => setCommentDraft(event.target.value)}
+              onChange={setCommentDraft}
+              mentionOptions={mentionOptions}
               onKeyDown={(event) => {
                 if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                   event.preventDefault();
                   void postComment();
                 }
               }}
-              placeholder={lt("Add a comment...")}
+              placeholder={lt("Add a comment... Use @ to mention teammates.")}
               rows={3}
               className="w-full resize-y rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
             />
@@ -2147,12 +2158,13 @@ export function ProjectDetailView({ project }: { project: Project }) {
                       </div>
                       {isEditing ? (
                         <div className="mt-2">
-                          <textarea
+                          <MentionTextarea
                             value={commentEditDraft}
-                            onChange={(event) => {
-                              setCommentEditDraft(event.target.value);
+                            onChange={(next) => {
+                              setCommentEditDraft(next);
                               if (commentEditError) setCommentEditError("");
                             }}
+                            mentionOptions={mentionOptions}
                             rows={3}
                             className="w-full resize-y rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white"
                           />
@@ -2856,11 +2868,12 @@ export function ProjectDetailView({ project }: { project: Project }) {
                         </p>
                       )}
 
-                      <textarea
+                      <MentionTextarea
                         value={reviewCommentDraft}
-                        onChange={(event) => setReviewCommentDraft(event.target.value)}
+                        onChange={setReviewCommentDraft}
+                        mentionOptions={mentionOptions}
                         rows={4}
-                        placeholder={lt("Add your review comment, feedback or meeting notes...")}
+                        placeholder={lt("Add your review comment, feedback or meeting notes... Use @ to mention teammates.")}
                         className="mb-3 w-full resize-y rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
                       />
 
@@ -3035,12 +3048,13 @@ export function ProjectDetailView({ project }: { project: Project }) {
                                     {lt("You can edit your reply, but not the review status.")}
                                   </p>
                                 )}
-                                <textarea
+                                <MentionTextarea
                                   value={editReviewComment}
-                                  onChange={(event) => setEditReviewComment(event.target.value)}
+                                  onChange={setEditReviewComment}
+                                  mentionOptions={mentionOptions}
                                   rows={4}
                                   disabled={editReviewSubmitting}
-                                  placeholder={lt("Add your review comment, feedback or meeting notes...")}
+                                  placeholder={lt("Add your review comment, feedback or meeting notes... Use @ to mention teammates.")}
                                   className="mb-3 w-full resize-y rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)] disabled:opacity-50"
                                 />
                                 <input
@@ -3244,7 +3258,11 @@ export function ProjectDetailView({ project }: { project: Project }) {
         ? createPortal(
             <div
               className="fixed inset-0 z-[9999] flex items-center justify-center bg-[rgba(0,0,0,0.9)] p-4"
-              onClick={() => setPreviewAttachment(null)}
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  setPreviewAttachment(null);
+                }
+              }}
             >
               <div
                 className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[#111]"
