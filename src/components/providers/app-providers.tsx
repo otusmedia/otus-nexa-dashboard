@@ -293,6 +293,13 @@ type DbTaskRow = {
   task_attachments?: unknown;
 };
 
+type TaskReviewNotificationRow = {
+  id: string;
+  task_id: string | null;
+  reviewer_name: string | null;
+  status: string | null;
+};
+
 const toTaskStatus = (status: string | null | undefined): TaskStatus =>
   status === "in_progress" || status === "in_review" || status === "completed" ? status : "backlog";
 
@@ -578,6 +585,65 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     currentUser.id,
     sessionUserId,
   ]);
+
+  useEffect(() => {
+    if (!sessionUserId || currentUser.id === GUEST_USER.id) return;
+    if (currentUser.role !== "admin") return;
+    if (currentUser.company !== "nexa" && currentUser.company !== "otus") return;
+    let cancelled = false;
+
+    const syncTaskReviewNotifications = async () => {
+      const { data: reviewData, error: reviewError } = await supabase
+        .from("task_reviews")
+        .select("id,task_id,reviewer_name,status")
+        .order("created_at", { ascending: false })
+        .limit(25);
+      if (cancelled || reviewError) return;
+
+      const rows = (reviewData as TaskReviewNotificationRow[] | null) ?? [];
+      const taskIds = Array.from(new Set(rows.map((row) => String(row.task_id ?? "")).filter(Boolean)));
+      const taskNameById = new Map<string, string>();
+      if (taskIds.length > 0) {
+        const { data: taskData, error: taskError } = await supabase.from("tasks").select("id,title").in("id", taskIds);
+        if (!cancelled && !taskError) {
+          for (const taskRow of (taskData as Array<{ id?: string; title?: string | null }> | null) ?? []) {
+            const id = String(taskRow.id ?? "");
+            if (!id) continue;
+            taskNameById.set(id, String(taskRow.title ?? "").trim());
+          }
+        }
+      }
+
+      if (cancelled) return;
+      setNotifications((prev) => {
+        const desiredById = new Map<string, NotificationItem>();
+        for (const row of rows) {
+          const reviewId = String(row.id ?? "");
+          if (!reviewId) continue;
+          const reviewer = String(row.reviewer_name ?? "").trim() || "A RocketRide reviewer";
+          const taskName = taskNameById.get(String(row.task_id ?? "")) || "a task";
+          const status = String(row.status ?? "").trim() || "Updated";
+          const id = `task-review:${reviewId}`;
+          const prior = prev.find((item) => item.id === id);
+          desiredById.set(id, {
+            id,
+            type: "task",
+            message: `${reviewer} left feedback on ${taskName}: ${status}`,
+            read: prior?.read ?? false,
+          });
+        }
+        const withoutTaskReviews = prev.filter((item) => !item.id.startsWith("task-review:"));
+        return [...desiredById.values(), ...withoutTaskReviews].slice(0, 50);
+      });
+    };
+
+    void syncTaskReviewNotifications();
+    const interval = window.setInterval(() => void syncTaskReviewNotifications(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [sessionUserId, currentUser.id, currentUser.role, currentUser.company]);
 
   useEffect(() => {
     if (!sessionUserId || currentUser.id === GUEST_USER.id || !currentUser.name.trim()) return;

@@ -382,6 +382,31 @@ const BOARD_TASK_KEYS = new Set<keyof ProjectTaskRow>([
   "publishedTo",
 ]);
 
+const TASK_TABLE_FILTER_ORDER: TaskRowStatus[] = [
+  "Not Started",
+  "In Progress",
+  "Waiting for Approval",
+  "Done",
+  "Scheduled",
+  "Published",
+];
+
+function taskFilterChipActiveClass(status: TaskRowStatus): string {
+  switch (status) {
+    case "In Progress":
+      return "border-[rgba(255,69,0,0.45)] bg-[rgba(255,69,0,0.14)] text-[rgba(255,220,200,0.98)]";
+    case "Done":
+      return "border-[rgba(34,197,94,0.45)] bg-[rgba(34,197,94,0.12)] text-[rgba(220,252,231,0.95)]";
+    case "Published":
+      return "border-[rgba(59,130,246,0.45)] bg-[rgba(59,130,246,0.14)] text-[rgba(219,234,254,0.98)]";
+    case "Not Started":
+    case "Waiting for Approval":
+    case "Scheduled":
+    default:
+      return "border-[rgba(156,163,175,0.4)] bg-[rgba(156,163,175,0.14)] text-[rgba(229,231,235,0.92)]";
+  }
+}
+
 export function ProjectDetailView({ project }: { project: Project }) {
   const searchParams = useSearchParams();
   const {
@@ -396,6 +421,8 @@ export function ProjectDetailView({ project }: { project: Project }) {
   } = useAppContext();
   const { t: lt } = useLanguage();
   const isRocketRideClient = currentUser.company === "rocketride";
+  const canSetReviewStatus = isRocketRideClient;
+  const canRespondToClientFeedback = Boolean(currentUser.id) && currentUser.id !== "__guest__";
   const [description, setDescription] = useState(project.description);
   const [savedDescription, setSavedDescription] = useState(project.description);
   const [projectDescriptionSavedHint, setProjectDescriptionSavedHint] = useState(false);
@@ -411,7 +438,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [taskStatus, setTaskStatus] = useState<TaskRowStatus>("Not Started");
   const [taskNameError, setTaskNameError] = useState("");
   const [taskSubmitError, setTaskSubmitError] = useState("");
-  const [editingCell, setEditingCell] = useState<{ taskId: string; field: "name" | "owner" | "dueDate" } | null>(null);
+  const [taskStatusFilter, setTaskStatusFilter] = useState<TaskRowStatus | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [panelStatusOpen, setPanelStatusOpen] = useState(false);
   const [panelEditingName, setPanelEditingName] = useState(false);
@@ -450,6 +477,10 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [projectOwnersDropdownOpen, setProjectOwnersDropdownOpen] = useState(false);
   const [comments, setComments] = useState<ProjectComment[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [commentEditDraft, setCommentEditDraft] = useState("");
+  const [commentDeleteDialog, setCommentDeleteDialog] = useState<{ id: string } | null>(null);
+  const [commentEditError, setCommentEditError] = useState("");
   const projectPropsStatusRef = useRef<HTMLDivElement>(null);
   const projectPropsOwnersRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -469,6 +500,33 @@ export function ProjectDetailView({ project }: { project: Project }) {
     const completed = tasks.filter((task) => completedStatuses.has(task.status)).length;
     return Math.round((completed / tasks.length) * 100);
   }, [tasks]);
+
+  const taskStatusCounts = useMemo(() => {
+    const counts: Record<TaskRowStatus, number> = {
+      "Not Started": 0,
+      "In Progress": 0,
+      "Waiting for Approval": 0,
+      Done: 0,
+      Scheduled: 0,
+      Published: 0,
+    };
+    for (const t of tasks) {
+      counts[t.status] += 1;
+    }
+    return counts;
+  }, [tasks]);
+
+  const filteredTasks = useMemo(() => {
+    if (!taskStatusFilter) return tasks;
+    return tasks.filter((t) => t.status === taskStatusFilter);
+  }, [tasks, taskStatusFilter]);
+
+  useEffect(() => {
+    if (!taskStatusFilter) return;
+    if (!tasks.some((t) => t.status === taskStatusFilter)) {
+      setTaskStatusFilter(null);
+    }
+  }, [tasks, taskStatusFilter]);
 
   const selectedStatusOption = TASK_STATUS_OPTIONS.find((option) => option.value === taskStatus) || TASK_STATUS_OPTIONS[0];
 
@@ -597,7 +655,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   }, [activeTaskId, isRocketRideClient, project.id, updateBoardProjectTask]);
 
   useEffect(() => {
-    if (!activeTaskId || !isRocketRideClient) {
+    if (!activeTaskId) {
       setTaskReviews([]);
       setTaskReviewsLoading(false);
       setReviewPendingStatus(null);
@@ -645,7 +703,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     return () => {
       cancelled = true;
     };
-  }, [activeTaskId, isRocketRideClient]);
+  }, [activeTaskId]);
 
   useEffect(() => {
     if (!previewAttachment) return;
@@ -884,6 +942,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   };
 
   const handleTaskStatusSelect = async (taskId: string, status: TaskRowStatus) => {
+    if (isRocketRideClient) return;
     if (status === "Published") {
       const name = tasks.find((t) => t.id === taskId)?.name ?? "";
       const ok = await updateTask(taskId, { status: "Published" });
@@ -1263,6 +1322,60 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setCommentDraft("");
   };
 
+  const canEditProjectComment = (comment: ProjectComment) =>
+    !isRocketRideClient || clientReviewAuthorMatches(comment.user_name, currentUser.name || "");
+
+  const startEditComment = (comment: ProjectComment) => {
+    if (!canEditProjectComment(comment)) return;
+    setEditingCommentId(comment.id);
+    setCommentEditDraft(comment.content);
+    setCommentEditError("");
+  };
+
+  const cancelEditComment = () => {
+    setEditingCommentId(null);
+    setCommentEditDraft("");
+    setCommentEditError("");
+  };
+
+  const saveEditedComment = async () => {
+    if (!editingCommentId) return;
+    const comment = comments.find((c) => c.id === editingCommentId);
+    if (!comment || !canEditProjectComment(comment)) return;
+    const content = commentEditDraft.trim();
+    if (!content) {
+      setCommentEditError("Comment cannot be empty.");
+      return;
+    }
+    setCommentEditError("");
+    const { error } = await supabase.from("project_comments").update({ content }).eq("id", editingCommentId);
+    if (error) {
+      console.error("[supabase] project comment update failed:", error.message);
+      setCommentEditError(error.message || "Failed to save.");
+      return;
+    }
+    setComments((prev) => prev.map((c) => (c.id === editingCommentId ? { ...c, content } : c)));
+    cancelEditComment();
+  };
+
+  const confirmDeleteProjectComment = async () => {
+    if (!commentDeleteDialog) return;
+    const comment = comments.find((c) => c.id === commentDeleteDialog.id);
+    if (!comment || !canEditProjectComment(comment)) {
+      setCommentDeleteDialog(null);
+      return;
+    }
+    const { error } = await supabase.from("project_comments").delete().eq("id", commentDeleteDialog.id);
+    if (error) {
+      console.error("[supabase] project comment delete failed:", error.message);
+      setCommentDeleteDialog(null);
+      return;
+    }
+    setComments((prev) => prev.filter((c) => c.id !== commentDeleteDialog.id));
+    if (editingCommentId === commentDeleteDialog.id) cancelEditComment();
+    setCommentDeleteDialog(null);
+  };
+
   const reloadTaskReviews = useCallback(async () => {
     if (!activeTaskId) return;
     const { data, error } = await supabase
@@ -1318,10 +1431,13 @@ export function ProjectDetailView({ project }: { project: Project }) {
   };
 
   const saveEditedReview = async () => {
-    if (!isRocketRideClient || !activeTask || !editingReviewId) return;
+    if (!activeTask || !editingReviewId) return;
     const rev = taskReviews.find((r) => r.id === editingReviewId);
     if (!rev || !clientReviewAuthorMatches(rev.reviewer_name, currentUser.name)) return;
-    if (!editReviewStatus) {
+    const resolvedEditStatus = canSetReviewStatus
+      ? editReviewStatus
+      : normalizeClientReviewDecision(rev.status) ?? normalizeClientReviewDecision(activeTask.reviewStatus);
+    if (!resolvedEditStatus) {
       setEditReviewError(lt("Select a review status before submitting."));
       return;
     }
@@ -1331,7 +1447,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
       const { error: rowErr } = await supabase
         .from("task_reviews")
         .update({
-          status: editReviewStatus,
+          status: resolvedEditStatus,
           comment: editReviewComment.trim() || null,
         })
         .eq("id", editingReviewId);
@@ -1392,7 +1508,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   };
 
   const confirmDeleteClientReview = async () => {
-    if (!isRocketRideClient || !activeTask || !reviewDeleteDialog) return;
+    if (!activeTask || !reviewDeleteDialog) return;
     const reviewId = reviewDeleteDialog.id;
     const rev = taskReviews.find((r) => r.id === reviewId);
     if (!rev || !clientReviewAuthorMatches(rev.reviewer_name, currentUser.name)) {
@@ -1420,9 +1536,13 @@ export function ProjectDetailView({ project }: { project: Project }) {
   };
 
   const submitClientReview = async () => {
-    if (!isRocketRideClient || !activeTask) return;
+    if (!canRespondToClientFeedback || !activeTask) return;
     if (editingReviewId) return;
-    if (!reviewPendingStatus) {
+    const inheritedStatus =
+      normalizeClientReviewDecision(activeTask.reviewStatus) ??
+      normalizeClientReviewDecision(taskReviews[0]?.status);
+    const statusToSubmit = canSetReviewStatus ? reviewPendingStatus : inheritedStatus;
+    if (!statusToSubmit) {
       setReviewSubmitError(lt("Select a review status before submitting."));
       return;
     }
@@ -1435,7 +1555,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
         .insert({
           task_id: activeTask.id,
           reviewer_name: reviewerName,
-          status: reviewPendingStatus,
+          status: statusToSubmit,
           comment: reviewCommentDraft.trim() || null,
         })
         .select("*")
@@ -1472,7 +1592,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
         }
       }
 
-      const statusLabel = reviewPendingStatus;
+      const statusLabel = statusToSubmit;
       await syncTaskReviewStatusFromDb(activeTask.id);
       logTaskReviewActivity({
         reviewerName,
@@ -1515,86 +1635,109 @@ export function ProjectDetailView({ project }: { project: Project }) {
         <h2 className="section-title mb-1">{lt("Properties")}</h2>
         <div>
           <PropRow label={lt("Status")}>
-            <div className="relative" ref={projectPropsStatusRef}>
-              <button
-                type="button"
-                onClick={() => setProjectStatusDropdownOpen((v) => !v)}
-                className="inline-flex items-center gap-2 rounded-[6px] text-left transition hover:bg-[rgba(255,255,255,0.04)]"
-              >
-                <ProjectStatusBadge status={project.status} />
-                <ChevronDown className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.35)]" strokeWidth={1.5} />
-              </button>
-              {projectStatusDropdownOpen ? (
-                <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2 shadow-lg">
-                  {KANBAN_COLUMNS.map((col) => {
-                    const status = COLUMN_TO_STATUS[col.id];
-                    return (
-                      <button
-                        key={col.id}
-                        type="button"
-                        onClick={() => selectProjectStatus(status)}
-                        className={cn(
-                          "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
-                          project.status === status && "bg-[rgba(255,255,255,0.04)]",
-                        )}
-                      >
-                        <span className={cn("h-2 w-2 shrink-0 rounded-full", col.dotClass)} aria-hidden />
-                        {lt(status)}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
+            {isRocketRideClient ? (
+              <ProjectStatusBadge status={project.status} />
+            ) : (
+              <div className="relative" ref={projectPropsStatusRef}>
+                <button
+                  type="button"
+                  onClick={() => setProjectStatusDropdownOpen((v) => !v)}
+                  className="inline-flex items-center gap-2 rounded-[6px] text-left transition hover:bg-[rgba(255,255,255,0.04)]"
+                >
+                  <ProjectStatusBadge status={project.status} />
+                  <ChevronDown className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.35)]" strokeWidth={1.5} />
+                </button>
+                {projectStatusDropdownOpen ? (
+                  <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2 shadow-lg">
+                    {KANBAN_COLUMNS.map((col) => {
+                      const status = COLUMN_TO_STATUS[col.id];
+                      return (
+                        <button
+                          key={col.id}
+                          type="button"
+                          onClick={() => selectProjectStatus(status)}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
+                            project.status === status && "bg-[rgba(255,255,255,0.04)]",
+                          )}
+                        >
+                          <span className={cn("h-2 w-2 shrink-0 rounded-full", col.dotClass)} aria-hidden />
+                          {lt(status)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </PropRow>
           <PropRow label={lt("Owner")}>
-            <div className="relative" ref={projectPropsOwnersRef}>
-              <button
-                type="button"
-                onClick={() => setProjectOwnersDropdownOpen((v) => !v)}
-                className="flex max-w-full flex-wrap items-center gap-2 rounded-[6px] text-left transition hover:bg-[rgba(255,255,255,0.04)]"
-              >
+            {isRocketRideClient ? (
+              <div className="flex max-w-full flex-wrap items-center gap-1.5">
                 {project.owners.length === 0 ? (
                   <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">—</span>
                 ) : (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {project.owners.map((name) => (
-                      <div
-                        key={name}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] text-[0.7rem] font-light text-white"
-                        style={{ backgroundColor: `hsla(${commentAuthorHue(name)}, 35%, 32%, 1)` }}
-                        title={name}
-                      >
-                        {commentAuthorInitials(name)}
-                      </div>
-                    ))}
-                  </div>
+                  project.owners.map((name) => (
+                    <div
+                      key={name}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] text-[0.7rem] font-light text-white"
+                      style={{ backgroundColor: `hsla(${commentAuthorHue(name)}, 35%, 32%, 1)` }}
+                      title={name}
+                    >
+                      {commentAuthorInitials(name)}
+                    </div>
+                  ))
                 )}
-                <ChevronDown className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.35)]" strokeWidth={1.5} />
-              </button>
-              {projectOwnersDropdownOpen ? (
-                <div className="absolute left-0 top-full z-20 mt-1 max-h-64 w-full min-w-[260px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[#131313] p-2 shadow-lg">
-                  {PROJECT_TEAM_MEMBERS.map((member) => {
-                    const sel = project.owners.includes(member);
-                    return (
-                      <button
-                        key={member}
-                        type="button"
-                        onClick={() => toggleProjectOwner(member)}
-                        className="flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]"
-                      >
-                        {sel ? (
-                          <Check className="h-4 w-4 shrink-0 text-[#22c55e]" strokeWidth={2} />
-                        ) : (
-                          <span className="inline-flex h-4 w-4 shrink-0" aria-hidden />
-                        )}
-                        {member}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
+              </div>
+            ) : (
+              <div className="relative" ref={projectPropsOwnersRef}>
+                <button
+                  type="button"
+                  onClick={() => setProjectOwnersDropdownOpen((v) => !v)}
+                  className="flex max-w-full flex-wrap items-center gap-2 rounded-[6px] text-left transition hover:bg-[rgba(255,255,255,0.04)]"
+                >
+                  {project.owners.length === 0 ? (
+                    <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">—</span>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {project.owners.map((name) => (
+                        <div
+                          key={name}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] text-[0.7rem] font-light text-white"
+                          style={{ backgroundColor: `hsla(${commentAuthorHue(name)}, 35%, 32%, 1)` }}
+                          title={name}
+                        >
+                          {commentAuthorInitials(name)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <ChevronDown className="h-4 w-4 shrink-0 text-[rgba(255,255,255,0.35)]" strokeWidth={1.5} />
+                </button>
+                {projectOwnersDropdownOpen ? (
+                  <div className="absolute left-0 top-full z-20 mt-1 max-h-64 w-full min-w-[260px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[#131313] p-2 shadow-lg">
+                    {PROJECT_TEAM_MEMBERS.map((member) => {
+                      const sel = project.owners.includes(member);
+                      return (
+                        <button
+                          key={member}
+                          type="button"
+                          onClick={() => toggleProjectOwner(member)}
+                          className="flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]"
+                        >
+                          {sel ? (
+                            <Check className="h-4 w-4 shrink-0 text-[#22c55e]" strokeWidth={2} />
+                          ) : (
+                            <span className="inline-flex h-4 w-4 shrink-0" aria-hidden />
+                          )}
+                          {member}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </PropRow>
           <PropRow label={lt("Progress")}>
             <div className="max-w-md">
@@ -1602,30 +1745,26 @@ export function ProjectDetailView({ project }: { project: Project }) {
             </div>
           </PropRow>
           <PropRow label={lt("Due date")}>
-            <input
-              type="date"
-              value={project.dueDate ?? ""}
-              onChange={(event) =>
-                updateBoardProject(project.id, { dueDate: event.target.value || null })
-              }
-              className="mono-num max-w-[12rem] rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light text-white outline-none"
-            />
+            {isRocketRideClient ? (
+              <span className="mono-num text-sm font-light text-[rgba(255,255,255,0.55)]">{formatDisplayDate(project.dueDate)}</span>
+            ) : (
+              <input
+                type="date"
+                value={project.dueDate ?? ""}
+                onChange={(event) =>
+                  updateBoardProject(project.id, { dueDate: event.target.value || null })
+                }
+                className="mono-num max-w-[12rem] rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light text-white outline-none"
+              />
+            )}
           </PropRow>
           <PropRow label={lt("Project type")}>
             <ProjectTypeBadge type={project.type} />
           </PropRow>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setMoreOpen((v) => !v)}
-          className="mt-4 flex w-full items-center justify-between rounded-[8px] border border-[var(--border)] bg-[#101010] px-3 py-2 text-left text-xs font-light text-[rgba(255,255,255,0.4)] transition-colors hover:border-[var(--border-strong)]"
-        >
-          <span>{lt("More properties")}</span>
-          {moreOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-        </button>
-        {moreOpen ? (
-          <div className="mt-3 rounded-[8px] border border-[var(--border)] bg-[#101010] px-3 py-2">
+        {isRocketRideClient ? (
+          <div className="mt-4 rounded-[8px] border border-[var(--border)] bg-[#101010] px-3 py-2">
             <PropRow label={lt("Start date")}>
               <span className="mono-num text-[rgba(255,255,255,0.4)]">{formatDisplayDate(project.startDate)}</span>
             </PropRow>
@@ -1648,22 +1787,63 @@ export function ProjectDetailView({ project }: { project: Project }) {
               )}
             </PropRow>
           </div>
-        ) : null}
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setMoreOpen((v) => !v)}
+              className="mt-4 flex w-full items-center justify-between rounded-[8px] border border-[var(--border)] bg-[#101010] px-3 py-2 text-left text-xs font-light text-[rgba(255,255,255,0.4)] transition-colors hover:border-[var(--border-strong)]"
+            >
+              <span>{lt("More properties")}</span>
+              {moreOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+            {moreOpen ? (
+              <div className="mt-3 rounded-[8px] border border-[var(--border)] bg-[#101010] px-3 py-2">
+                <PropRow label={lt("Start date")}>
+                  <span className="mono-num text-[rgba(255,255,255,0.4)]">{formatDisplayDate(project.startDate)}</span>
+                </PropRow>
+                <PropRow label={lt("Team members")}>
+                  {project.teamMembers.length ? (
+                    <span className="text-[rgba(255,255,255,0.4)]">{project.teamMembers.join(", ")}</span>
+                  ) : (
+                    <span className="text-[rgba(255,255,255,0.4)]">—</span>
+                  )}
+                </PropRow>
+                <PropRow label={lt("Linked invoices")}>
+                  {project.linkedInvoices.length ? (
+                    <ul className="list-inside list-disc text-[rgba(255,255,255,0.4)]">
+                      {project.linkedInvoices.map((inv) => (
+                        <li key={inv}>{inv}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="text-[rgba(255,255,255,0.4)]">—</span>
+                  )}
+                </PropRow>
+              </div>
+            ) : null}
+          </>
+        )}
       </Card>
 
       <Card className="rounded-[8px]">
         <h2 className="section-title mb-3">{lt("About this project")}</h2>
         <textarea
           value={description}
+          readOnly={isRocketRideClient}
           onChange={(e) => {
+            if (isRocketRideClient) return;
             setDescription(e.target.value);
             if (projectDescriptionError) setProjectDescriptionError("");
           }}
           placeholder={lt("Add a project description...")}
           rows={5}
-          className="w-full resize-y rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
+          className={cn(
+            "w-full resize-y rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]",
+            isRocketRideClient && "cursor-default opacity-90",
+          )}
         />
-        {description !== savedDescription ? (
+        {!isRocketRideClient && description !== savedDescription ? (
           <div className="mt-2">
             <div className="flex items-center gap-2">
               <button
@@ -1703,6 +1883,38 @@ export function ProjectDetailView({ project }: { project: Project }) {
             </button>
           ) : null}
         </div>
+        <div className="mb-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setTaskStatusFilter(null)}
+            className={cn(
+              "rounded-full border px-3 py-1.5 text-xs font-light transition-colors",
+              taskStatusFilter === null
+                ? "border-[rgba(255,255,255,0.25)] bg-[rgba(255,255,255,0.08)] text-white"
+                : "border-[rgba(255,255,255,0.08)] bg-[#161616] text-[rgba(255,255,255,0.4)]",
+            )}
+          >
+            {lt("All")} ({tasks.length})
+          </button>
+          {TASK_TABLE_FILTER_ORDER.map((st) => {
+            const c = taskStatusCounts[st];
+            if (c < 1) return null;
+            const active = taskStatusFilter === st;
+            return (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setTaskStatusFilter(st)}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-light transition-colors",
+                  active ? taskFilterChipActiveClass(st) : "border-[rgba(255,255,255,0.08)] bg-[#161616] text-[rgba(255,255,255,0.4)]",
+                )}
+              >
+                {lt(st)} ({c})
+              </button>
+            );
+          })}
+        </div>
         <div className="overflow-x-auto rounded-[8px] border border-[var(--border)]">
           <table className="bg-[#161616]">
             <thead>
@@ -1719,99 +1931,22 @@ export function ProjectDetailView({ project }: { project: Project }) {
               </tr>
             </thead>
             <tbody>
-              {tasks.map((task) => (
+              {filteredTasks.map((task) => (
                 <tr
                   key={task.id}
                   className="group/row cursor-pointer transition-colors hover:bg-[rgba(255,255,255,0.03)]"
                   onClick={() => openTaskPanel(task.id)}
                 >
                   <td className="text-sm font-light text-white">
-                    {isRocketRideClient ? (
-                      <span className="block px-2 py-1 text-sm font-light text-white">{task.name}</span>
-                    ) : editingCell?.taskId === task.id && editingCell.field === "name" ? (
-                      <input
-                        autoFocus
-                        value={task.name}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => void updateTask(task.id, { name: event.target.value })}
-                        onBlur={() => setEditingCell(null)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            (event.currentTarget as HTMLInputElement).blur();
-                          }
-                        }}
-                        className="w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm font-light text-white outline-none"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setEditingCell({ taskId: task.id, field: "name" });
-                        }}
-                        className="text-left text-sm font-light text-white"
-                      >
-                        {task.name}
-                      </button>
-                    )}
+                    <span className="block px-2 py-1 text-sm font-light text-white">{task.name}</span>
                   </td>
-                  <td onClick={(event) => event.stopPropagation()}>
-                    {isRocketRideClient ? (
-                      <div className="px-2 py-1">
-                        <OwnerAvatars names={[task.owner]} />
-                      </div>
-                    ) : editingCell?.taskId === task.id && editingCell.field === "owner" ? (
-                      <select
-                        autoFocus
-                        value={task.owner}
-                        onChange={(event) => void updateTask(task.id, { owner: event.target.value })}
-                        onBlur={() => setEditingCell(null)}
-                        className="w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs font-light text-white outline-none"
-                      >
-                        {OWNER_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setEditingCell({ taskId: task.id, field: "owner" })}
-                        className="w-full text-left"
-                      >
-                        <OwnerAvatars names={[task.owner]} />
-                      </button>
-                    )}
+                  <td className="px-2 py-1">
+                    <OwnerAvatars names={[task.owner]} />
                   </td>
-                  <td className="text-xs font-light text-[rgba(255,255,255,0.4)]" onClick={(event) => event.stopPropagation()}>
-                    {isRocketRideClient ? (
-                      <span className="mono-num px-2 py-1">
-                        {task.dueDate ? formatDisplayDate(task.dueDate) : "—"}
-                      </span>
-                    ) : editingCell?.taskId === task.id && editingCell.field === "dueDate" ? (
-                      <input
-                        type="date"
-                        autoFocus
-                        value={task.dueDate || ""}
-                        onChange={(event) => void updateTask(task.id, { dueDate: event.target.value || null })}
-                        onBlur={() => setEditingCell(null)}
-                        className="w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-xs font-light text-white outline-none"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setEditingCell({ taskId: task.id, field: "dueDate" })}
-                        className="text-left text-xs font-light text-[rgba(255,255,255,0.4)]"
-                      >
-                        {task.dueDate ? (
-                          <span className="mono-num">{formatDisplayDate(task.dueDate)}</span>
-                        ) : (
-                          "—"
-                        )}
-                      </button>
-                    )}
+                  <td className="text-xs font-light text-[rgba(255,255,255,0.4)]">
+                    <span className="mono-num px-2 py-1">
+                      {task.dueDate ? formatDisplayDate(task.dueDate) : "—"}
+                    </span>
                   </td>
                   <td className="relative" onClick={(event) => event.stopPropagation()}>
                     {isRocketRideClient ? (
@@ -1870,7 +2005,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                       </>
                     )}
                   </td>
-                  <td className="text-xs font-light text-[rgba(255,255,255,0.55)]" onClick={(event) => event.stopPropagation()}>
+                  <td className="text-xs font-light text-[rgba(255,255,255,0.55)]">
                     <div className="px-2 py-1">
                       <TaskReviewColumnBadge status={task.reviewStatus} lt={lt} />
                     </div>
@@ -1889,7 +2024,10 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => void updateTask(task.id, { isFeatured: !task.isFeatured })}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void updateTask(task.id, { isFeatured: !task.isFeatured });
+                        }}
                         className="inline-flex rounded-[6px] p-1.5 text-[rgba(255,255,255,0.35)] transition hover:bg-[rgba(255,255,255,0.06)]"
                         aria-label={task.isFeatured ? lt("Unfeature task") : lt("Feature task in highlights")}
                       >
@@ -1907,7 +2045,10 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     {!isRocketRideClient ? (
                       <button
                         type="button"
-                        onClick={() => setTaskDeleteDialog({ id: task.id, name: task.name })}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setTaskDeleteDialog({ id: task.id, name: task.name });
+                        }}
                         className="inline-flex rounded-[6px] p-1.5 text-[rgba(255,255,255,0.3)] opacity-0 transition hover:text-[#ef4444] group-hover/row:opacity-100"
                         aria-label={lt("Delete task")}
                       >
@@ -1969,23 +2110,82 @@ export function ProjectDetailView({ project }: { project: Project }) {
             </p>
           ) : (
             <ul className="space-y-0 divide-y divide-[var(--border)]">
-              {comments.map((comment) => (
-                <li key={comment.id} className="flex gap-3 py-3 first:pt-0">
-                  <div
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] text-[0.65rem] font-light text-white"
-                    style={{ backgroundColor: `hsla(${commentAuthorHue(comment.user_name)}, 35%, 32%, 1)` }}
-                  >
-                    {commentAuthorInitials(comment.user_name)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-white">{comment.user_name}</p>
-                    <p className="mt-1 text-sm font-light text-[rgba(255,255,255,0.85)]">{comment.content}</p>
-                    <p className="mt-1 text-[0.72rem] font-light text-[rgba(255,255,255,0.4)]">
-                      {formatCommentTimestamp(comment.created_at)}
-                    </p>
-                  </div>
-                </li>
-              ))}
+              {comments.map((comment) => {
+                const canEdit = canEditProjectComment(comment);
+                const isEditing = editingCommentId === comment.id;
+                return (
+                  <li key={comment.id} className="flex gap-3 py-3 first:pt-0">
+                    <div
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] text-[0.65rem] font-light text-white"
+                      style={{ backgroundColor: `hsla(${commentAuthorHue(comment.user_name)}, 35%, 32%, 1)` }}
+                    >
+                      {commentAuthorInitials(comment.user_name)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <p className="text-sm font-medium text-white">{comment.user_name}</p>
+                        {canEdit && !isEditing ? (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => startEditComment(comment)}
+                              className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--border)] px-2 py-1 text-[11px] font-light text-[rgba(255,255,255,0.75)] transition-colors hover:bg-[rgba(255,255,255,0.06)]"
+                            >
+                              <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                              {lt("Edit")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCommentDeleteDialog({ id: comment.id })}
+                              className="inline-flex items-center gap-1 rounded-[6px] border border-[rgba(239,68,68,0.35)] px-2 py-1 text-[11px] font-light text-[#fca5a5] transition-colors hover:bg-[rgba(239,68,68,0.1)]"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                              {lt("Delete")}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                      {isEditing ? (
+                        <div className="mt-2">
+                          <textarea
+                            value={commentEditDraft}
+                            onChange={(event) => {
+                              setCommentEditDraft(event.target.value);
+                              if (commentEditError) setCommentEditError("");
+                            }}
+                            rows={3}
+                            className="w-full resize-y rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white"
+                          />
+                          {commentEditError ? (
+                            <p className="mt-1 text-[0.75rem] text-[#ef4444]">{commentEditError}</p>
+                          ) : null}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void saveEditedComment()}
+                              className="rounded-[6px] bg-[#ff4500] px-3 py-1.5 text-xs font-light text-white transition-colors hover:bg-[#e33f00]"
+                            >
+                              {lt("Save")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditComment}
+                              className="btn-ghost rounded-[6px] px-3 py-1.5 text-xs"
+                            >
+                              {lt("Cancel")}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-sm font-light text-[rgba(255,255,255,0.85)]">{comment.content}</p>
+                      )}
+                      <p className="mt-1 text-[0.72rem] font-light text-[rgba(255,255,255,0.4)]">
+                        {formatCommentTimestamp(comment.created_at)}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
@@ -2131,7 +2331,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
             <div className="space-y-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  {isRocketRideClient ? (
+                  {canRespondToClientFeedback ? (
                     <h2 className="text-2xl font-light text-white">{activeTask.name}</h2>
                   ) : panelEditingName ? (
                     <input
@@ -2267,7 +2467,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   <span className="text-sm font-light text-[rgba(255,255,255,0.7)]">{project.name}</span>
 
                   <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Priority")}</span>
-                  {isRocketRideClient ? (
+                  {canRespondToClientFeedback ? (
                     <span
                       className={cn(
                         "text-sm font-light",
@@ -2549,7 +2749,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
               <div className="space-y-2 border-t border-[var(--border)] pt-5">
                 <div className="flex items-center justify-between gap-3">
                   <span className="section-title mb-0">{lt("FEATURED IN HIGHLIGHTS")}</span>
-                  {isRocketRideClient ? (
+                  {canRespondToClientFeedback ? (
                     <span className="text-xs font-light text-[rgba(255,255,255,0.55)]">
                       {activeTask.isFeatured ? lt("Yes") : lt("No")}
                     </span>
@@ -2596,124 +2796,137 @@ export function ProjectDetailView({ project }: { project: Project }) {
                 </div>
               ) : null}
 
-              {isRocketRideClient ? (
-                <div className="border-t border-[var(--border)] pt-6">
-                  <p className="section-title mb-1">{lt("CLIENT REVIEW")}</p>
+              <div className="border-t border-[var(--border)] pt-6">
+                  <p className="section-title mb-1">{isRocketRideClient ? lt("CLIENT REVIEW") : lt("CLIENT FEEDBACK")}</p>
                   <p className="mb-4 text-xs font-light text-[rgba(255,255,255,0.45)]">
-                    {lt("Leave feedback, approvals or notes for the team")}
+                    {isRocketRideClient
+                      ? lt("Leave feedback, approvals or notes for the team")
+                      : lt("Feedback submitted by the RocketRide team")}
                   </p>
 
-                  {editingReviewId ? (
-                    <p className="mb-3 text-[0.75rem] font-light text-amber-200/90">{lt("Finish or cancel your edit before submitting a new review.")}</p>
-                  ) : null}
-                  <div className={cn(editingReviewId ? "pointer-events-none opacity-40" : undefined)}>
-                  <p className="mb-2 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-                    {lt("Review status")}
-                  </p>
-                  <div className="mb-4 grid gap-2 sm:grid-cols-3">
-                    {(
-                      [
-                        { value: "Approved" as const, icon: Check, activeClass: "border-emerald-500/50 bg-emerald-600/25 text-emerald-100" },
-                        { value: "Needs Changes" as const, icon: AlertCircle, activeClass: "border-amber-500/50 bg-amber-600/20 text-amber-100" },
-                        { value: "Rejected" as const, icon: X, activeClass: "border-red-500/50 bg-red-600/25 text-red-100" },
-                      ] as const
-                    ).map(({ value, icon: ChipIcon, activeClass }) => {
-                      const selected = reviewPendingStatus === value;
-                      return (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => {
-                            setReviewPendingStatus(value);
-                            setReviewSubmitError("");
-                          }}
-                          className={cn(
-                            "flex flex-col items-center gap-2 rounded-[10px] border px-3 py-4 text-center text-sm font-light transition-colors",
-                            selected
-                              ? activeClass
-                              : "border-[var(--border)] bg-[#161616] text-[rgba(255,255,255,0.55)] hover:border-[rgba(255,255,255,0.2)]",
-                          )}
-                        >
-                          <ChipIcon className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
-                          {value === "Approved"
-                            ? lt("Approved")
-                            : value === "Needs Changes"
-                              ? lt("Needs Changes")
-                              : lt("Rejected")}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {canRespondToClientFeedback ? (
+                    <>
+                      {editingReviewId ? (
+                        <p className="mb-3 text-[0.75rem] font-light text-amber-200/90">{lt("Finish or cancel your edit before submitting a new review.")}</p>
+                      ) : null}
+                      <div className={cn(editingReviewId ? "pointer-events-none opacity-40" : undefined)}>
+                      {canSetReviewStatus ? (
+                        <>
+                          <p className="mb-2 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+                            {lt("Review status")}
+                          </p>
+                          <div className="mb-4 grid gap-2 sm:grid-cols-3">
+                            {(
+                              [
+                                { value: "Approved" as const, icon: Check, activeClass: "border-emerald-500/50 bg-emerald-600/25 text-emerald-100" },
+                                { value: "Needs Changes" as const, icon: AlertCircle, activeClass: "border-amber-500/50 bg-amber-600/20 text-amber-100" },
+                                { value: "Rejected" as const, icon: X, activeClass: "border-red-500/50 bg-red-600/25 text-red-100" },
+                              ] as const
+                            ).map(({ value, icon: ChipIcon, activeClass }) => {
+                              const selected = reviewPendingStatus === value;
+                              return (
+                                <button
+                                  key={value}
+                                  type="button"
+                                  onClick={() => {
+                                    setReviewPendingStatus(value);
+                                    setReviewSubmitError("");
+                                  }}
+                                  className={cn(
+                                    "flex flex-col items-center gap-2 rounded-[10px] border px-3 py-4 text-center text-sm font-light transition-colors",
+                                    selected
+                                      ? activeClass
+                                      : "border-[var(--border)] bg-[#161616] text-[rgba(255,255,255,0.55)] hover:border-[rgba(255,255,255,0.2)]",
+                                  )}
+                                >
+                                  <ChipIcon className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
+                                  {value === "Approved"
+                                    ? lt("Approved")
+                                    : value === "Needs Changes"
+                                      ? lt("Needs Changes")
+                                      : lt("Rejected")}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="mb-3 text-xs font-light text-[rgba(255,255,255,0.5)]">
+                          {lt("Reply to the feedback without changing the review status.")}
+                        </p>
+                      )}
 
-                  <textarea
-                    value={reviewCommentDraft}
-                    onChange={(event) => setReviewCommentDraft(event.target.value)}
-                    rows={4}
-                    placeholder={lt("Add your review comment, feedback or meeting notes...")}
-                    className="mb-3 w-full resize-y rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
-                  />
+                      <textarea
+                        value={reviewCommentDraft}
+                        onChange={(event) => setReviewCommentDraft(event.target.value)}
+                        rows={4}
+                        placeholder={lt("Add your review comment, feedback or meeting notes...")}
+                        className="mb-3 w-full resize-y rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
+                      />
 
-                  <input
-                    ref={reviewComposerFileRef}
-                    type="file"
-                    className="hidden"
-                    multiple
-                    onChange={(event) => {
-                      const list = event.target.files;
-                      if (!list?.length) return;
-                      setReviewDraftFiles((prev) => [...prev, ...Array.from(list)]);
-                      event.target.value = "";
-                    }}
-                  />
-                  <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => reviewComposerFileRef.current?.click()}
-                      disabled={reviewSubmitting}
-                      className="inline-flex items-center gap-2 rounded-[8px] border border-[var(--border)] bg-[#161616] px-3 py-2 text-xs font-light text-white transition-colors hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-50"
-                    >
-                      <Paperclip className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-                      {lt("Attach file")}
-                    </button>
-                    {reviewDraftFiles.map((file, idx) => (
-                      <span
-                        key={`${file.name}-${idx}`}
-                        className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--border)] bg-[#141414] py-1 pl-2.5 pr-1 text-[11px] font-light text-[rgba(255,255,255,0.85)]"
-                      >
-                        <span className="max-w-[200px] truncate">{file.name}</span>
+                      <input
+                        ref={reviewComposerFileRef}
+                        type="file"
+                        className="hidden"
+                        multiple
+                        onChange={(event) => {
+                          const list = event.target.files;
+                          if (!list?.length) return;
+                          setReviewDraftFiles((prev) => [...prev, ...Array.from(list)]);
+                          event.target.value = "";
+                        }}
+                      />
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
                         <button
                           type="button"
+                          onClick={() => reviewComposerFileRef.current?.click()}
                           disabled={reviewSubmitting}
-                          onClick={() => setReviewDraftFiles((prev) => prev.filter((_, i) => i !== idx))}
-                          className="rounded-full p-0.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white"
-                          aria-label={lt("Remove")}
+                          className="inline-flex items-center gap-2 rounded-[8px] border border-[var(--border)] bg-[#161616] px-3 py-2 text-xs font-light text-white transition-colors hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-50"
                         >
-                          <X className="h-3.5 w-3.5" strokeWidth={2} />
+                          <Paperclip className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                          {lt("Attach file")}
                         </button>
-                      </span>
-                    ))}
-                  </div>
+                        {reviewDraftFiles.map((file, idx) => (
+                          <span
+                            key={`${file.name}-${idx}`}
+                            className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--border)] bg-[#141414] py-1 pl-2.5 pr-1 text-[11px] font-light text-[rgba(255,255,255,0.85)]"
+                          >
+                            <span className="max-w-[200px] truncate">{file.name}</span>
+                            <button
+                              type="button"
+                              disabled={reviewSubmitting}
+                              onClick={() => setReviewDraftFiles((prev) => prev.filter((_, i) => i !== idx))}
+                              className="rounded-full p-0.5 text-[rgba(255,255,255,0.45)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white"
+                              aria-label={lt("Remove")}
+                            >
+                              <X className="h-3.5 w-3.5" strokeWidth={2} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
 
-                  {reviewSubmitError ? (
-                    <p className="mb-2 text-[0.75rem] text-[#ef4444]">{reviewSubmitError}</p>
+                      {reviewSubmitError ? (
+                        <p className="mb-2 text-[0.75rem] text-[#ef4444]">{reviewSubmitError}</p>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        disabled={reviewSubmitting || Boolean(editingReviewId)}
+                        onClick={() => void submitClientReview()}
+                        className="btn-primary mb-6 w-full rounded-[8px] py-2.5 text-sm font-light disabled:opacity-60"
+                      >
+                        {reviewSubmitting ? (
+                          <span className="inline-flex items-center justify-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.5} aria-hidden />
+                            {lt("Submitting…")}
+                          </span>
+                        ) : (
+                          canSetReviewStatus ? lt("Submit Review") : lt("Send Reply")
+                        )}
+                      </button>
+                      </div>
+                    </>
                   ) : null}
-
-                  <button
-                    type="button"
-                    disabled={reviewSubmitting || Boolean(editingReviewId)}
-                    onClick={() => void submitClientReview()}
-                    className="btn-primary mb-6 w-full rounded-[8px] py-2.5 text-sm font-light disabled:opacity-60"
-                  >
-                    {reviewSubmitting ? (
-                      <span className="inline-flex items-center justify-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.5} aria-hidden />
-                        {lt("Submitting…")}
-                      </span>
-                    ) : (
-                      lt("Submit Review")
-                    )}
-                  </button>
-                  </div>
 
                   <p className="section-title mb-2">{lt("Review history")}</p>
                   {taskReviewsLoading ? (
@@ -2776,44 +2989,52 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
                             {isEditing ? (
                               <div className="mt-4 border-t border-[var(--border)] pt-4">
-                                <p className="mb-2 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-                                  {lt("Review status")}
-                                </p>
-                                <div className="mb-3 grid gap-2 sm:grid-cols-3">
-                                  {(
-                                    [
-                                      { value: "Approved" as const, icon: Check, activeClass: "border-emerald-500/50 bg-emerald-600/25 text-emerald-100" },
-                                      { value: "Needs Changes" as const, icon: AlertCircle, activeClass: "border-amber-500/50 bg-amber-600/20 text-amber-100" },
-                                      { value: "Rejected" as const, icon: X, activeClass: "border-red-500/50 bg-red-600/25 text-red-100" },
-                                    ] as const
-                                  ).map(({ value, icon: ChipIcon, activeClass }) => {
-                                    const selected = editReviewStatus === value;
-                                    return (
-                                      <button
-                                        key={value}
-                                        type="button"
-                                        disabled={editReviewSubmitting}
-                                        onClick={() => {
-                                          setEditReviewStatus(value);
-                                          setEditReviewError("");
-                                        }}
-                                        className={cn(
-                                          "flex flex-col items-center gap-2 rounded-[10px] border px-3 py-3 text-center text-sm font-light transition-colors disabled:opacity-50",
-                                          selected
-                                            ? activeClass
-                                            : "border-[var(--border)] bg-[#141414] text-[rgba(255,255,255,0.55)] hover:border-[rgba(255,255,255,0.2)]",
-                                        )}
-                                      >
-                                        <ChipIcon className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
-                                        {value === "Approved"
-                                          ? lt("Approved")
-                                          : value === "Needs Changes"
-                                            ? lt("Needs Changes")
-                                            : lt("Rejected")}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
+                                {canSetReviewStatus ? (
+                                  <>
+                                    <p className="mb-2 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+                                      {lt("Review status")}
+                                    </p>
+                                    <div className="mb-3 grid gap-2 sm:grid-cols-3">
+                                      {(
+                                        [
+                                          { value: "Approved" as const, icon: Check, activeClass: "border-emerald-500/50 bg-emerald-600/25 text-emerald-100" },
+                                          { value: "Needs Changes" as const, icon: AlertCircle, activeClass: "border-amber-500/50 bg-amber-600/20 text-amber-100" },
+                                          { value: "Rejected" as const, icon: X, activeClass: "border-red-500/50 bg-red-600/25 text-red-100" },
+                                        ] as const
+                                      ).map(({ value, icon: ChipIcon, activeClass }) => {
+                                        const selected = editReviewStatus === value;
+                                        return (
+                                          <button
+                                            key={value}
+                                            type="button"
+                                            disabled={editReviewSubmitting}
+                                            onClick={() => {
+                                              setEditReviewStatus(value);
+                                              setEditReviewError("");
+                                            }}
+                                            className={cn(
+                                              "flex flex-col items-center gap-2 rounded-[10px] border px-3 py-3 text-center text-sm font-light transition-colors disabled:opacity-50",
+                                              selected
+                                                ? activeClass
+                                                : "border-[var(--border)] bg-[#141414] text-[rgba(255,255,255,0.55)] hover:border-[rgba(255,255,255,0.2)]",
+                                            )}
+                                          >
+                                            <ChipIcon className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
+                                            {value === "Approved"
+                                              ? lt("Approved")
+                                              : value === "Needs Changes"
+                                                ? lt("Needs Changes")
+                                                : lt("Rejected")}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <p className="mb-3 text-xs font-light text-[rgba(255,255,255,0.5)]">
+                                    {lt("You can edit your reply, but not the review status.")}
+                                  </p>
+                                )}
                                 <textarea
                                   value={editReviewComment}
                                   onChange={(event) => setEditReviewComment(event.target.value)}
@@ -3014,7 +3235,6 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     </ul>
                   )}
                 </div>
-              ) : null}
             </div>
           ) : null}
         </aside>
@@ -3116,6 +3336,18 @@ export function ProjectDetailView({ project }: { project: Project }) {
         onCancel={() => setReviewDeleteDialog(null)}
         onConfirm={() => {
           void confirmDeleteClientReview();
+        }}
+      />
+
+      <DeleteConfirmModal
+        open={commentDeleteDialog !== null}
+        title={lt("Delete comment")}
+        message={lt("Delete this comment? This cannot be undone.")}
+        confirmLabel={lt("Delete")}
+        cancelLabel={lt("Cancel")}
+        onCancel={() => setCommentDeleteDialog(null)}
+        onConfirm={() => {
+          void confirmDeleteProjectComment();
         }}
       />
     </div>
