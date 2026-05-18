@@ -9,6 +9,8 @@ import { useLanguage } from "@/context/language-context";
 import { ALL_MODULE_KEYS, MODULE_LABELS, ROCKETRIDE_ALLOWED_MODULE_KEYS } from "@/lib/modules";
 import type { AppUser, ModuleKey, Role, UserCompany } from "@/types";
 import { cn } from "@/lib/utils";
+import { isAgencyAdmin, isAgencyCompany, isClientCompany, isRocketRideCompany } from "@/lib/client-utils";
+import { ClientsSettingsPanel } from "@/modules/settings/clients-settings-panel";
 
 type FormState = {
   name: string;
@@ -16,6 +18,7 @@ type FormState = {
   role: Role;
   modules: ModuleKey[];
   company: UserCompany;
+  clientSlug: string;
 };
 
 type EditFormState = {
@@ -24,32 +27,30 @@ type EditFormState = {
   role: Role;
   modules: ModuleKey[];
   company: UserCompany;
+  clientSlug: string;
   password: string;
 };
 
-const COMPANY_OPTIONS: { value: Exclude<UserCompany, "">; labelKey: string }[] = [
-  { value: "nexa", labelKey: "Nexa" },
-  { value: "otus", labelKey: "Otus" },
-  { value: "rocketride", labelKey: "RocketRide" },
-];
-
-function emptyForm(defaultCompany: UserCompany): FormState {
+function emptyForm(defaultCompany: UserCompany, defaultClientSlug = ""): FormState {
   return {
     name: "",
     email: "",
     role: "manager",
     modules: [],
     company: defaultCompany === "" ? "nexa" : defaultCompany,
+    clientSlug: defaultClientSlug,
   };
 }
 
 function emptyEditForm(user: AppUser): EditFormState {
+  const company = user.company === "" ? "nexa" : user.company;
   return {
     name: user.name,
     email: user.email ?? "",
     role: user.role,
     modules: [...user.modules],
-    company: user.company === "" ? "nexa" : user.company,
+    company,
+    clientSlug: user.clientSlug ?? (isClientCompany(company) ? company : ""),
     password: "",
   };
 }
@@ -92,7 +93,11 @@ function isNexaOtusAdmin(user: AppUser): boolean {
 }
 
 function isRocketRideAdmin(user: AppUser): boolean {
-  return user.company === "rocketride" && user.role === "admin";
+  return isRocketRideCompany(user.company) && user.role === "admin";
+}
+
+function isExternalClientAdmin(user: AppUser): boolean {
+  return isClientCompany(user.company) && user.role === "admin";
 }
 
 function isNexaOtusManager(user: AppUser): boolean {
@@ -102,8 +107,8 @@ function isNexaOtusManager(user: AppUser): boolean {
 function modulesInViewerScope(viewer: AppUser): ModuleKey[] {
   if (isNexaOtusAdmin(viewer)) return [...ALL_MODULE_KEYS];
   if (isNexaOtusManager(viewer)) return [...ALL_MODULE_KEYS];
-  if (isRocketRideAdmin(viewer)) return [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
-  if (viewer.company === "rocketride" && viewer.role === "manager") {
+  if (isRocketRideAdmin(viewer) || isExternalClientAdmin(viewer)) return [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
+  if (isClientCompany(viewer.company) && viewer.role === "manager") {
     return ALL_MODULE_KEYS.filter((k) => viewer.modules.includes(k) && ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(k));
   }
   return [...ALL_MODULE_KEYS];
@@ -112,8 +117,8 @@ function modulesInViewerScope(viewer: AppUser): ModuleKey[] {
 function moduleKeyToggleableByViewer(viewer: AppUser, key: ModuleKey): boolean {
   if (isNexaOtusAdmin(viewer)) return true;
   if (isNexaOtusManager(viewer)) return true;
-  if (isRocketRideAdmin(viewer)) return ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(key);
-  if (viewer.company === "rocketride" && viewer.role === "manager") {
+  if (isRocketRideAdmin(viewer) || isExternalClientAdmin(viewer)) return ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(key);
+  if (isClientCompany(viewer.company) && viewer.role === "manager") {
     return viewer.modules.includes(key) && ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(key);
   }
   return false;
@@ -123,9 +128,11 @@ function canEditTargetUserModules(viewer: AppUser, target: AppUser): boolean {
   if (target.id === viewer.id) return false;
   if (isNexaOtusAdmin(viewer)) return true;
   if (isNexaOtusManager(viewer)) return target.company === viewer.company;
-  if (isRocketRideAdmin(viewer)) return target.company === "rocketride";
-  if (viewer.company === "rocketride" && viewer.role === "manager") {
-    return target.company === "rocketride";
+  if (isRocketRideAdmin(viewer) || isExternalClientAdmin(viewer)) {
+    return target.company === viewer.company;
+  }
+  if (isClientCompany(viewer.company) && viewer.role === "manager") {
+    return target.company === viewer.company;
   }
   return false;
 }
@@ -133,9 +140,11 @@ function canEditTargetUserModules(viewer: AppUser, target: AppUser): boolean {
 function canEditUser(viewer: AppUser, target: AppUser): boolean {
   if (isNexaOtusAdmin(viewer)) return true;
   if (isNexaOtusManager(viewer)) return target.company === viewer.company;
-  if (isRocketRideAdmin(viewer)) return target.company === "rocketride";
-  if (viewer.company === "rocketride" && viewer.role === "manager") {
-    return target.company === "rocketride";
+  if (isRocketRideAdmin(viewer) || isExternalClientAdmin(viewer)) {
+    return target.company === viewer.company;
+  }
+  if (isClientCompany(viewer.company) && viewer.role === "manager") {
+    return target.company === viewer.company;
   }
   return false;
 }
@@ -144,13 +153,17 @@ function canDeleteUser(viewer: AppUser, target: AppUser): boolean {
   if (target.id === viewer.id) return false;
   if (isNexaOtusAdmin(viewer)) return true;
   if (isNexaOtusManager(viewer)) return target.company === viewer.company;
-  if (isRocketRideAdmin(viewer)) return target.company === "rocketride";
+  if (isRocketRideAdmin(viewer) || isExternalClientAdmin(viewer)) {
+    return target.company === viewer.company;
+  }
   return false;
 }
 
 export function SettingsModule() {
-  const { users, addUser, updateUser, deleteUser, ts, currentUser } = useAppContext();
+  const { users, addUser, updateUser, deleteUser, ts, currentUser, clients } = useAppContext();
   const { t: lt } = useLanguage();
+  const showClientsTab = isAgencyAdmin(currentUser);
+  const [settingsTab, setSettingsTab] = useState<"users" | "clients">("users");
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [form, setForm] = useState<FormState>(() => emptyForm("nexa"));
   const [editTarget, setEditTarget] = useState<AppUser | null>(null);
@@ -160,14 +173,34 @@ export function SettingsModule() {
 
   const viewerScopeModuleKeys = useMemo(() => modulesInViewerScope(currentUser), [currentUser]);
 
+  const companySelectOptions = useMemo(() => {
+    const agency = [
+      { value: "nexa" as UserCompany, label: lt("Nexa") },
+      { value: "otus" as UserCompany, label: lt("Otus") },
+    ];
+    const clientOptions = clients.map((c) => ({
+      value: c.slug as UserCompany,
+      label: c.name,
+    }));
+    return [...agency, ...clientOptions];
+  }, [clients, lt]);
+
+  const companyLabel = (company: UserCompany) => {
+    if (company === "nexa") return lt("Nexa");
+    if (company === "otus") return lt("Otus");
+    if (company === "rocketride") return lt("RocketRide");
+    const client = clients.find((c) => c.slug === company);
+    return client?.name ?? company;
+  };
+
   const tableUsers = useMemo(() => {
     let list = [...users].sort((a, b) => a.name.localeCompare(b.name));
     if (isNexaOtusAdmin(currentUser)) return list;
     if (currentUser.company === "nexa" || currentUser.company === "otus") {
       return list.filter((u) => u.company === currentUser.company);
     }
-    if (currentUser.company === "rocketride") {
-      return list.filter((u) => u.company === "rocketride");
+    if (isClientCompany(currentUser.company)) {
+      return list.filter((u) => u.company === currentUser.company);
     }
     return list;
   }, [users, currentUser]);
@@ -175,7 +208,8 @@ export function SettingsModule() {
   const canAddUsers =
     isNexaOtusAdmin(currentUser) ||
     isNexaOtusManager(currentUser) ||
-    isRocketRideAdmin(currentUser);
+    isRocketRideAdmin(currentUser) ||
+    isExternalClientAdmin(currentUser);
 
   const pendingModuleChangeCount = useMemo(() => {
     let count = 0;
@@ -189,17 +223,22 @@ export function SettingsModule() {
     return count;
   }, [pendingModuleChanges, users]);
 
-  const useStaticBadges =
-    currentUser.company !== "nexa" && currentUser.company !== "otus" && currentUser.company !== "rocketride";
+  const useStaticBadges = isClientCompany(currentUser.company);
 
-  const openAdd = () => {
+  const openAdd = (prefillClientSlug?: string) => {
     const defaultCompany: UserCompany =
-      isRocketRideAdmin(currentUser) || (currentUser.company === "rocketride" && currentUser.role === "manager")
-        ? "rocketride"
-        : isNexaOtusManager(currentUser)
+      isRocketRideAdmin(currentUser) || isExternalClientAdmin(currentUser)
+        ? currentUser.company
+        : isClientCompany(currentUser.company) && currentUser.role === "manager"
           ? currentUser.company
-          : "nexa";
-    setForm(emptyForm(defaultCompany));
+          : isNexaOtusManager(currentUser)
+            ? currentUser.company
+            : prefillClientSlug
+              ? prefillClientSlug
+              : "nexa";
+    const defaultSlug = isClientCompany(defaultCompany) ? defaultCompany : prefillClientSlug ?? "";
+    setForm(emptyForm(defaultCompany, defaultSlug));
+    setSettingsTab("users");
     setAddModalOpen(true);
   };
 
@@ -208,24 +247,25 @@ export function SettingsModule() {
     if (!name) return;
     const email = form.email.trim();
     const company: UserCompany =
-      isRocketRideAdmin(currentUser) || (currentUser.company === "rocketride" && currentUser.role === "manager")
-        ? "rocketride"
+      isRocketRideAdmin(currentUser) ||
+      isExternalClientAdmin(currentUser) ||
+      (isClientCompany(currentUser.company) && currentUser.role === "manager")
+        ? currentUser.company
         : isNexaOtusManager(currentUser)
           ? currentUser.company
           : form.company || "nexa";
     let modules: ModuleKey[];
     if (form.role === "admin") {
       if (isNexaOtusAdmin(currentUser) || isNexaOtusManager(currentUser)) {
-        modules = [...ALL_MODULE_KEYS];
-      } else if (isRocketRideAdmin(currentUser)) {
-        modules = [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
+        modules = isClientCompany(company) ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS] : [...ALL_MODULE_KEYS];
       } else {
         modules = [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
       }
     } else {
       modules = form.modules.filter((m) => viewerScopeModuleKeys.includes(m));
     }
-    addUser({ name, email: email || null, role: form.role, modules, company });
+    const clientSlug = isClientCompany(company) ? company : null;
+    addUser({ name, email: email || null, role: form.role, modules, company, clientSlug });
     setAddModalOpen(false);
   };
 
@@ -240,32 +280,40 @@ export function SettingsModule() {
     const name = editForm.name.trim();
     if (!name) return;
     let company: UserCompany = editForm.company;
-    if (isRocketRideAdmin(currentUser) || (currentUser.company === "rocketride" && currentUser.role === "manager")) {
-      company = "rocketride";
+    if (
+      isRocketRideAdmin(currentUser) ||
+      isExternalClientAdmin(currentUser) ||
+      (isClientCompany(currentUser.company) && currentUser.role === "manager")
+    ) {
+      company = currentUser.company;
     } else if (isNexaOtusManager(currentUser)) {
       company = currentUser.company;
     }
     let role: Role = editForm.role;
-    if (isRocketRideAdmin(currentUser) && editTarget.id === currentUser.id) {
+    if ((isRocketRideAdmin(currentUser) || isExternalClientAdmin(currentUser)) && editTarget.id === currentUser.id) {
       role = editTarget.role;
     }
     let modules: ModuleKey[];
     if (role === "admin") {
-      modules = company === "rocketride" ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS] : [...ALL_MODULE_KEYS];
+      modules = isClientCompany(company) ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS] : [...ALL_MODULE_KEYS];
     } else {
-      const rrViewer =
-        isRocketRideAdmin(currentUser) || (currentUser.company === "rocketride" && currentUser.role === "manager");
+      const clientViewer =
+        isRocketRideAdmin(currentUser) ||
+        isExternalClientAdmin(currentUser) ||
+        (isClientCompany(currentUser.company) && currentUser.role === "manager");
       modules =
-        company === "rocketride" && rrViewer
+        isClientCompany(company) && clientViewer
           ? editForm.modules.filter((m) => ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(m))
           : [...editForm.modules];
     }
+    const clientSlug = isClientCompany(company) ? company : null;
     const payload: Parameters<typeof updateUser>[1] = {
       name,
       email: editForm.email.trim() || null,
       company,
       role,
       modules,
+      clientSlug,
     };
     if (editForm.password.trim()) {
       payload.password = editForm.password.trim();
@@ -314,7 +362,8 @@ export function SettingsModule() {
 
   const editCompanyLocked =
     isRocketRideAdmin(currentUser) ||
-    (currentUser.company === "rocketride" && currentUser.role === "manager") ||
+    isExternalClientAdmin(currentUser) ||
+    (isClientCompany(currentUser.company) && currentUser.role === "manager") ||
     isNexaOtusManager(currentUser);
 
   const editRoleLocked = Boolean(
@@ -322,7 +371,10 @@ export function SettingsModule() {
   );
 
   const editModuleScopeKeys =
-    editTarget && (isRocketRideAdmin(currentUser) || (editTarget.company === "rocketride" && currentUser.company === "rocketride"))
+    editTarget &&
+    (isRocketRideAdmin(currentUser) ||
+      isExternalClientAdmin(currentUser) ||
+      (isClientCompany(currentUser.company) && editTarget.company === currentUser.company))
       ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
       : viewerScopeModuleKeys;
 
@@ -330,6 +382,38 @@ export function SettingsModule() {
     <>
       <PageHeader title={lt("SETTINGS")} subtitle={lt("User management and permissions")} />
 
+      {showClientsTab ? (
+        <div className="mb-4 flex gap-2 border-b border-[var(--border)]">
+          <button
+            type="button"
+            onClick={() => setSettingsTab("users")}
+            className={cn(
+              "border-b-2 px-3 py-2 text-xs uppercase tracking-[0.1em] transition",
+              settingsTab === "users"
+                ? "border-[#FF4500] text-[#FF4500]"
+                : "border-transparent text-[var(--muted)] hover:text-[var(--text)]",
+            )}
+          >
+            {lt("USERS")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSettingsTab("clients")}
+            className={cn(
+              "border-b-2 px-3 py-2 text-xs uppercase tracking-[0.1em] transition",
+              settingsTab === "clients"
+                ? "border-[#FF4500] text-[#FF4500]"
+                : "border-transparent text-[var(--muted)] hover:text-[var(--text)]",
+            )}
+          >
+            {lt("CLIENTS")}
+          </button>
+        </div>
+      ) : null}
+
+      {settingsTab === "clients" && showClientsTab ? (
+        <ClientsSettingsPanel onAddUserForClient={(slug) => openAdd(slug)} />
+      ) : (
       <Card className="overflow-hidden p-0">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <h2 className="text-xs font-normal uppercase tracking-[0.12em] text-[var(--muted)]">{lt("USERS")}</h2>
@@ -345,7 +429,7 @@ export function SettingsModule() {
               </>
             ) : null}
             {canAddUsers ? (
-              <button type="button" onClick={openAdd} className="btn-primary rounded-lg px-3 py-2 text-sm">
+              <button type="button" onClick={() => openAdd()} className="btn-primary rounded-lg px-3 py-2 text-sm">
                 {lt("Add User")}
               </button>
             ) : null}
@@ -394,11 +478,7 @@ export function SettingsModule() {
                               companyBadgeClass(user.company),
                             )}
                           >
-                            {user.company === "nexa"
-                              ? lt("Nexa")
-                              : user.company === "otus"
-                                ? lt("Otus")
-                                : lt("RocketRide")}
+                            {companyLabel(user.company)}
                           </span>
                         ) : null}
                       </div>
@@ -466,6 +546,7 @@ export function SettingsModule() {
           </table>
         </div>
       </Card>
+      )}
 
       <Modal open={addModalOpen} title={lt("Add user")} onClose={() => setAddModalOpen(false)} closeLabel={lt("Close")}>
         <div className="space-y-3">
@@ -490,9 +571,11 @@ export function SettingsModule() {
           </div>
           <div>
             <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Company")}</label>
-            {isRocketRideAdmin(currentUser) || (currentUser.company === "rocketride" && currentUser.role === "manager") ? (
+            {isRocketRideAdmin(currentUser) ||
+            isExternalClientAdmin(currentUser) ||
+            (isClientCompany(currentUser.company) && currentUser.role === "manager") ? (
               <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-[var(--muted)]">
-                {lt("RocketRide")}
+                {companyLabel(currentUser.company)}
               </div>
             ) : isNexaOtusManager(currentUser) ? (
               <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-[var(--muted)]">
@@ -501,17 +584,19 @@ export function SettingsModule() {
             ) : (
               <select
                 value={form.company === "" ? "nexa" : form.company}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const company = e.target.value as UserCompany;
                   setForm((prev) => ({
                     ...prev,
-                    company: e.target.value as UserCompany,
-                  }))
-                }
+                    company,
+                    clientSlug: isClientCompany(company) ? company : "",
+                  }));
+                }}
                 className="w-full rounded-lg px-3 py-2 text-sm"
               >
-                {COMPANY_OPTIONS.map((opt) => (
+                {companySelectOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
-                    {lt(opt.labelKey)}
+                    {opt.label}
                   </option>
                 ))}
               </select>
@@ -602,25 +687,28 @@ export function SettingsModule() {
               <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Company")}</label>
               {editCompanyLocked ? (
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-[var(--muted)]">
-                  {editForm.company === "nexa"
-                    ? lt("Nexa")
-                    : editForm.company === "otus"
-                      ? lt("Otus")
-                      : lt("RocketRide")}
+                  {companyLabel(editForm.company)}
                 </div>
               ) : (
                 <select
                   value={editForm.company === "" ? "nexa" : editForm.company}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const company = e.target.value as UserCompany;
                     setEditForm((prev) =>
-                      prev ? { ...prev, company: e.target.value as UserCompany } : prev,
-                    )
-                  }
+                      prev
+                        ? {
+                            ...prev,
+                            company,
+                            clientSlug: isClientCompany(company) ? company : "",
+                          }
+                        : prev,
+                    );
+                  }}
                   className="w-full rounded-lg px-3 py-2 text-sm"
                 >
-                  {COMPANY_OPTIONS.map((opt) => (
+                  {companySelectOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
-                      {lt(opt.labelKey)}
+                      {opt.label}
                     </option>
                   ))}
                 </select>

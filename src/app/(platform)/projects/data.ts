@@ -53,6 +53,7 @@ export interface Project {
   linkedInvoices: string[];
   description: string;
   tasks: ProjectTaskRow[];
+  clientSlug: string | null;
 }
 
 export type ProjectsByColumn = Record<KanbanColumnId, Project[]>;

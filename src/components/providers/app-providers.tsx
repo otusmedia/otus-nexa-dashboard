@@ -34,6 +34,7 @@ import { dictionary, localizeDynamic, localizeStatus, type TranslationKey } from
 import type {
   ActivityLogItem,
   AppUser,
+  Client,
   ContractItem,
   EmbedConfig,
   EventItem,
@@ -49,6 +50,36 @@ import type {
   TaskStatus,
   UserCompany,
 } from "@/types";
+
+import {
+  effectiveUserClientSlug,
+  isAgencyCompany,
+  resolveDataClientSlug,
+  rowMatchesDataClient,
+  userHasLiveApis,
+} from "@/lib/client-utils";
+
+function filterProjectsByColumn(
+  board: ProjectsByColumn,
+  opts: { agencyAdmin: boolean; clientFilter: string; userClientSlug: string | null },
+): ProjectsByColumn {
+  const matchSlug = (slug: string | null | undefined) => {
+    if (opts.agencyAdmin) {
+      if (opts.clientFilter === "all") return true;
+      return (slug ?? "") === opts.clientFilter;
+    }
+    if (!opts.userClientSlug) return true;
+    return (slug ?? "") === opts.userClientSlug;
+  };
+  const filterList = (list: Project[]) => list.filter((p) => matchSlug(p.clientSlug));
+  return {
+    planning: filterList(board.planning),
+    in_progress: filterList(board.in_progress),
+    paused: filterList(board.paused),
+    done: filterList(board.done),
+    cancelled: filterList(board.cancelled),
+  };
+}
 
 interface AppContextValue {
   language: AppLanguage;
@@ -69,11 +100,34 @@ interface AppContextValue {
     role: AppUser["role"];
     modules: AppUser["modules"];
     company?: AppUser["company"];
+    clientSlug?: string | null;
   }) => void;
   updateUser: (
     id: string,
-    updates: Partial<Pick<AppUser, "name" | "role" | "modules" | "company" | "email">> & { password?: string },
+    updates: Partial<Pick<AppUser, "name" | "role" | "modules" | "company" | "email" | "clientSlug">> & {
+      password?: string;
+    },
   ) => void;
+  clients: Client[];
+  clientsLoading: boolean;
+  projectsClientFilter: string;
+  setProjectsClientFilter: (slug: string) => void;
+  addClient: (input: {
+    name: string;
+    slug: string;
+    primaryColor: string;
+    active: boolean;
+    logoUrl?: string | null;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  updateClient: (
+    id: string,
+    updates: Partial<Pick<Client, "name" | "slug" | "primaryColor" | "active" | "logoUrl">>,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  refreshClients: () => void;
+  /** False for new clients (e.g. Grupo Elo) — dashboard skips Meta/IG/GA4 live APIs. */
+  clientApisEnabled: boolean;
+  /** When set, module data (financial, calendar, marketing, etc.) is limited to this client. */
+  dataClientSlug: string | null;
   deleteUser: (id: string) => void;
   tasks: Task[];
   tasksLoading: boolean;
@@ -167,6 +221,7 @@ const GUEST_USER: AppUser = {
   role: "client",
   company: "",
   modules: [],
+  clientSlug: null,
 };
 
 const APP_USERS_SEED: Array<{
@@ -209,14 +264,14 @@ const APP_USERS_SEED: Array<{
     email: "karla@nexamedia.com",
     company: "nexa",
     role: "manager",
-    modules: ["projects", "updates", "marketing", "publishing", "files"],
+    modules: ["projects", "updates", "marketing", "publishing", "content-management", "files"],
   },
   {
     name: "Luca",
     email: "luca@otusmedia.com",
     company: "otus",
     role: "manager",
-    modules: ["projects", "updates", "marketing", "publishing", "files"],
+    modules: ["projects", "updates", "marketing", "publishing", "content-management", "files"],
   },
   {
     name: "Aaron Jimenez",
@@ -228,11 +283,9 @@ const APP_USERS_SEED: Array<{
 ];
 
 function normalizeUserCompany(value: unknown): UserCompany {
-  const s = String(value ?? "").toLowerCase();
-  if (s === "nexa") return "nexa";
-  if (s === "otus") return "otus";
-  if (s === "rocketride") return "rocketride";
-  return "";
+  const s = String(value ?? "").toLowerCase().trim();
+  if (!s) return "";
+  return s;
 }
 
 function normalizeUserRole(value: unknown): Role {
@@ -256,6 +309,9 @@ function appUserFromAppUsersRow(row: Record<string, unknown>): AppUser {
   if (role === "admin" && (company === "nexa" || company === "otus")) {
     modules = [...ALL_MODULE_KEYS];
   }
+  const clientSlugRaw = row.client_slug;
+  const clientSlug =
+    clientSlugRaw != null && String(clientSlugRaw).trim() !== "" ? String(clientSlugRaw).trim() : null;
   return {
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
@@ -263,6 +319,20 @@ function appUserFromAppUsersRow(row: Record<string, unknown>): AppUser {
     role,
     company,
     modules,
+    clientSlug,
+  };
+}
+
+function clientFromRow(row: Record<string, unknown>): Client {
+  return {
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    slug: String(row.slug ?? ""),
+    logoUrl: row.logo_url != null && String(row.logo_url).trim() !== "" ? String(row.logo_url) : null,
+    primaryColor: String(row.primary_color ?? "#FF4500"),
+    active: row.active !== false,
+    apiEnabled: row.api_enabled === true,
+    createdAt: String(row.created_at ?? ""),
   };
 }
 
@@ -277,6 +347,7 @@ type DbProjectRow = {
   start_date: string | null;
   end_date: string | null;
   description: string | null;
+  client_slug?: string | null;
 };
 
 type DbTaskRow = {
@@ -374,6 +445,7 @@ function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTask
       linkedInvoices: [],
       description: row.description ?? "",
       tasks: projectTasks,
+      clientSlug: row.client_slug?.trim() ? String(row.client_slug).trim() : null,
     };
   });
   return splitProjectsByColumn(projects);
@@ -409,8 +481,82 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [activityLoading, setActivityLoading] = useState(true);
   const [embedConfig, setEmbedConfig] = useState<EmbedConfig>({ title: "Performance Embed", url: "https://example.com" });
   const [query, setQuery] = useState("");
-  const [projectsByColumn, setProjectsByColumn] = useState<ProjectsByColumn>(() => splitProjectsByColumn([]));
+  const [allProjectsByColumn, setAllProjectsByColumn] = useState<ProjectsByColumn>(() => splitProjectsByColumn([]));
   const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsClientFilter, setProjectsClientFilterState] = useState("all");
+
+  const setProjectsClientFilter = useCallback(
+    (slug: string) => {
+      setProjectsClientFilterState(slug);
+      if (!sessionUserId) return;
+      try {
+        localStorage.setItem(`projects-client-filter:${sessionUserId}`, slug);
+      } catch {
+        /* ignore */
+      }
+    },
+    [sessionUserId],
+  );
+
+  useEffect(() => {
+    if (!sessionUserId) return;
+    try {
+      const saved = localStorage.getItem(`projects-client-filter:${sessionUserId}`);
+      if (saved) setProjectsClientFilterState(saved);
+    } catch {
+      /* ignore */
+    }
+  }, [sessionUserId]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(true);
+
+  const fetchClients = useCallback(() => {
+    void supabase
+      .from("clients")
+      .select("*")
+      .order("name", { ascending: true })
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("[supabase] clients fetch failed:", error.message);
+          setClients([]);
+          return;
+        }
+        setClients(((data as Array<Record<string, unknown>> | null) ?? []).map((row) => clientFromRow(row)));
+      })
+      .then(
+        () => setClientsLoading(false),
+        () => setClientsLoading(false),
+      );
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    setClientsLoading(true);
+    void supabase
+      .from("clients")
+      .select("*")
+      .order("name", { ascending: true })
+      .then(({ data, error }) => {
+        if (!mounted) return;
+        if (error) {
+          console.error("[supabase] clients fetch failed:", error.message);
+          setClients([]);
+        } else {
+          setClients(((data as Array<Record<string, unknown>> | null) ?? []).map((row) => clientFromRow(row)));
+        }
+      })
+      .then(
+        () => {
+          if (mounted) setClientsLoading(false);
+        },
+        () => {
+          if (mounted) setClientsLoading(false);
+        },
+      );
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const currentUser = useMemo((): AppUser => {
     if (!sessionUserId) return GUEST_USER;
@@ -419,6 +565,26 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     if (persistedUser?.id === sessionUserId) return persistedUser;
     return GUEST_USER;
   }, [sessionUserId, users, persistedUser]);
+
+  const projectsByColumn = useMemo(
+    () =>
+      filterProjectsByColumn(allProjectsByColumn, {
+        agencyAdmin: isAgencyCompany(currentUser.company),
+        clientFilter: projectsClientFilter,
+        userClientSlug: effectiveUserClientSlug(currentUser),
+      }),
+    [allProjectsByColumn, currentUser, projectsClientFilter],
+  );
+
+  const clientApisEnabled = useMemo(
+    () => userHasLiveApis(currentUser, clients),
+    [currentUser, clients],
+  );
+
+  const dataClientSlug = useMemo(
+    () => resolveDataClientSlug(currentUser, projectsClientFilter),
+    [currentUser, projectsClientFilter],
+  );
 
   const allowedModules: ModuleKey[] =
     !sessionUserId || currentUser.id === GUEST_USER.id ? [] : [...currentUser.modules];
@@ -708,12 +874,16 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    void supabase
+    const userSlug = effectiveUserClientSlug(currentUser);
+    let query = supabase
       .from("tasks")
       .select("*")
       .is("project_id", null)
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
+      .order("created_at", { ascending: false });
+    if (userSlug && !isAgencyCompany(currentUser.company)) {
+      query = query.eq("client_slug", userSlug);
+    }
+    void query.then(({ data, error }) => {
         if (!mounted) return;
         if (error) {
           console.error("[supabase] tasks fetch failed:", error.message);
@@ -733,24 +903,29 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [currentUser.company, currentUser.clientSlug]);
 
   useEffect(() => {
     let mounted = true;
     void (async () => {
-      const [projectsRes, tasksRes] = await Promise.all([
-        supabase.from("projects").select("*").order("created_at", { ascending: false }),
-        supabase
-          .from("tasks")
-          .select("*, task_attachments(*)")
-          .not("project_id", "is", null)
-          .order("created_at", { ascending: false }),
-      ]);
+      let projectsQuery = supabase.from("projects").select("*").order("created_at", { ascending: false });
+      if (dataClientSlug) {
+        projectsQuery = projectsQuery.eq("client_slug", dataClientSlug);
+      }
+      let tasksQuery = supabase
+        .from("tasks")
+        .select("*, task_attachments(*)")
+        .not("project_id", "is", null)
+        .order("created_at", { ascending: false });
+      if (dataClientSlug) {
+        tasksQuery = tasksQuery.eq("client_slug", dataClientSlug);
+      }
+      const [projectsRes, tasksRes] = await Promise.all([projectsQuery, tasksQuery]);
       if (!mounted) return;
       if (projectsRes.error || tasksRes.error) {
         if (projectsRes.error) console.error("[supabase] projects fetch failed:", projectsRes.error.message);
         if (tasksRes.error) console.error("[supabase] project tasks fetch failed:", tasksRes.error.message);
-        setProjectsByColumn(splitProjectsByColumn([]));
+        setAllProjectsByColumn(splitProjectsByColumn([]));
         if (mounted) setProjectsLoading(false);
         return;
       }
@@ -770,7 +945,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           return { ...t, published_at: iso };
         });
       }
-      setProjectsByColumn(
+      setAllProjectsByColumn(
         mapRowsToProjectsByColumn(
           (projectsRes.data as DbProjectRow[] | null) ?? [],
           taskRows,
@@ -781,22 +956,25 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     let mounted = true;
-    void supabase
-      .from("invoices")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
+    let invoicesQuery = supabase.from("invoices").select("*").order("created_at", { ascending: false });
+    if (dataClientSlug) {
+      invoicesQuery = invoicesQuery.eq("client_slug", dataClientSlug);
+    }
+    void invoicesQuery.then(({ data, error }) => {
         if (!mounted) return;
         if (error) {
           console.error("[supabase] invoices fetch failed:", error.message);
           setInvoices([]);
         } else {
+          const rows = ((data as Array<Record<string, unknown>> | null) ?? []).filter((row) =>
+            rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+          );
           setInvoices(
-            ((data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
+            rows.map((row) => ({
               id: String(row.id ?? ""),
               amount: Number(row.amount ?? 0),
               status: row.status === "paid" || row.status === "overdue" ? row.status : "pending",
@@ -818,21 +996,25 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     let mounted = true;
-    void supabase
-      .from("files")
-      .select("*")
-      .then(({ data, error }) => {
+    let filesQuery = supabase.from("files").select("*");
+    if (dataClientSlug) {
+      filesQuery = filesQuery.eq("client_slug", dataClientSlug);
+    }
+    void filesQuery.then(({ data, error }) => {
         if (!mounted) return;
         if (error) {
           console.error("[supabase] files fetch failed:", error.message);
           setFiles([]);
         } else {
+          const rows = ((data as Array<Record<string, unknown>> | null) ?? []).filter((row) =>
+            rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+          );
           setFiles(
-            ((data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
+            rows.map((row) => ({
               id: String(row.id ?? ""),
               name: String(row.name ?? ""),
               category: "Reports",
@@ -857,22 +1039,25 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     let mounted = true;
-    void supabase
-      .from("contracts")
-      .select("*")
-      .order("uploaded_at", { ascending: false })
-      .then(({ data, error }) => {
+    let contractsQuery = supabase.from("contracts").select("*").order("uploaded_at", { ascending: false });
+    if (dataClientSlug) {
+      contractsQuery = contractsQuery.eq("client_slug", dataClientSlug);
+    }
+    void contractsQuery.then(({ data, error }) => {
         if (!mounted) return;
         if (error) {
           console.error("[supabase] contracts fetch failed:", error.message);
           setContracts([]);
         } else {
+          const rows = ((data as Array<Record<string, unknown>> | null) ?? []).filter((row) =>
+            rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+          );
           setContracts(
-            ((data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
+            rows.map((row) => ({
               id: String(row.id ?? ""),
               name: String(row.name ?? ""),
               uploadDate: String(row.uploaded_at ?? new Date().toISOString().slice(0, 10)),
@@ -895,7 +1080,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     let mounted = true;
@@ -978,7 +1163,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             if (error) console.error("[supabase] app_users modules update failed:", error.message);
           });
       },
-      addUser: ({ name, email: emailInput, role, modules, company = "" }) => {
+      addUser: ({ name, email: emailInput, role, modules, company = "", clientSlug: clientSlugInput }) => {
         const elevatedCompany = currentUser.company === "nexa" || currentUser.company === "otus";
         const rocketRideViewer = currentUser.company === "rocketride";
         const nexaOtusAdmin = elevatedCompany && currentUser.role === "admin";
@@ -1010,6 +1195,14 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           modulesToStore = modules.filter((m) => viewerScopeModuleKeys.includes(m));
         }
         const emailTrimmed = emailInput != null && String(emailInput).trim() !== "" ? String(emailInput).trim() : null;
+        let clientSlugToStore: string | null = null;
+        if (!isAgencyCompany(companyResolved)) {
+          if (clientSlugInput != null && String(clientSlugInput).trim() !== "") {
+            clientSlugToStore = String(clientSlugInput).trim();
+          } else {
+            clientSlugToStore = String(companyResolved).trim() || null;
+          }
+        }
         void supabase
           .from("app_users")
           .insert({
@@ -1018,6 +1211,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             company: companyResolved,
             role,
             modules: modulesToStore,
+            client_slug: clientSlugToStore,
           })
           .select("*")
           .single()
@@ -1048,6 +1242,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (rest.email !== undefined) dbPatch.email = rest.email != null && String(rest.email).trim() !== "" ? String(rest.email).trim() : null;
         if (rest.role !== undefined) dbPatch.role = rest.role;
         if (rest.company !== undefined) dbPatch.company = rest.company;
+        if (rest.clientSlug !== undefined) dbPatch.client_slug = rest.clientSlug;
         if (rest.modules !== undefined) dbPatch.modules = rest.modules;
         if (passwordUpdate !== undefined && String(passwordUpdate).trim() !== "") {
           dbPatch.password_hash = hashAppPassword(String(passwordUpdate).trim());
@@ -1423,8 +1618,116 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       setQuery,
       projectsByColumn,
       projectsLoading,
+      projectsClientFilter,
+      setProjectsClientFilter,
+      clients,
+      clientsLoading,
+      refreshClients: fetchClients,
+      clientApisEnabled,
+      dataClientSlug,
+      addClient: async ({ name, slug, primaryColor, active, logoUrl }) => {
+        const trimmedName = name.trim();
+        const trimmedSlug = slug.trim().toLowerCase();
+        if (!trimmedName || !trimmedSlug) {
+          return { ok: false, error: "Name and slug are required." };
+        }
+        const { data: inserted, error } = await supabase
+          .from("clients")
+          .insert({
+            name: trimmedName,
+            slug: trimmedSlug,
+            primary_color: primaryColor || "#FF4500",
+            active,
+            api_enabled: false,
+            logo_url: logoUrl ?? null,
+          })
+          .select("*")
+          .single();
+        if (error) {
+          console.error("[supabase] clients insert failed:", error.message);
+          return { ok: false, error: error.message };
+        }
+        const client = clientFromRow((inserted as Record<string, unknown>) ?? {});
+        setClients((prev) => [...prev, client].sort((a, b) => a.name.localeCompare(b.name)));
+
+        const projectId = crypto.randomUUID();
+        const welcomeName = `Welcome — ${trimmedName}`;
+        const welcomeProject: Project = {
+          id: projectId,
+          name: welcomeName,
+          column: "planning",
+          owners: [],
+          progress: 0,
+          dueDate: null,
+          status: "Planning",
+          type: "Website",
+          startDate: null,
+          teamMembers: [],
+          linkedInvoices: [],
+          description: "",
+          tasks: [],
+          clientSlug: trimmedSlug,
+        };
+        setAllProjectsByColumn((prev) => ({
+          ...prev,
+          planning: [welcomeProject, ...prev.planning],
+        }));
+        void supabase
+          .from("projects")
+          .insert({
+            id: projectId,
+            name: welcomeName,
+            type: "Website",
+            status: "Planning",
+            progress: 0,
+            client_slug: trimmedSlug,
+          })
+          .then(({ error: projectError }) => {
+            if (projectError) console.error("[supabase] welcome project insert failed:", projectError.message);
+          });
+
+        const onboardAction = `New client onboarded: ${trimmedName}`;
+        void supabase.from("activity").insert({ action: onboardAction, user_name: currentUser.name }).then(({ error: actError }) => {
+          if (actError) console.error("[supabase] client onboard activity failed:", actError.message);
+        });
+        setActivity((prev) => [
+          {
+            id: crypto.randomUUID(),
+            action: onboardAction,
+            actor: currentUser.name,
+            timestamp: new Date().toISOString(),
+          },
+          ...prev,
+        ].slice(0, 10));
+
+        return { ok: true };
+      },
+      updateClient: async (id, updates) => {
+        const dbPatch: Record<string, unknown> = {};
+        if (updates.name !== undefined) dbPatch.name = updates.name.trim();
+        if (updates.slug !== undefined) dbPatch.slug = updates.slug.trim().toLowerCase();
+        if (updates.primaryColor !== undefined) dbPatch.primary_color = updates.primaryColor;
+        if (updates.active !== undefined) dbPatch.active = updates.active;
+        if (updates.logoUrl !== undefined) dbPatch.logo_url = updates.logoUrl;
+        if (Object.keys(dbPatch).length === 0) return { ok: true };
+        const { data, error } = await supabase.from("clients").update(dbPatch).eq("id", id).select("*").single();
+        if (error) {
+          console.error("[supabase] clients update failed:", error.message);
+          return { ok: false, error: error.message };
+        }
+        if (data) {
+          const next = clientFromRow(data as Record<string, unknown>);
+          setClients((prev) => prev.map((c) => (c.id === id ? next : c)).sort((a, b) => a.name.localeCompare(b.name)));
+        }
+        return { ok: true };
+      },
       addProject: ({ name, type, owner, startDate, endDate, description, column }) => {
         const id = crypto.randomUUID();
+        const projectClientSlug = isAgencyCompany(currentUser.company)
+          ? projectsClientFilter !== "all"
+            ? projectsClientFilter
+            : null
+          : effectiveUserClientSlug(currentUser);
         const newProject: Project = {
           id,
           name,
@@ -1439,8 +1742,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           linkedInvoices: [],
           description,
           tasks: [],
+          clientSlug: projectClientSlug,
         };
-        setProjectsByColumn((prev) => ({
+        setAllProjectsByColumn((prev) => ({
           ...prev,
           [column]: [newProject, ...prev[column]],
         }));
@@ -1456,6 +1760,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             start_date: startDate,
             end_date: endDate,
             description,
+            client_slug: projectClientSlug,
           })
           .then(({ error }) => {
             if (error) console.error("[supabase] project insert failed:", error.message);
@@ -1466,7 +1771,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         const cols: KanbanColumnId[] = ["planning", "in_progress", "paused", "done", "cancelled"];
         let prevTask: ProjectTaskRow | undefined;
         outer: for (const col of cols) {
-          for (const p of projectsByColumn[col]) {
+          for (const p of allProjectsByColumn[col]) {
             if (p.id === projectId) {
               prevTask = p.tasks.find((t) => t.id === taskId);
               break outer;
@@ -1484,7 +1789,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         ) {
           pushNotification(`You were assigned to task: ${taskTitle}`, "task");
         }
-        setProjectsByColumn((prev) => {
+        setAllProjectsByColumn((prev) => {
           const mapProject = (p: Project): Project => {
             if (p.id !== projectId) return p;
             return { ...p, tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, ...updates } : t)) };
@@ -1500,7 +1805,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       },
       deleteBoardProject: (projectId) => {
         let deletedName = "";
-        setProjectsByColumn((prev) => {
+        setAllProjectsByColumn((prev) => {
           const strip = (list: Project[]) => {
             const hit = list.find((p) => p.id === projectId);
             if (hit) deletedName = hit.name;
@@ -1527,7 +1832,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       },
       deleteBoardProjectTask: (projectId, taskId) => {
         let progressUpdate: number | null = null;
-        setProjectsByColumn((prev) => {
+        setAllProjectsByColumn((prev) => {
           const mapProject = (p: Project): Project => {
             if (p.id !== projectId) return p;
             const nextTasks = p.tasks.filter((t) => t.id !== taskId);
@@ -1556,7 +1861,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (currentUser.name && task.owner.trim() === currentUser.name.trim()) {
           pushNotification(`You were assigned to task: ${task.name}`, "task");
         }
-        setProjectsByColumn((prev) => {
+        setAllProjectsByColumn((prev) => {
           const mapProject = (p: Project): Project =>
             p.id === projectId ? { ...p, tasks: [...p.tasks, task] } : p;
           return {
@@ -1574,7 +1879,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (source.droppableId === destination.droppableId && source.index === destination.index) return;
         const sourceColumn = source.droppableId as KanbanColumnId;
         const destinationColumn = destination.droppableId as KanbanColumnId;
-        setProjectsByColumn((prev) => {
+        setAllProjectsByColumn((prev) => {
           const next: ProjectsByColumn = {
             planning: [...prev.planning],
             in_progress: [...prev.in_progress],
@@ -1601,7 +1906,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       },
       updateBoardProject: (projectId, patch) => {
         const cols: KanbanColumnId[] = ["planning", "in_progress", "paused", "done", "cancelled"];
-        setProjectsByColumn((prev) => {
+        setAllProjectsByColumn((prev) => {
           let sourceCol: KanbanColumnId | null = null;
           let sourceIdx = -1;
           let base: Project | null = null;
@@ -1697,7 +2002,14 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       logTaskPublishedToActivity,
       query,
       projectsByColumn,
+      allProjectsByColumn,
       projectsLoading,
+      projectsClientFilter,
+      clients,
+      clientsLoading,
+      fetchClients,
+      clientApisEnabled,
+      dataClientSlug,
     ],
   );
 

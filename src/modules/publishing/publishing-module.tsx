@@ -16,6 +16,7 @@ import { Modal } from "@/components/ui/modal";
 import { useAppContext } from "@/components/providers/app-providers";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { isClientCompany, rowMatchesDataClient } from "@/lib/client-utils";
 import type { CalendarEvent } from "@/types/calendar";
 
 /** Dispatched after logging a published post so the Dashboard KPI can refetch. */
@@ -148,13 +149,13 @@ const LOG_PLATFORM_PRESETS = ["Instagram", "LinkedIn", "X", "Blog"] as const;
 export function PublishingModule() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { currentUser, logTaskPublishedToActivity } = useAppContext();
-  /** RocketRide org users are treated as clients (schedule-only here), same as Projects `isRocketRideClient`. */
-  const isRocketRideUser = currentUser.company === "rocketride";
+  const { currentUser, logTaskPublishedToActivity, dataClientSlug } = useAppContext();
+  /** External client org users (RocketRide, Grupo Elo, etc.) — schedule-only, same as Projects client view. */
+  const isRocketRideUser = isClientCompany(currentUser.company);
   const canCompose = !isRocketRideUser;
 
   const [mainTab, setMainTab] = useState<"compose" | "schedule">(() =>
-    currentUser.company === "rocketride" ? "schedule" : "compose",
+    isClientCompany(currentUser.company) ? "schedule" : "compose",
   );
   const [platforms, setPlatforms] = useState<Set<Platform>>(new Set(["instagram"]));
   const [content, setContent] = useState("");
@@ -212,13 +213,19 @@ export function PublishingModule() {
   const fetchScheduled = useCallback(async () => {
     setScheduleLoading(true);
     try {
-      const [postsRes, tasksRes] = await Promise.all([
-        supabase
-          .from("scheduled_posts")
-          .select("*")
-          .order("scheduled_at", { ascending: true, nullsFirst: false }),
-        supabase.from("tasks").select("id, title, project_id, projects(name)").order("title", { ascending: true }),
-      ]);
+      let postsQ = supabase
+        .from("scheduled_posts")
+        .select("*")
+        .order("scheduled_at", { ascending: true, nullsFirst: false });
+      let tasksQ = supabase
+        .from("tasks")
+        .select("id, title, project_id, client_slug, projects(name, client_slug)")
+        .order("title", { ascending: true });
+      if (dataClientSlug) {
+        postsQ = postsQ.eq("client_slug", dataClientSlug);
+        tasksQ = tasksQ.eq("client_slug", dataClientSlug);
+      }
+      const [postsRes, tasksRes] = await Promise.all([postsQ, tasksQ]);
 
       if (tasksRes.data) {
         const lookup: Record<string, TaskLinkMeta> = {};
@@ -242,12 +249,15 @@ export function PublishingModule() {
         console.error("[publishing] scheduled_posts:", postsRes.error.message);
         setScheduleRows([]);
       } else {
-        setScheduleRows((postsRes.data as ScheduledPostRow[]) ?? []);
+        const rows = ((postsRes.data as Array<Record<string, unknown>>) ?? []).filter((row) =>
+          rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+        );
+        setScheduleRows(rows as ScheduledPostRow[]);
       }
     } finally {
       setScheduleLoading(false);
     }
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     void fetchScheduled();
@@ -370,7 +380,13 @@ export function PublishingModule() {
       } else {
         const { error } = await supabase
           .from("scheduled_posts")
-          .insert([{ ...payload, created_by: currentUser.name ?? null }]);
+          .insert([
+            {
+              ...payload,
+              created_by: currentUser.name ?? null,
+              client_slug: dataClientSlug ?? "rocketride",
+            },
+          ]);
         if (error) {
           console.error(error.message);
           return;
@@ -505,6 +521,7 @@ export function PublishingModule() {
         status: "published",
         created_by: currentUser.name ?? null,
         linked_task_id: linkedId,
+        client_slug: dataClientSlug ?? "rocketride",
         ...(mediaDesc ? { media_description: mediaDesc } : { media_description: null }),
       };
 

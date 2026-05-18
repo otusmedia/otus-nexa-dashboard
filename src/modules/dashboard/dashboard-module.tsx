@@ -644,7 +644,7 @@ type HighlightSlide = {
 
 
 export function DashboardModule() {
-  const { activity, t, td, projectsByColumn, currentUser } = useAppContext();
+  const { activity, t, td, projectsByColumn, currentUser, clientApisEnabled, projectsLoading } = useAppContext();
   const { t: lt } = useLanguage();
   const canSeeActivity = currentUser?.company === "nexa" || currentUser?.company === "otus";
   const metaAds = useMetaAds();
@@ -956,6 +956,13 @@ export function DashboardModule() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!clientApisEnabled) {
+      setInstagramFeedPosts(null);
+      setInstagramFeedSource(null);
+      setInstagramFeedError(null);
+      setInstagramFeedLoading(false);
+      return;
+    }
     let cancelled = false;
     setInstagramFeedSource(null);
     setInstagramFeedError(null);
@@ -1044,7 +1051,7 @@ export function DashboardModule() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [clientApisEnabled]);
 
   const openCreativesModal = () => {
     const base = topCreativesDisplay.slice(0, 6);
@@ -1219,45 +1226,44 @@ export function DashboardModule() {
   const mergedProjects = useMemo(() => mergeProjectsByColumn(projectsByColumn), [projectsByColumn]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (projectsLoading) return;
     setKpiLoading(true);
-    void Promise.all([
-      supabase.from("tasks").select("id, status"),
-      supabase.from("projects").select("id", { count: "exact", head: true }),
-      supabase.from("projects").select("id", { count: "exact", head: true }).eq("status", "Done"),
-      supabase.from("scheduled_posts").select("id, status"),
-    ])
-      .then(([tasksRes, allProjectsRes, completedProjectsRes, postsRes]) => {
-        if (cancelled) return;
-        if (tasksRes.error) console.error("[dashboard] tasks KPI fetch failed:", tasksRes.error.message);
-        if (allProjectsRes.error) console.error("[dashboard] total projects KPI fetch failed:", allProjectsRes.error.message);
-        if (completedProjectsRes.error) {
-          console.error("[dashboard] completed projects KPI fetch failed:", completedProjectsRes.error.message);
+    const merged = mergeProjectsByColumn(projectsByColumn);
+    let totalTasks = 0;
+    let completedTasks = 0;
+    for (const p of merged) {
+      for (const task of p.tasks) {
+        totalTasks += 1;
+        if (task.status === "Done" || task.status === "Published") completedTasks += 1;
+      }
+    }
+    setKpiTotalTasks(totalTasks);
+    setKpiActiveTasks(Math.max(0, totalTasks - completedTasks));
+    setKpiCompletedTasks(completedTasks);
+    setKpiTotalProjects(merged.length);
+    setKpiCompletedProjects(merged.filter((p) => p.status === "Done").length);
+
+    if (!clientApisEnabled) {
+      setKpiPostsPublished(0);
+      setKpiLoading(false);
+      return;
+    }
+    void (async () => {
+      try {
+        const { data, error } = await supabase.from("scheduled_posts").select("id, status");
+        if (error) {
+          console.error("[dashboard] scheduled_posts KPI fetch failed:", error.message);
+          setKpiPostsPublished(0);
+        } else {
+          const pubRows = (data as Array<{ status?: string | null }> | null) ?? [];
+          const published = pubRows.filter((r) => String(r.status ?? "").toLowerCase() === "published").length;
+          setKpiPostsPublished(published);
         }
-        if (postsRes.error) console.error("[dashboard] scheduled_posts KPI fetch failed:", postsRes.error.message);
-
-        const rows = (tasksRes.data as Array<{ status?: string | null }> | null) ?? [];
-        const total = rows.length;
-        const completed = rows.filter((r) => r.status === "Done" || r.status === "Published").length;
-        const active = Math.max(0, total - completed);
-        setKpiTotalTasks(total);
-        setKpiActiveTasks(active);
-        setKpiCompletedTasks(completed);
-
-        setKpiTotalProjects(allProjectsRes.count ?? 0);
-        setKpiCompletedProjects(completedProjectsRes.count ?? 0);
-
-        const pubRows = (postsRes.data as Array<{ status?: string | null }> | null) ?? [];
-        const published = pubRows.filter((r) => String(r.status ?? "").toLowerCase() === "published").length;
-        setKpiPostsPublished(postsRes.error ? 0 : published);
-      })
-      .finally(() => {
-        if (!cancelled) setKpiLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      } finally {
+        setKpiLoading(false);
+      }
+    })();
+  }, [projectsByColumn, projectsLoading, clientApisEnabled]);
 
   useEffect(() => {
     const evt = "rr:dashboard-posts-published-refresh";
@@ -1306,6 +1312,21 @@ export function DashboardModule() {
   }, [instagramFeedPosts?.length]);
 
   useEffect(() => {
+    if (!clientApisEnabled) {
+      setGa4Website({
+        loading: false,
+        source: "unavailable",
+        error: undefined,
+        totals: {
+          sessions: "0",
+          bounceRate: "0.0%",
+          avgSessionDuration: "00:00",
+          changes: { sessions: "0%", bounceRate: "0.0%", avgSessionDuration: "00:00" },
+        },
+        topPages: [],
+      });
+      return;
+    }
     let cancelled = false;
     setGa4Website((prev) => ({ ...prev, loading: true }));
     fetch(
@@ -1342,9 +1363,25 @@ export function DashboardModule() {
     return () => {
       cancelled = true;
     };
-  }, [dateRange, customApplied]);
+  }, [dateRange, customApplied, clientApisEnabled]);
 
   useEffect(() => {
+    if (!clientApisEnabled) {
+      setMetaApiLoading(false);
+      setIgApiLoading(false);
+      setCreativesApiLoading(false);
+      setIgMonthlyLoading(false);
+      setMetaLive(null);
+      setIgLive(null);
+      setCreativesLive(null);
+      setIgMonthlyBars(null);
+      setMetaInsightsError(null);
+      setIgInsightsError(null);
+      setCreativesApiError(null);
+      setIgMonthlyError(null);
+      setIgProfileFollowersCount(null);
+      return;
+    }
     let cancelled = false;
     setMetaApiLoading(true);
     setIgApiLoading(true);
@@ -1450,10 +1487,17 @@ export function DashboardModule() {
     return () => {
       cancelled = true;
     };
-  }, [dateRange, customApplied]);
+  }, [dateRange, customApplied, clientApisEnabled]);
 
   /** Month-by-month follower chart: not tied to dashboard 7d/30d/90d filter. */
   useEffect(() => {
+    if (!clientApisEnabled) {
+      setIgMonthlyLoading(false);
+      setIgMonthlyBars(null);
+      setIgMonthlyError(null);
+      setIgProfileFollowersCount(null);
+      return;
+    }
     let cancelled = false;
     setIgMonthlyLoading(true);
     setIgMonthlyError(null);

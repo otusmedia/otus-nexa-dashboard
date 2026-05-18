@@ -17,6 +17,7 @@ import { ModuleGuard } from "@/components/layout/module-guard";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
+import { rowMatchesDataClient } from "@/lib/client-utils";
 
 type DriveFile = {
   id: string;
@@ -79,7 +80,7 @@ function fileIcon(type: string) {
 }
 
 export default function FilesPage() {
-  const { currentUser } = useAppContext();
+  const { currentUser, dataClientSlug } = useAppContext();
   const { t: lt } = useLanguage();
   const [folders, setFolders] = useState<DriveFolder[]>(initialFolders);
   const [rootFiles, setRootFiles] = useState<DriveFile[]>(initialRootFiles);
@@ -125,7 +126,13 @@ export default function FilesPage() {
 
   useEffect(() => {
     let mounted = true;
-    void Promise.all([supabase.from("folders").select("*"), supabase.from("files").select("*")])
+    let foldersQ = supabase.from("folders").select("*");
+    let filesQ = supabase.from("files").select("*");
+    if (dataClientSlug) {
+      foldersQ = foldersQ.eq("client_slug", dataClientSlug);
+      filesQ = filesQ.eq("client_slug", dataClientSlug);
+    }
+    void Promise.all([foldersQ, filesQ])
       .then(([foldersRes, filesRes]) => {
         if (!mounted) return;
         if (foldersRes.error || filesRes.error) {
@@ -135,8 +142,12 @@ export default function FilesPage() {
           setRootFiles([]);
           return;
         }
-        const foldersRows = (foldersRes.data as Array<Record<string, unknown>> | null) ?? [];
-        const filesRows = (filesRes.data as Array<Record<string, unknown>> | null) ?? [];
+        const foldersRows = ((foldersRes.data as Array<Record<string, unknown>> | null) ?? []).filter((row) =>
+          rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+        );
+        const filesRows = ((filesRes.data as Array<Record<string, unknown>> | null) ?? []).filter((row) =>
+          rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+        );
         const mappedFiles: DriveFile[] = filesRows.map((row) => ({
           id: String(row.id ?? ""),
           name: String(row.name ?? ""),
@@ -163,7 +174,7 @@ export default function FilesPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     const close = () => setOpenMenu(null);

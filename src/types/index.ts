@@ -1,7 +1,7 @@
 export type Role = "admin" | "manager" | "contributor" | "client";
 
-/** Company affiliation for import permissions (Meta Ads CSV). */
-export type UserCompany = "nexa" | "otus" | "rocketride" | "";
+/** Agency team or client slug (e.g. nexa, otus, rocketride, grupo-elo). */
+export type UserCompany = "nexa" | "otus" | "rocketride" | (string & {});
 
 export type ModuleKey =
   | "dashboard"
@@ -10,6 +10,7 @@ export type ModuleKey =
   | "updates"
   | "marketing"
   | "publishing"
+  | "content-management"
   | "calendar"
   | "crm"
   | "files"
@@ -106,6 +107,18 @@ export interface NotificationItem {
   read: boolean;
 }
 
+export interface Client {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+  primaryColor: string;
+  active: boolean;
+  /** When false, Meta / Instagram / GA4 live APIs are not loaded for this client's users. */
+  apiEnabled: boolean;
+  createdAt: string;
+}
+
 export interface AppUser {
   id: string;
   name: string;
@@ -113,6 +126,7 @@ export interface AppUser {
   role: Role;
   modules: ModuleKey[];
   company: UserCompany;
+  clientSlug: string | null;
 }
 
 export interface IdeaItem {

@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isClientCompany } from "@/lib/client-utils";
 import { createPortal } from "react-dom";
 import type { Project, ProjectStatus, ProjectTaskRow, TaskRowStatus } from "../data";
 import {
@@ -425,7 +426,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     logTaskPublishedToActivity,
   } = useAppContext();
   const { t: lt } = useLanguage();
-  const isRocketRideClient = currentUser.company === "rocketride";
+  const isRocketRideClient = isClientCompany(currentUser.company);
   const canSetReviewStatus = isRocketRideClient;
   const canRespondToClientFeedback = Boolean(currentUser.id) && currentUser.id !== "__guest__";
   const [description, setDescription] = useState(project.description);

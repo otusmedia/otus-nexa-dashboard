@@ -74,7 +74,7 @@ function campaignsOverviewStatusStyle(status: string): { backgroundColor: string
 }
 
 export default function MarketingStrategyPage() {
-  const { t, currentUser } = useAppContext();
+  const { t, currentUser, dataClientSlug } = useAppContext();
   const { t: lt } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<Array<Record<string, unknown>>>([]);
@@ -132,9 +132,14 @@ export default function MarketingStrategyPage() {
   useEffect(() => {
     let mounted = true;
     console.log("[marketing/strategy] fetch start: marketing_projects + marketing_tasks + marketing_strategy + marketing_budget");
+    let mpQ = supabase.from("marketing_projects").select("*");
+    const mtQ = supabase.from("marketing_tasks").select("id, project_id, status, title");
+    if (dataClientSlug) {
+      mpQ = mpQ.eq("client_slug", dataClientSlug);
+    }
     void Promise.all([
-      supabase.from("marketing_projects").select("*"),
-      supabase.from("marketing_tasks").select("id, project_id, status, title"),
+      mpQ,
+      mtQ,
       supabase.from("marketing_strategy").select("*").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("marketing_budget").select("*").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
     ])
@@ -152,12 +157,19 @@ export default function MarketingStrategyPage() {
         if (tasksRes.error) console.error("[supabase] marketing_tasks fetch failed:", tasksRes.error.message);
         if (strategyRes.error) console.error("[supabase] marketing_strategy fetch failed:", strategyRes.error.message);
         if (budgetRes.error) console.error("[supabase] marketing_budget fetch failed:", budgetRes.error.message);
-        setProjects((projectsRes.data as Array<Record<string, unknown>> | null) ?? []);
-        setTasks((tasksRes.data as Array<Record<string, unknown>> | null) ?? []);
-        const row = (strategyRes.data as StrategyRow | null) ?? null;
+        const projectRows = (projectsRes.data as Array<Record<string, unknown>> | null) ?? [];
+        const allowedIds = new Set(projectRows.map((row) => String(row.id ?? "")));
+        setProjects(projectRows);
+        setTasks(
+          ((tasksRes.data as Array<Record<string, unknown>> | null) ?? []).filter((row) => {
+            if (!dataClientSlug) return true;
+            return allowedIds.has(String(row.project_id ?? ""));
+          }),
+        );
+        const row = dataClientSlug ? null : ((strategyRes.data as StrategyRow | null) ?? null);
         setStrategy(row);
         setDraftStrategy(row?.content ?? "");
-        const budgetRow = (budgetRes.data as Record<string, unknown> | null) ?? null;
+        const budgetRow = dataClientSlug ? null : ((budgetRes.data as Record<string, unknown> | null) ?? null);
         if (budgetRow) {
           setBudgetSettings({
             id: String(budgetRow.id ?? ""),
@@ -179,7 +191,7 @@ export default function MarketingStrategyPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [dataClientSlug]);
 
   const metaSpendByYearMonth = useMemo(() => {
     const m = new Map<string, number>();

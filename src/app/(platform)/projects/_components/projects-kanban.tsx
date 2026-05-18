@@ -6,9 +6,18 @@ import { KANBAN_COLUMNS, type KanbanColumnId, type ProjectType } from "../data";
 import { KanbanColumn } from "./kanban-column";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
+import { isAgencyCompany } from "@/lib/client-utils";
 
 export function ProjectsKanban() {
-  const { projectsByColumn, moveProjectInKanban, addProject } = useAppContext();
+  const {
+    projectsByColumn,
+    moveProjectInKanban,
+    addProject,
+    clients,
+    projectsClientFilter,
+    setProjectsClientFilter,
+    currentUser,
+  } = useAppContext();
   const { t: lt } = useLanguage();
   const [modalOpen, setModalOpen] = useState(false);
   const [targetColumn, setTargetColumn] = useState<KanbanColumnId>("planning");
@@ -72,8 +81,27 @@ export function ProjectsKanban() {
   return (
     <div className="w-full min-w-0 overflow-x-auto">
       <DragDropContext onDragEnd={moveProjectInKanban}>
-        <div className="mb-3 px-1 text-xs font-light text-[rgba(255,255,255,0.4)]">
-          {projectCount} {lt("projects")}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+          <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">
+            {projectCount} {lt("projects")}
+          </span>
+          {isAgencyCompany(currentUser.company) ? (
+            <label className="flex items-center gap-2 text-xs text-[rgba(255,255,255,0.5)]">
+              <span className="uppercase tracking-[0.08em]">{lt("Client")}</span>
+              <select
+                value={projectsClientFilter}
+                onChange={(e) => setProjectsClientFilter(e.target.value)}
+                className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm text-white"
+              >
+                <option value="all">{lt("All Clients")}</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.slug}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
         <div className="h-[80vh] w-max overflow-hidden">
           <div className="flex h-full min-h-0 w-max flex-row gap-4 px-1 pb-4">

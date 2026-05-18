@@ -12,6 +12,7 @@ import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { cn, formatCurrency } from "@/lib/utils";
+import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
 
 const DEMO_PDF_URL =
@@ -333,7 +334,7 @@ function normalizeInvoiceProjectIds(row: Record<string, unknown>): string[] {
 
 export function FinancialModule() {
   const { t: lt } = useLanguage();
-  const { currentUser } = useAppContext();
+  const { currentUser, dataClientSlug } = useAppContext();
   const canGenerateInvoice = currentUser?.company === "nexa" || currentUser?.company === "otus";
   const [invoices, setInvoices] = useState<DbInvoice[]>([]);
   const [projects, setProjects] = useState<DbProject[]>([]);
@@ -415,16 +416,25 @@ export function FinancialModule() {
 
   const loadFinancialData = useCallback(async () => {
     setLoadingData(true);
+    let invQ = supabase.from("invoices").select("*").order("created_at", { ascending: false });
+    let projQ = supabase.from("projects").select("id,name,client_slug");
+    if (dataClientSlug) {
+      invQ = invQ.eq("client_slug", dataClientSlug);
+      projQ = projQ.eq("client_slug", dataClientSlug);
+    }
     const [invRes, projRes, lineItemsRes] = await Promise.all([
-      supabase.from("invoices").select("*").order("created_at", { ascending: false }),
-      supabase.from("projects").select("id,name"),
+      invQ,
+      projQ,
       supabase.from("invoice_line_items").select("*, invoice:invoices(id, status)"),
     ]);
     if (invRes.error) console.error("[financial] invoices fetch", invRes.error.message);
     if (projRes.error) console.error("[financial] projects fetch", projRes.error.message);
     if (lineItemsRes.error) console.error("[financial] invoice line items fetch", lineItemsRes.error.message);
 
-    const mappedInvoices: DbInvoice[] = ((invRes.data as Record<string, unknown>[] | null) ?? []).map((row) => {
+    const invRows = ((invRes.data as Record<string, unknown>[] | null) ?? []).filter((row) =>
+      rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+    );
+    const mappedInvoices: DbInvoice[] = invRows.map((row) => {
       const project_ids = normalizeInvoiceProjectIds(row);
       const project_id =
         row.project_id != null ? String(row.project_id) : project_ids.length > 0 ? project_ids[0] : null;
@@ -445,11 +455,21 @@ export function FinancialModule() {
         file_url: row.file_url != null ? String(row.file_url) : null,
       };
     });
-    const mappedProjects: DbProject[] = ((projRes.data as Record<string, unknown>[] | null) ?? []).map((row) => ({
+    const projRows = ((projRes.data as Record<string, unknown>[] | null) ?? []).filter((row) =>
+      rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+    );
+    const allowedProjectIds = new Set(projRows.map((row) => String(row.id ?? "")));
+    const mappedProjects: DbProject[] = projRows.map((row) => ({
       id: String(row.id ?? ""),
       name: String(row.name ?? ""),
     }));
-    const mappedLineItems: DbInvoiceLineItem[] = ((lineItemsRes.data as Record<string, unknown>[] | null) ?? []).map((row) => {
+    const mappedLineItems: DbInvoiceLineItem[] = ((lineItemsRes.data as Record<string, unknown>[] | null) ?? [])
+      .filter((row) => {
+        if (!dataClientSlug) return true;
+        const pid = row.project_id != null ? String(row.project_id) : "";
+        return pid ? allowedProjectIds.has(pid) : false;
+      })
+      .map((row) => {
       const invoiceRelation = row.invoice as Record<string, unknown> | Record<string, unknown>[] | null | undefined;
       const invoiceRow = Array.isArray(invoiceRelation) ? invoiceRelation[0] : invoiceRelation;
       const statusRaw = invoiceRow?.status;
@@ -476,7 +496,7 @@ export function FinancialModule() {
     setProjects(mappedProjects);
     setInvoiceLineItems(mappedLineItems);
     setLoadingData(false);
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     void loadFinancialData();

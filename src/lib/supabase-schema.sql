@@ -1,3 +1,16 @@
+create table if not exists clients (
+  id uuid default gen_random_uuid() primary key,
+  name text not null,
+  slug text not null unique,
+  logo_url text,
+  primary_color text default '#FF4500',
+  active boolean default true,
+  created_at timestamptz default now()
+);
+
+alter table clients enable row level security;
+create policy "Allow anon clients" on clients for all to anon using (true) with check (true);
+
 create table if not exists projects (
   id uuid default gen_random_uuid() primary key,
   name text not null,

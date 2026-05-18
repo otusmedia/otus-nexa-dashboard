@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@/context/auth-context";
 import {
   Bell,
@@ -18,6 +18,7 @@ import {
   MessageSquare,
   Send,
   Settings,
+  Sparkles,
   Wallet,
   X,
 } from "lucide-react";
@@ -26,6 +27,9 @@ import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { ClientLogo } from "@/components/ui/client-logo";
+import { SidebarClientPicker } from "@/components/layout/sidebar-client-picker";
+import { effectiveUserClientSlug, isAgencyAdmin, isAgencyCompany } from "@/lib/client-utils";
 import { Modal } from "@/components/ui/modal";
 import HeroSection from "@/components/layout/hero-section";
 
@@ -51,6 +55,7 @@ const moduleLinks: Array<{
   { key: "updates", labelKey: "updates", href: "/updates", icon: MessageSquare },
   { key: "marketing", labelKey: "marketing", href: "/marketing", icon: Megaphone },
   { key: "publishing", labelKey: "publishing", href: "/publishing", icon: Send },
+  { key: "content-management" as ModuleKey, labelKey: "publishing", href: "/content-management", icon: Sparkles },
   { key: "calendar", labelKey: "calendar", href: "/calendar", icon: Calendar },
   { key: "crm", labelKey: "crm", href: "/crm", icon: Briefcase },
   { key: "files", labelKey: "files", href: "/files", icon: FileUp },
@@ -120,6 +125,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     markNotificationRead,
     dismissNotification,
     allowedModules,
+    clients,
+    dataClientSlug,
+    projectsClientFilter,
+    setProjectsClientFilter,
     t,
     td,
   } = useAppContext();
@@ -129,6 +138,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [openSettingsModal, setOpenSettingsModal] = useState(false);
   const [marketingMenuOpen, setMarketingMenuOpen] = useState(false);
   const [crmMenuOpen, setCrmMenuOpen] = useState(false);
+  const [contentMenuOpen, setContentMenuOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const langMenuRef = useRef<HTMLDivElement>(null);
   const [profileName, setProfileName] = useState(currentUser.name);
@@ -136,6 +146,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [profilePassword, setProfilePassword] = useState("");
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [latestClientUpdateAt, setLatestClientUpdateAt] = useState<string | null>(null);
+  const dataClientSlugRef = useRef(dataClientSlug);
+  dataClientSlugRef.current = dataClientSlug;
 
   const isAdmin = currentUser.role === "admin";
   const canAccessMarketing =
@@ -145,6 +157,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     link.key === "marketing" ? allowedModules.includes(link.key) && canAccessMarketing : allowedModules.includes(link.key),
   );
   const avatarInitial = profileName.trim().slice(0, 1).toUpperCase() || "U";
+  const agencyAdmin = isAgencyAdmin(currentUser);
+  const sidebarClient = (() => {
+    if (agencyAdmin) {
+      if (projectsClientFilter === "all") return null;
+      return clients.find((c) => c.slug === projectsClientFilter) ?? null;
+    }
+    if (isAgencyCompany(currentUser.company)) return null;
+    const slug = effectiveUserClientSlug(currentUser);
+    if (!slug) return null;
+    return clients.find((c) => c.slug === slug) ?? null;
+  })();
 
   const onUpdatesPage = pathname.startsWith("/updates");
   let updatesLastSeen: string | null = null;
@@ -178,19 +201,44 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
+    if (pathname.startsWith("/content-management")) setContentMenuOpen(true);
+  }, [pathname]);
+
+  const fetchLatestClientUpdate = useCallback(async () => {
+    if (currentUser.id === GUEST_USER_ID) {
+      setLatestClientUpdateAt(null);
+      return;
+    }
+    const slug = dataClientSlugRef.current;
+    let q = supabase.from("client_updates").select("created_at").order("created_at", { ascending: false }).limit(1);
+    if (slug) {
+      q = q.eq("client_slug", slug);
+    }
+    const { data, error } = await q.maybeSingle();
+    if (error) {
+      console.error("[app-shell] client_updates latest:", error.message);
+      setLatestClientUpdateAt(null);
+      return;
+    }
+    const raw = data?.created_at;
+    setLatestClientUpdateAt(raw != null ? String(raw) : null);
+  }, [currentUser.id]);
+
+  useEffect(() => {
     if (currentUser.id === GUEST_USER_ID) {
       setLatestClientUpdateAt(null);
       return;
     }
     let cancelled = false;
 
-    const fetchLatest = async () => {
-      const { data, error } = await supabase
-        .from("client_updates")
-        .select("created_at")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    const runFetch = async () => {
+      if (cancelled) return;
+      const slug = dataClientSlugRef.current;
+      let q = supabase.from("client_updates").select("created_at").order("created_at", { ascending: false }).limit(1);
+      if (slug) {
+        q = q.eq("client_slug", slug);
+      }
+      const { data, error } = await q.maybeSingle();
       if (cancelled) return;
       if (error) {
         console.error("[app-shell] client_updates latest:", error.message);
@@ -201,7 +249,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setLatestClientUpdateAt(raw != null ? String(raw) : null);
     };
 
-    void fetchLatest();
+    void runFetch();
 
     const channel = supabase
       .channel("updates-notification")
@@ -209,11 +257,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "client_updates" },
         (payload: { new?: Record<string, unknown> }) => {
+          const slug = dataClientSlugRef.current;
+          const rowSlug = payload.new?.client_slug != null ? String(payload.new.client_slug) : null;
+          if (slug && rowSlug && rowSlug !== slug) return;
           const ts = payload.new?.created_at;
           if (typeof ts === "string") {
             setLatestClientUpdateAt(ts);
           } else {
-            void fetchLatest();
+            void runFetch();
           }
         },
       )
@@ -224,6 +275,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       void supabase.removeChannel(channel);
     };
   }, [currentUser.id]);
+
+  useEffect(() => {
+    void fetchLatestClientUpdate();
+  }, [fetchLatestClientUpdate, dataClientSlug]);
 
   useEffect(() => {
     if (!langMenuOpen) return;
@@ -436,6 +491,51 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </div>
                   );
                 }
+                if (link.key === "content-management") {
+                  const isContentActive = pathname.startsWith("/content-management");
+                  const contentSubmenuItems = [
+                    { label: "AI Studio", href: "/content-management/ai-studio" },
+                    { label: "Compose", href: "/content-management/compose" },
+                  ] as const;
+                  return (
+                    <div key={link.key}>
+                      <button
+                        type="button"
+                        onClick={() => setContentMenuOpen((prev) => !prev)}
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-lg border-l-2 border-transparent px-3 py-2 text-sm transition [border-image:none]",
+                          isContentActive
+                            ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
+                            : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
+                        )}
+                      >
+                        <Icon className="h-4 w-4" strokeWidth={1.5} />
+                        Content Management
+                      </button>
+                      {contentMenuOpen ? (
+                        <div className="mt-1 space-y-1 pl-7">
+                          {contentSubmenuItems.map((item) => {
+                            const subActive = pathname === item.href;
+                            return (
+                              <Link
+                                key={item.href}
+                                href={item.href}
+                                className={cn(
+                                  "flex items-center rounded-lg border-l-2 border-transparent px-3 py-1.5 text-xs transition [border-image:none]",
+                                  subActive
+                                    ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
+                                    : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
+                                )}
+                              >
+                                {item.label}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                }
                 if (link.key === "crm") {
                   const isCrmActive = pathname.startsWith("/crm");
                   const crmSubmenuItems = [
@@ -510,6 +610,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="shrink-0 space-y-3 border-t border-[rgba(255,255,255,0.06)] px-3 pb-8 pt-3">
+            {agencyAdmin ? (
+              <SidebarClientPicker
+                clients={clients}
+                value={projectsClientFilter}
+                onChange={setProjectsClientFilter}
+                label={lt("Viewing client")}
+                allLabel={lt("All clients")}
+                className="pb-1"
+              />
+            ) : null}
             <div className="relative w-full min-w-0">
               <div className="flex items-center justify-between">
               <div className="relative ml-3" ref={langMenuRef}>
@@ -627,7 +737,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <span className="text-xs text-[var(--text)]">{avatarInitial}</span>
                     )}
                   </span>
-                  <span className="truncate text-xs font-light text-[rgba(255,255,255,0.5)]">{profileName}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-light text-[rgba(255,255,255,0.5)]">{profileName}</span>
+                    {sidebarClient ? (
+                      sidebarClient.logoUrl ? (
+                        <span className="mt-1 block">
+                          <ClientLogo client={sidebarClient} size="xs" />
+                        </span>
+                      ) : (
+                        <span
+                          className="mt-0.5 inline-flex max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] font-normal text-[rgba(255,255,255,0.65)]"
+                          style={{ borderColor: sidebarClient.primaryColor }}
+                        >
+                          {sidebarClient.name}
+                        </span>
+                      )
+                    ) : null}
+                  </span>
                 </button>
                 {openProfileMenu ? (
                   <div className="absolute bottom-full left-0 right-0 z-50 mb-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2">

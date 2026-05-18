@@ -264,7 +264,7 @@ function formatMetaCampaignBudget(c: MetaAdsCampaignOption): string {
 }
 
 export default function MarketingProjectsPage() {
-  const { t, currentUser, logTaskPublishedToActivity } = useAppContext();
+  const { t, currentUser, logTaskPublishedToActivity, dataClientSlug } = useAppContext();
   const { t: lt } = useLanguage();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -338,10 +338,12 @@ export default function MarketingProjectsPage() {
   useEffect(() => {
     let mounted = true;
     console.log("[marketing/campaigns] fetch start: marketing_projects + marketing_tasks");
-    void Promise.all([
-      supabase.from("marketing_projects").select("*").order("created_at", { ascending: false }),
-      supabase.from("marketing_tasks").select("*").order("created_at", { ascending: true }),
-    ])
+    let mpQ = supabase.from("marketing_projects").select("*").order("created_at", { ascending: false });
+    let mtQ = supabase.from("marketing_tasks").select("*").order("created_at", { ascending: true });
+    if (dataClientSlug) {
+      mpQ = mpQ.eq("client_slug", dataClientSlug);
+    }
+    void Promise.all([mpQ, mtQ])
       .then(([projectsRes, tasksRes]) => {
         if (!mounted) return;
         console.log("[marketing/campaigns] fetch result:", {
@@ -352,10 +354,18 @@ export default function MarketingProjectsPage() {
         });
         if (projectsRes.error) console.error("[supabase] marketing_projects fetch failed:", projectsRes.error.message);
         if (tasksRes.error) console.error("[supabase] marketing_tasks fetch failed:", tasksRes.error.message);
-        setProjects(
-          ((projectsRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => marketingProjectFromRow(row)),
+        const projectRows = (projectsRes.data as Array<Record<string, unknown>> | null) ?? [];
+        const allowedIds = new Set(projectRows.map((row) => String(row.id ?? "")));
+        setProjects(projectRows.map((row) => marketingProjectFromRow(row)));
+        setTasks(
+          ((tasksRes.data as Array<Record<string, unknown>> | null) ?? [])
+            .filter((row) => {
+              if (!dataClientSlug) return true;
+              const pid = String(row.project_id ?? "");
+              return allowedIds.has(pid);
+            })
+            .map((row) => marketingTaskFromRow(row)),
         );
-        setTasks(((tasksRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => marketingTaskFromRow(row)));
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -363,7 +373,7 @@ export default function MarketingProjectsPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     if (!campaignMenuOpenId) campaignMenuRef.current = null;

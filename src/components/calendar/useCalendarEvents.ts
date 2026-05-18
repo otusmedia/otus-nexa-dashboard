@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppContext } from "@/components/providers/app-providers";
 import { CALENDAR_INVITABLE_USERS } from "@/components/calendar/calendar-invite-users";
 import { supabase } from "@/lib/supabase";
+import { rowMatchesDataClient } from "@/lib/client-utils";
 import type { CalendarEvent, CalendarEventInvitee, CalendarEventType } from "@/types/calendar";
 import { defaultColorForType } from "./calendar-utils";
 
@@ -117,7 +118,7 @@ function scheduledPostToCalendarEvent(row: Record<string, unknown>): CalendarEve
 }
 
 export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
-  const { currentUser } = useAppContext();
+  const { currentUser, dataClientSlug } = useAppContext();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -163,27 +164,39 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
     setError(null);
 
     try {
-      const [calRes, projTasksRes, mktTasksRes, scheduledRes] = await Promise.all([
-        supabase
-          .from("calendar_events")
-          .select("*, calendar_event_invitees (*)")
-          .gte("end_at", startIso)
-          .lte("start_at", endIso),
-        supabase
-          .from("tasks")
-          .select("id, title, due_date, status, assigned_to, projects(name)")
-          .not("due_date", "is", null),
+      let calQ = supabase
+        .from("calendar_events")
+        .select("*, calendar_event_invitees (*)")
+        .gte("end_at", startIso)
+        .lte("start_at", endIso);
+      let projTasksQ = supabase
+        .from("tasks")
+        .select("id, title, due_date, status, assigned_to, client_slug, projects(name, client_slug)")
+        .not("due_date", "is", null);
+      let scheduledQ = supabase
+        .from("scheduled_posts")
+        .select("*")
+        .eq("status", "scheduled")
+        .not("scheduled_at", "is", null)
+        .gte("scheduled_at", startIso)
+        .lte("scheduled_at", endIso);
+      if (dataClientSlug) {
+        calQ = calQ.eq("client_slug", dataClientSlug);
+        projTasksQ = projTasksQ.eq("client_slug", dataClientSlug);
+        scheduledQ = scheduledQ.eq("client_slug", dataClientSlug);
+      }
+
+      const [calRes, projTasksRes, mktProjectsRes, mktTasksRes, scheduledRes] = await Promise.all([
+        calQ,
+        projTasksQ,
+        dataClientSlug
+          ? supabase.from("marketing_projects").select("id").eq("client_slug", dataClientSlug)
+          : Promise.resolve({ data: null, error: null }),
         supabase
           .from("marketing_tasks")
           .select("id, title, due_date, status, assigned_to, project_id")
           .not("due_date", "is", null),
-        supabase
-          .from("scheduled_posts")
-          .select("*")
-          .eq("status", "scheduled")
-          .not("scheduled_at", "is", null)
-          .gte("scheduled_at", startIso)
-          .lte("scheduled_at", endIso),
+        scheduledQ,
       ]);
 
       if (calRes.error) {
@@ -197,7 +210,11 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
       if (mktTasksRes.error) console.error("[calendar] marketing_tasks:", mktTasksRes.error.message);
       if (scheduledRes.error) console.error("[calendar] scheduled_posts:", scheduledRes.error.message);
 
-      const mappedEvents = ((calRes.data as Record<string, unknown>[]) ?? []).map(mapRow);
+      const mappedEvents = ((calRes.data as Record<string, unknown>[]) ?? [])
+        .filter((row) =>
+          rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+        )
+        .map(mapRow);
       const crmEvents = mappedEvents.filter((e) => e.source === "crm");
       console.log("CRM events found:", crmEvents);
       const calEvents = mappedEvents.filter(canSeeEvent);
@@ -225,7 +242,15 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
         if (inRange(ev, rangeStart, rangeEnd)) virtual.push(ev);
       }
 
-      const mktRows = (mktTasksRes.data as Record<string, unknown>[] | null) ?? [];
+      const allowedMktProjectIds = dataClientSlug
+        ? new Set(
+            ((mktProjectsRes.data as Record<string, unknown>[] | null) ?? []).map((r) => String(r.id ?? "")),
+          )
+        : null;
+      const mktRows = ((mktTasksRes.data as Record<string, unknown>[] | null) ?? []).filter((row) => {
+        if (!allowedMktProjectIds) return true;
+        return allowedMktProjectIds.has(String(row.project_id ?? ""));
+      });
       for (const row of mktRows) {
         const status = String(row.status ?? "");
         if (EXCLUDED_TASK_STATUSES.has(status)) continue;
@@ -245,7 +270,9 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
         if (inRange(ev, rangeStart, rangeEnd)) virtual.push(ev);
       }
 
-      const scheduledRows = (scheduledRes.data as Record<string, unknown>[] | null) ?? [];
+      const scheduledRows = ((scheduledRes.data as Record<string, unknown>[] | null) ?? []).filter((row) =>
+        rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+      );
       const scheduledEvents = scheduledRows.map(scheduledPostToCalendarEvent).filter((ev) => inRange(ev, rangeStart, rangeEnd));
 
       setEvents([...calEvents, ...virtual, ...scheduledEvents]);
@@ -253,7 +280,7 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
       setLoading(false);
       fetchingRef.current = false;
     }
-  }, [startIso, endIso, canSeeEvent, currentUser.name, rangeStart.getTime(), rangeEnd.getTime()]);
+  }, [startIso, endIso, canSeeEvent, currentUser.name, dataClientSlug, rangeStart.getTime(), rangeEnd.getTime()]);
 
   useEffect(() => {
     void fetchEvents();
@@ -286,6 +313,7 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
             meet_link: input.type === "meeting" && input.meet_link ? input.meet_link : null,
             location: input.location || null,
             color,
+            client_slug: dataClientSlug ?? "rocketride",
           },
         ])
         .select()
@@ -314,7 +342,7 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
       await fetchEvents();
       return { ok: true as const, id: eventId };
     },
-    [fetchEvents],
+    [dataClientSlug, fetchEvents],
   );
 
   const updateEvent = useCallback(

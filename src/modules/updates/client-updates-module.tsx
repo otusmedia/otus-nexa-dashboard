@@ -19,6 +19,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { MentionTextarea } from "@/components/ui/mention-textarea";
 import { useAppContext } from "@/components/providers/app-providers";
 import { supabase } from "@/lib/supabase";
+import { rowMatchesDataClient } from "@/lib/client-utils";
 import { cn } from "@/lib/utils";
 
 const CATEGORIES = ["Meeting Notes", "Update", "Highlight", "Content Brief", "Other"] as const;
@@ -156,7 +157,7 @@ function isNexaOtusAdmin(role: string, company: string) {
 }
 
 export function ClientUpdatesModule() {
-  const { currentUser, users } = useAppContext();
+  const { currentUser, users, dataClientSlug } = useAppContext();
   const adminNexaOtus = isNexaOtusAdmin(currentUser.role, currentUser.company);
   const [updates, setUpdates] = useState<ClientUpdateRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -169,18 +170,22 @@ export function ClientUpdatesModule() {
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
 
   const fetchUpdates = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("client_updates")
-      .select("*, update_attachments(*)")
-      .order("created_at", { ascending: false });
+    let q = supabase.from("client_updates").select("*, update_attachments(*)").order("created_at", { ascending: false });
+    if (dataClientSlug) {
+      q = q.eq("client_slug", dataClientSlug);
+    }
+    const { data, error } = await q;
     if (error) {
       console.error("[client_updates] fetch:", error.message);
       setUpdates([]);
     } else {
-      setUpdates(((data as Record<string, unknown>[]) ?? []).map(mapUpdateRow));
+      const rows = ((data as Record<string, unknown>[]) ?? []).filter((row) =>
+        rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+      );
+      setUpdates(rows.map(mapUpdateRow));
     }
     setLoading(false);
-  }, []);
+  }, [dataClientSlug]);
 
   const fetchUpdatesRef = useRef(fetchUpdates);
   fetchUpdatesRef.current = fetchUpdates;
@@ -295,6 +300,7 @@ export function ClientUpdatesModule() {
             content: text,
             category: composerCategory,
             author_name: currentUser.name,
+            client_slug: dataClientSlug ?? "rocketride",
           },
         ])
         .select("*")

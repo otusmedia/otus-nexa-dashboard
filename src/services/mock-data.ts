@@ -18,6 +18,7 @@ export const users: AppUser[] = [
     name: "Matheus Canci",
     role: "admin",
     company: "nexa",
+    clientSlug: null,
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -25,6 +26,7 @@ export const users: AppUser[] = [
     name: "Matheus Foletto",
     role: "admin",
     company: "otus",
+    clientSlug: null,
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -32,6 +34,7 @@ export const users: AppUser[] = [
     name: "Joe",
     role: "admin",
     company: "rocketride",
+    clientSlug: "rocketride",
     modules: ["dashboard", "projects", "financial", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -39,6 +42,7 @@ export const users: AppUser[] = [
     name: "David Martins",
     role: "admin",
     company: "",
+    clientSlug: null,
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -46,6 +50,7 @@ export const users: AppUser[] = [
     name: "Karla Kachuba",
     role: "manager",
     company: "nexa",
+    clientSlug: null,
     modules: ["projects", "marketing", "files"],
   },
   {
@@ -53,6 +58,7 @@ export const users: AppUser[] = [
     name: "Luca",
     role: "manager",
     company: "otus",
+    clientSlug: null,
     modules: ["projects", "marketing", "files"],
   },
 ];

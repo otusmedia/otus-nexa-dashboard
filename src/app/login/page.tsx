@@ -16,6 +16,7 @@ type AppUserDbRow = {
   company: string | null;
   modules: string[] | null;
   password_hash: string | null;
+  client_slug?: string | null;
 };
 
 const LOGIN_SEED: Array<{
@@ -58,14 +59,14 @@ const LOGIN_SEED: Array<{
     email: "karla@nexamedia.com",
     company: "nexa",
     role: "manager",
-    modules: ["projects", "updates", "marketing", "publishing", "files"],
+    modules: ["projects", "updates", "marketing", "publishing", "content-management", "files"],
   },
   {
     name: "Luca",
     email: "luca@otusmedia.com",
     company: "otus",
     role: "manager",
-    modules: ["projects", "updates", "marketing", "publishing", "files"],
+    modules: ["projects", "updates", "marketing", "publishing", "content-management", "files"],
   },
   {
     name: "Aaron Jimenez",
@@ -84,11 +85,9 @@ function hashPassword(password: string): string {
 }
 
 function normalizeUserCompany(value: unknown): UserCompany {
-  const s = String(value ?? "").toLowerCase();
-  if (s === "nexa") return "nexa";
-  if (s === "otus") return "otus";
-  if (s === "rocketride") return "rocketride";
-  return "";
+  const s = String(value ?? "").toLowerCase().trim();
+  if (!s) return "";
+  return s;
 }
 
 function normalizeUserRole(value: unknown): Role {
@@ -101,6 +100,9 @@ function normalizeUserModules(value: unknown): ModuleKey[] {
 }
 
 function rowToAppUser(row: AppUserDbRow): AppUser {
+  const clientSlugRaw = row.client_slug;
+  const clientSlug =
+    clientSlugRaw != null && String(clientSlugRaw).trim() !== "" ? String(clientSlugRaw).trim() : null;
   return {
     id: row.id,
     name: row.name,
@@ -108,6 +110,7 @@ function rowToAppUser(row: AppUserDbRow): AppUser {
     role: normalizeUserRole(row.role),
     company: normalizeUserCompany(row.company),
     modules: normalizeUserModules(row.modules),
+    clientSlug,
   };
 }
 
@@ -120,6 +123,7 @@ function mapRecordToRow(r: Record<string, unknown>): AppUserDbRow {
     company: r.company != null ? String(r.company) : null,
     modules: Array.isArray(r.modules) ? r.modules.map(String) : null,
     password_hash: r.password_hash != null && String(r.password_hash) !== "" ? String(r.password_hash) : null,
+    client_slug: r.client_slug != null ? String(r.client_slug) : null,
   };
 }
 

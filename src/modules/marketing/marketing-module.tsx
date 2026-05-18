@@ -7,12 +7,13 @@ import { ModuleGuard } from "@/components/layout/module-guard";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
+import { rowMatchesDataClient } from "@/lib/client-utils";
 
 type CampaignItem = { id: string; name: string; status: string };
 type NoteItem = { id: string; text: string; author: string; time: string };
 
 export function MarketingModule() {
-  const { t, td, ts, currentUser } = useAppContext();
+  const { t, td, ts, currentUser, dataClientSlug } = useAppContext();
   const { t: lt } = useLanguage();
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
   const [notes, setNotes] = useState<NoteItem[]>([]);
@@ -20,18 +21,24 @@ export function MarketingModule() {
 
   useEffect(() => {
     let mounted = true;
-    void Promise.all([
-      supabase.from("campaigns").select("*"),
-      supabase.from("notes").select("*").order("created_at", { ascending: false }),
-    ])
+    let campQ = supabase.from("campaigns").select("*");
+    let notesQ = supabase.from("notes").select("*").order("created_at", { ascending: false });
+    if (dataClientSlug) {
+      campQ = campQ.eq("client_slug", dataClientSlug);
+      notesQ = notesQ.eq("client_slug", dataClientSlug);
+    }
+    void Promise.all([campQ, notesQ])
       .then(([campaignsRes, notesRes]) => {
         if (!mounted) return;
         if (campaignsRes.error) {
           console.error("[supabase] campaigns fetch failed:", campaignsRes.error.message);
           setCampaigns([]);
         } else {
+          const campRows = ((campaignsRes.data as Array<Record<string, unknown>> | null) ?? []).filter((row) =>
+            rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+          );
           setCampaigns(
-            ((campaignsRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
+            campRows.map((row) => ({
               id: String(row.id ?? ""),
               name: String(row.name ?? ""),
               status: String(row.status ?? "backlog"),
@@ -42,8 +49,11 @@ export function MarketingModule() {
           console.error("[supabase] notes fetch failed:", notesRes.error.message);
           setNotes([]);
         } else {
+          const noteRows = ((notesRes.data as Array<Record<string, unknown>> | null) ?? []).filter((row) =>
+            rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
+          );
           setNotes(
-            ((notesRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
+            noteRows.map((row) => ({
               id: String(row.id ?? ""),
               text: String(row.content ?? ""),
               author: String(row.author ?? ""),
@@ -59,13 +69,21 @@ export function MarketingModule() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [dataClientSlug]);
 
   const createCampaign = () => {
     const id = crypto.randomUUID();
     const next = { id, name: "New Campaign", status: "backlog" };
     setCampaigns((prev) => [next, ...prev]);
-    void supabase.from("campaigns").insert({ id, name: next.name, status: next.status }).then(({ error }) => {
+    void supabase
+      .from("campaigns")
+      .insert({
+        id,
+        name: next.name,
+        status: next.status,
+        client_slug: dataClientSlug ?? "rocketride",
+      })
+      .then(({ error }) => {
       if (error) console.error("[supabase] campaign insert failed:", error.message);
     });
   };
@@ -75,7 +93,10 @@ export function MarketingModule() {
     const now = new Date().toISOString();
     const next = { id, text: "New note", author: currentUser.name, time: now };
     setNotes((prev) => [next, ...prev]);
-    void supabase.from("notes").insert({ id, content: next.text, author: next.author }).then(({ error }) => {
+    void supabase
+      .from("notes")
+      .insert({ id, content: next.text, author: next.author, client_slug: dataClientSlug ?? "rocketride" })
+      .then(({ error }) => {
       if (error) console.error("[supabase] note insert failed:", error.message);
     });
   };

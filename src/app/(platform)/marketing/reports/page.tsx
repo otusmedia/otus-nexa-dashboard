@@ -54,7 +54,7 @@ function formatBytes(value: number) {
 }
 
 export default function MarketingReportsPage() {
-  const { currentUser, t } = useAppContext();
+  const { currentUser, t, dataClientSlug } = useAppContext();
   const { t: lt } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [folders, setFolders] = useState<MarketingFolder[]>([]);
@@ -73,6 +73,14 @@ export default function MarketingReportsPage() {
 
   useEffect(() => {
     let mounted = true;
+    if (dataClientSlug) {
+      setFolders([]);
+      setRootFiles([]);
+      setLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
     void Promise.all([supabase.from("marketing_folders").select("*"), supabase.from("marketing_files").select("*")])
       .then(([foldersRes, filesRes]) => {
         if (!mounted) return;
@@ -104,7 +112,7 @@ export default function MarketingReportsPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [dataClientSlug]);
 
   const currentFolder = useMemo(() => folders.find((folder) => folder.id === currentFolderId) ?? null, [folders, currentFolderId]);
   const visibleFiles = useMemo(() => {
