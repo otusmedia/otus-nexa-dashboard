@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { isGa4ConfiguredForClient, resolveGa4PropertyId } from "@/lib/client-api-credentials";
+import { loadClientApiCredentialsFromRequest } from "@/lib/server/load-client-api-credentials";
 import {
   fetchGa4DashboardSnapshot,
   fetchGa4DashboardSnapshotCustom,
@@ -21,6 +23,12 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const rawS = searchParams.get("since");
   const rawU = searchParams.get("until");
+  const stored = await loadClientApiCredentialsFromRequest(request);
+  const propertyId = resolveGa4PropertyId(stored);
+
+  if (!isGa4ConfiguredForClient(stored)) {
+    return NextResponse.json(getGa4DashboardUnavailable("GA4 credentials not configured"));
+  }
 
   try {
     if (rawS != null && rawU != null && rawS !== "" && rawU !== "") {
@@ -28,7 +36,7 @@ export async function GET(request: Request) {
       const untilSec = Math.floor(Number(rawU));
       const ymd = unixPairToUtcYmd(sinceSec, untilSec);
       if (ymd) {
-        const data = await fetchGa4DashboardSnapshotCustom(ymd.startYmd, ymd.endYmd);
+        const data = await fetchGa4DashboardSnapshotCustom(ymd.startYmd, ymd.endYmd, propertyId);
         return NextResponse.json(data);
       }
     }
@@ -37,7 +45,7 @@ export async function GET(request: Request) {
     const range: Ga4DateRangeParam =
       raw === "7d" || raw === "30d" || raw === "90d" ? raw : "30d";
 
-    const data = await fetchGa4DashboardSnapshot(range);
+    const data = await fetchGa4DashboardSnapshot(range, propertyId);
     return NextResponse.json(data);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "GA4 request failed";

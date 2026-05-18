@@ -58,6 +58,24 @@ import {
   rowMatchesDataClient,
   userHasLiveApis,
 } from "@/lib/client-utils";
+import {
+  apiConfigToDb,
+  apisConfigHasAnyEnabled,
+  clientApisFromRow,
+  EMPTY_CLIENT_APIS,
+  resolveHeroImageUrl,
+  resolveSessionClientApis,
+} from "@/lib/client-apis";
+import {
+  clientApiCredentialsToDb,
+  EMPTY_CLIENT_API_CREDENTIALS,
+  parseClientApiCredentials,
+} from "@/lib/client-api-credentials";
+import {
+  clientCrmIntegrationToDb,
+  EMPTY_CLIENT_CRM_INTEGRATION,
+  parseClientCrmIntegration,
+} from "@/lib/client-crm-integration";
 
 function filterProjectsByColumn(
   board: ProjectsByColumn,
@@ -118,14 +136,34 @@ interface AppContextValue {
     primaryColor: string;
     active: boolean;
     logoUrl?: string | null;
+    heroImageUrl?: string | null;
+    apis?: Client["apis"];
+    apiCredentials?: Client["apiCredentials"];
+    crmIntegration?: Client["crmIntegration"];
   }) => Promise<{ ok: boolean; error?: string }>;
   updateClient: (
     id: string,
-    updates: Partial<Pick<Client, "name" | "slug" | "primaryColor" | "active" | "logoUrl">>,
+    updates: Partial<
+      Pick<
+        Client,
+        | "name"
+        | "slug"
+        | "primaryColor"
+        | "active"
+        | "logoUrl"
+        | "heroImageUrl"
+        | "apis"
+        | "apiCredentials"
+        | "crmIntegration"
+      >
+    >,
   ) => Promise<{ ok: boolean; error?: string }>;
   refreshClients: () => void;
-  /** False for new clients (e.g. Grupo Elo) — dashboard skips Meta/IG/GA4 live APIs. */
+  /** Per-integration flags for the active session (agency “all” → all on). */
+  clientApis: Client["apis"];
+  /** True if any integration is enabled for the session. */
   clientApisEnabled: boolean;
+  heroImageUrl: string;
   /** When set, module data (financial, calendar, marketing, etc.) is limited to this client. */
   dataClientSlug: string | null;
   deleteUser: (id: string) => void;
@@ -324,14 +362,20 @@ function appUserFromAppUsersRow(row: Record<string, unknown>): AppUser {
 }
 
 function clientFromRow(row: Record<string, unknown>): Client {
+  const apis = clientApisFromRow(row);
   return {
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
     slug: String(row.slug ?? ""),
     logoUrl: row.logo_url != null && String(row.logo_url).trim() !== "" ? String(row.logo_url) : null,
+    heroImageUrl:
+      row.hero_image_url != null && String(row.hero_image_url).trim() !== "" ? String(row.hero_image_url) : null,
     primaryColor: String(row.primary_color ?? "#FF4500"),
     active: row.active !== false,
-    apiEnabled: row.api_enabled === true,
+    apiEnabled: row.api_enabled === true || apisConfigHasAnyEnabled(apis),
+    apis,
+    apiCredentials: parseClientApiCredentials(row.api_credentials),
+    crmIntegration: parseClientCrmIntegration(row.crm_integration),
     createdAt: String(row.created_at ?? ""),
   };
 }
@@ -576,9 +620,19 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     [allProjectsByColumn, currentUser, projectsClientFilter],
   );
 
+  const clientApis = useMemo(
+    () => resolveSessionClientApis(currentUser, clients, projectsClientFilter),
+    [currentUser, clients, projectsClientFilter],
+  );
+
   const clientApisEnabled = useMemo(
-    () => userHasLiveApis(currentUser, clients),
-    [currentUser, clients],
+    () => isAgencyCompany(currentUser.company) || apisConfigHasAnyEnabled(clientApis),
+    [currentUser.company, clientApis],
+  );
+
+  const heroImageUrl = useMemo(
+    () => resolveHeroImageUrl(currentUser, clients, projectsClientFilter),
+    [currentUser, clients, projectsClientFilter],
   );
 
   const dataClientSlug = useMemo(
@@ -1623,14 +1677,28 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       clients,
       clientsLoading,
       refreshClients: fetchClients,
+      clientApis,
       clientApisEnabled,
+      heroImageUrl,
       dataClientSlug,
-      addClient: async ({ name, slug, primaryColor, active, logoUrl }) => {
+      addClient: async ({
+        name,
+        slug,
+        primaryColor,
+        active,
+        logoUrl,
+        heroImageUrl: heroUrl,
+        apis,
+        apiCredentials,
+        crmIntegration,
+      }) => {
         const trimmedName = name.trim();
         const trimmedSlug = slug.trim().toLowerCase();
         if (!trimmedName || !trimmedSlug) {
           return { ok: false, error: "Name and slug are required." };
         }
+        const apisConfig = apis ?? { ...EMPTY_CLIENT_APIS };
+        const anyApi = apisConfigHasAnyEnabled(apisConfig);
         const { data: inserted, error } = await supabase
           .from("clients")
           .insert({
@@ -1638,8 +1706,12 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             slug: trimmedSlug,
             primary_color: primaryColor || "#FF4500",
             active,
-            api_enabled: false,
+            api_enabled: anyApi,
             logo_url: logoUrl ?? null,
+            hero_image_url: heroUrl ?? null,
+            api_config: apiConfigToDb(apisConfig),
+            api_credentials: clientApiCredentialsToDb(apiCredentials ?? { ...EMPTY_CLIENT_API_CREDENTIALS }),
+            crm_integration: clientCrmIntegrationToDb(crmIntegration ?? { ...EMPTY_CLIENT_CRM_INTEGRATION }),
           })
           .select("*")
           .single();
@@ -1709,6 +1781,17 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (updates.primaryColor !== undefined) dbPatch.primary_color = updates.primaryColor;
         if (updates.active !== undefined) dbPatch.active = updates.active;
         if (updates.logoUrl !== undefined) dbPatch.logo_url = updates.logoUrl;
+        if (updates.heroImageUrl !== undefined) dbPatch.hero_image_url = updates.heroImageUrl;
+        if (updates.apis !== undefined) {
+          dbPatch.api_config = apiConfigToDb(updates.apis);
+          dbPatch.api_enabled = apisConfigHasAnyEnabled(updates.apis);
+        }
+        if (updates.apiCredentials !== undefined) {
+          dbPatch.api_credentials = clientApiCredentialsToDb(updates.apiCredentials);
+        }
+        if (updates.crmIntegration !== undefined) {
+          dbPatch.crm_integration = clientCrmIntegrationToDb(updates.crmIntegration);
+        }
         if (Object.keys(dbPatch).length === 0) return { ok: true };
         const { data, error } = await supabase.from("clients").update(dbPatch).eq("id", id).select("*").single();
         if (error) {
@@ -2008,7 +2091,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       clients,
       clientsLoading,
       fetchClients,
+      clientApis,
       clientApisEnabled,
+      heroImageUrl,
       dataClientSlug,
     ],
   );

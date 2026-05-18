@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/modal";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { useMetaAds } from "@/context/meta-ads-context";
+import { apiUrlWithClient } from "@/lib/client-api-credentials";
 import { canImportData } from "@/lib/can-import-data";
 import { parseInstagramInsightsCsv, type InstagramInsightMetricRow } from "@/lib/parse-instagram-csv";
 import { parseMetaAdsCsv } from "@/lib/parse-meta-csv";
@@ -644,7 +645,17 @@ type HighlightSlide = {
 
 
 export function DashboardModule() {
-  const { activity, t, td, projectsByColumn, currentUser, clientApisEnabled, projectsLoading } = useAppContext();
+  const {
+    activity,
+    t,
+    td,
+    projectsByColumn,
+    currentUser,
+    clientApis,
+    clientApisEnabled,
+    dataClientSlug,
+    projectsLoading,
+  } = useAppContext();
   const { t: lt } = useLanguage();
   const canSeeActivity = currentUser?.company === "nexa" || currentUser?.company === "otus";
   const metaAds = useMetaAds();
@@ -956,7 +967,7 @@ export function DashboardModule() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!clientApisEnabled) {
+    if (!clientApis.instagramFeed) {
       setInstagramFeedPosts(null);
       setInstagramFeedSource(null);
       setInstagramFeedError(null);
@@ -971,7 +982,7 @@ export function DashboardModule() {
 
     void Promise.all([
       supabase.from("instagram_posts").select("*").order("created_at", { ascending: false }),
-      fetch("/api/instagram-feed").then((r) => r.json()),
+      fetch(apiUrlWithClient("/api/instagram-feed", dataClientSlug)).then((r) => r.json()),
     ])
       .then(([postsRes, json]) => {
         if (cancelled) return;
@@ -1051,7 +1062,7 @@ export function DashboardModule() {
     return () => {
       cancelled = true;
     };
-  }, [clientApisEnabled]);
+  }, [clientApis.instagramFeed, dataClientSlug]);
 
   const openCreativesModal = () => {
     const base = topCreativesDisplay.slice(0, 6);
@@ -1312,7 +1323,7 @@ export function DashboardModule() {
   }, [instagramFeedPosts?.length]);
 
   useEffect(() => {
-    if (!clientApisEnabled) {
+    if (!clientApis.ga4) {
       setGa4Website({
         loading: false,
         source: "unavailable",
@@ -1330,9 +1341,12 @@ export function DashboardModule() {
     let cancelled = false;
     setGa4Website((prev) => ({ ...prev, loading: true }));
     fetch(
-      dateRange === "custom" && customApplied
-        ? `/api/ga4/dashboard?since=${customApplied.since}&until=${customApplied.until}`
-        : `/api/ga4/dashboard?range=${encodeURIComponent(dateRange)}`,
+      apiUrlWithClient(
+        dateRange === "custom" && customApplied
+          ? `/api/ga4/dashboard?since=${customApplied.since}&until=${customApplied.until}`
+          : `/api/ga4/dashboard?range=${encodeURIComponent(dateRange)}`,
+        dataClientSlug,
+      ),
     )
       .then((res) => res.json())
       .then((json: Ga4WebsiteState) => {
@@ -1363,10 +1377,12 @@ export function DashboardModule() {
     return () => {
       cancelled = true;
     };
-  }, [dateRange, customApplied, clientApisEnabled]);
+  }, [dateRange, customApplied, clientApis.ga4, dataClientSlug]);
 
   useEffect(() => {
-    if (!clientApisEnabled) {
+    const wantsMeta = clientApis.metaAds || clientApis.metaCreatives;
+    const wantsIg = clientApis.instagramInsights;
+    if (!clientApis.metaAds && !clientApis.instagramInsights && !clientApis.metaCreatives) {
       setMetaApiLoading(false);
       setIgApiLoading(false);
       setCreativesApiLoading(false);
@@ -1393,21 +1409,32 @@ export function DashboardModule() {
     setIgInsightsError(null);
     setMetaInsightsError(null);
     setCreativesApiError(null);
-    const metaUrl =
+    const metaUrl = apiUrlWithClient(
       dateRange === "custom" && customApplied
         ? `/api/meta-ads?since=${customApplied.since}&until=${customApplied.until}`
-        : `/api/meta-ads?date_preset=${encodeURIComponent(metaDatePresetFromRange(dateRange))}`;
-    const igUrl =
+        : `/api/meta-ads?date_preset=${encodeURIComponent(metaDatePresetFromRange(dateRange))}`,
+      dataClientSlug,
+    );
+    const igUrl = apiUrlWithClient(
       dateRange === "custom" && customApplied
         ? `/api/instagram-insights?since=${customApplied.since}&until=${customApplied.until}`
-        : `/api/instagram-insights?range=${encodeURIComponent(dateRange)}`;
-    void Promise.all([
-      fetch(metaUrl).then((r) => r.json()),
-      fetch(igUrl).then((r) => r.json()),
-      fetch("/api/meta-creatives").then((r) => r.json()),
-    ])
-      .then(([metaJson, igJson, crJson]: Record<string, unknown>[]) => {
+        : `/api/instagram-insights?range=${encodeURIComponent(dateRange)}`,
+      dataClientSlug,
+    );
+    const tasks: Array<Promise<Record<string, unknown>>> = [];
+    if (clientApis.metaAds) tasks.push(fetch(metaUrl).then((r) => r.json()));
+    if (wantsIg) tasks.push(fetch(igUrl).then((r) => r.json()));
+    if (clientApis.metaCreatives)
+      tasks.push(fetch(apiUrlWithClient("/api/meta-creatives", dataClientSlug)).then((r) => r.json()));
+
+    void Promise.all(tasks).then((results) => {
         if (cancelled) return;
+        let ri = 0;
+        const metaJson = clientApis.metaAds ? results[ri++] : {};
+        const igJson = wantsIg ? results[ri++] : {};
+        const crJson = clientApis.metaCreatives ? results[ri++] : {};
+
+        if (clientApis.metaAds) {
         const metaErr = typeof metaJson.error === "string" ? metaJson.error : null;
         const metaCampaigns = metaJson.campaigns;
         const metaSummary = metaJson.summary;
@@ -1427,7 +1454,12 @@ export function DashboardModule() {
           setMetaInsightsError(metaErr ?? "Meta Ads data unavailable");
           if (metaErr) console.error("[dashboard] Meta Ads API:", metaErr);
         }
+        } else {
+          setMetaLive(null);
+          setMetaInsightsError(null);
+        }
 
+        if (wantsIg) {
         const igErr = typeof igJson.error === "string" ? igJson.error : null;
         if (!igErr && typeof igJson.reach === "number") {
           setIgLive(igJson as unknown as InstagramApiPayload);
@@ -1438,7 +1470,12 @@ export function DashboardModule() {
           if (igErr) console.error("[dashboard] Instagram insights API:", igErr);
           else if (typeof igJson.reach !== "number") console.error("[dashboard] Instagram insights: invalid payload");
         }
+        } else {
+          setIgLive(null);
+          setIgInsightsError(null);
+        }
 
+        if (clientApis.metaCreatives) {
         const cErr = typeof crJson.error === "string" ? crJson.error : null;
         const creatives = crJson.creatives;
         const rawAcct = crJson.metaAdAccountId;
@@ -1464,6 +1501,11 @@ export function DashboardModule() {
           setCreativesApiError("Creatives unavailable");
           setMetaCreativesAdAccountId(null);
         }
+        } else {
+          setCreativesLive(null);
+          setCreativesApiError(null);
+          setMetaCreativesAdAccountId(null);
+        }
       })
       .catch((e) => {
         console.error("Dashboard Meta/Instagram fetch:", e);
@@ -1487,11 +1529,11 @@ export function DashboardModule() {
     return () => {
       cancelled = true;
     };
-  }, [dateRange, customApplied, clientApisEnabled]);
+  }, [dateRange, customApplied, clientApis.metaAds, clientApis.instagramInsights, clientApis.metaCreatives, dataClientSlug]);
 
   /** Month-by-month follower chart: not tied to dashboard 7d/30d/90d filter. */
   useEffect(() => {
-    if (!clientApisEnabled) {
+    if (!clientApis.instagramMonthly) {
       setIgMonthlyLoading(false);
       setIgMonthlyBars(null);
       setIgMonthlyError(null);
@@ -1501,7 +1543,7 @@ export function DashboardModule() {
     let cancelled = false;
     setIgMonthlyLoading(true);
     setIgMonthlyError(null);
-    void fetch("/api/instagram-monthly")
+    void fetch(apiUrlWithClient("/api/instagram-monthly", dataClientSlug))
       .then((r) => r.json())
       .then((monthJson: Record<string, unknown>) => {
         if (cancelled) return;
@@ -1555,7 +1597,7 @@ export function DashboardModule() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [clientApis.instagramMonthly, dataClientSlug]);
 
   const ga4TableRows = ga4Website.source === "live" ? ga4Website.topPages : [];
 

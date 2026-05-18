@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-
-const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-const INSTAGRAM_ID = process.env.META_INSTAGRAM_ID;
+import { instagramConfigured, metaFromRequest } from "@/lib/server/meta-from-request";
 
 type MediaNode = {
   id?: string;
@@ -14,15 +12,17 @@ type MediaNode = {
   comments_count?: number;
 };
 
-export async function GET() {
-  if (!ACCESS_TOKEN || !INSTAGRAM_ID?.trim()) {
+export async function GET(request: Request) {
+  const meta = await metaFromRequest(request);
+  if (!instagramConfigured(meta)) {
     return NextResponse.json(
       { error: "Instagram API is not configured (META_ACCESS_TOKEN, META_INSTAGRAM_ID)." },
       { status: 503 },
     );
   }
 
-  const id = INSTAGRAM_ID.trim();
+  const ACCESS_TOKEN = meta.accessToken;
+  const id = meta.instagramId.trim();
   const fields = encodeURIComponent(
     "id,media_type,media_url,thumbnail_url,permalink,caption,like_count,comments_count",
   );

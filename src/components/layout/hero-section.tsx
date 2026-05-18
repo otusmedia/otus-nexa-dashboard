@@ -10,6 +10,10 @@ const HERO_BG_VISIBLE_KEY = "hero-bg-visible";
 const HERO_HEIGHT_KEY = "hero-height";
 const HERO_HEIGHT_MIN_PX = 200;
 
+/** Fullscreen hero insets — keep greeting/clocks off viewport edges */
+const HERO_FS_PAD =
+  "box-border px-8 pb-14 pt-8 sm:px-12 sm:pb-16 lg:px-16 lg:pt-10 xl:px-20 2xl:px-24";
+
 function clampHeroHeightPx(px: number): number {
   if (typeof window === "undefined") return Math.max(HERO_HEIGHT_MIN_PX, px);
   const max = window.innerHeight * 0.95;
@@ -117,7 +121,7 @@ function HeroAnalogClock({ date, timeZone }: { date: Date; timeZone: string }) {
 }
 
 function HeroSection() {
-  const { currentUser } = useAppContext();
+  const { currentUser, heroImageUrl } = useAppContext();
   const [, setTick] = useState(0);
   const sectionRef = useRef<HTMLElement>(null);
   const handleRef = useRef<HTMLDivElement>(null);
@@ -295,7 +299,7 @@ function HeroSection() {
       className={cn(
         "relative box-border flex min-h-0 max-w-none flex-col items-start justify-start overflow-hidden",
         isHeroFullscreen
-          ? "mx-0 mb-0 mt-0 min-h-[100dvh] w-full"
+          ? cn("mx-0 mb-0 mt-0 min-h-[100dvh] w-full", HERO_FS_PAD)
           : "mb-0 w-full -mt-6 px-6 lg:px-8",
         !heroBgVisible && "bg-transparent",
       )}
@@ -305,7 +309,7 @@ function HeroSection() {
       {heroBgVisible ? (
         <>
           <img
-            src="/Biotecc%20-%202026-159.jpg"
+            src={heroImageUrl}
             alt=""
             decoding="async"
             className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover object-center"
@@ -319,8 +323,8 @@ function HeroSection() {
       ) : null}
       <div
         className={cn(
-          "absolute right-4 z-20 flex flex-col items-end gap-2 lg:right-4",
-          isHeroFullscreen ? "top-4 lg:top-4" : "top-10 lg:top-10",
+          "absolute z-20 flex flex-col items-end gap-2",
+          isHeroFullscreen ? "right-0 top-0" : "right-4 top-10 lg:right-4 lg:top-10",
         )}
       >
         <button
@@ -350,7 +354,12 @@ function HeroSection() {
           )}
         </button>
       </div>
-      <div className="relative z-10 flex h-full min-h-0 min-w-0 w-full flex-1 flex-row items-end justify-between gap-10 overflow-hidden px-0 pb-10">
+      <div
+        className={cn(
+          "relative z-10 flex h-full min-h-0 min-w-0 w-full max-w-full flex-1 flex-row items-end justify-between gap-6 overflow-hidden sm:gap-10",
+          isHeroFullscreen ? "pb-0" : "px-0 pb-10",
+        )}
+      >
         <div className="flex min-w-0 flex-col">
           <p className="text-[0.8rem] font-light tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
             {formatHeroLongDate(now)}

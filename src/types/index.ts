@@ -107,15 +107,63 @@ export interface NotificationItem {
   read: boolean;
 }
 
+export const CLIENT_API_KEYS = [
+  "metaAds",
+  "metaCampaigns",
+  "metaMonthlySpend",
+  "metaCreatives",
+  "instagramFeed",
+  "instagramInsights",
+  "instagramMonthly",
+  "ga4",
+] as const;
+
+export type ClientApiKey = (typeof CLIENT_API_KEYS)[number];
+
+export type ClientApisConfig = Record<ClientApiKey, boolean>;
+
+/** Stored in `clients.api_credentials` (per-client tokens / account IDs). */
+export type ClientApiCredentials = {
+  metaAccessToken: string;
+  metaAdAccountId: string;
+  metaInstagramId: string;
+  ga4PropertyId: string;
+};
+
+export type CrmIntegrationProvider = "nexa" | "webhook" | "hubspot" | "pipedrive" | "rdstation";
+
+/** Stored in `clients.crm_integration` — website form → external CRM. */
+export type ClientCrmIntegration = {
+  enabled: boolean;
+  provider: CrmIntegrationProvider;
+  ingestSecret: string;
+  allowedOrigins: string[];
+  webhookUrl: string;
+  hubspotAccessToken: string;
+  hubspotPipelineId: string;
+  hubspotDealStageId: string;
+  pipedriveApiToken: string;
+  pipedrivePipelineId: string;
+  pipedriveStageId: string;
+  rdStationToken: string;
+  rdStationConversionIdentifier: string;
+  /** When true, also insert a row in crm_leads for agency audit. */
+  mirrorToInternalCrm: boolean;
+};
+
 export interface Client {
   id: string;
   name: string;
   slug: string;
   logoUrl: string | null;
+  heroImageUrl: string | null;
   primaryColor: string;
   active: boolean;
-  /** When false, Meta / Instagram / GA4 live APIs are not loaded for this client's users. */
+  /** Legacy master flag; kept in sync when any integration is enabled. */
   apiEnabled: boolean;
+  apis: ClientApisConfig;
+  apiCredentials: ClientApiCredentials;
+  crmIntegration: ClientCrmIntegration;
   createdAt: string;
 }
 

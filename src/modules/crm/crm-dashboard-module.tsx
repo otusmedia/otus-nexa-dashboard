@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { DataTooltip } from "@/components/ui/data-tooltip";
+import { useAppContext } from "@/components/providers/app-providers";
 import { PageHeader } from "@/components/ui/page-header";
+import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
 import {
   CRM_KANBAN_COLUMNS,
@@ -31,6 +33,7 @@ function sourceCountMap(leads: CrmLead[]): Record<string, number> {
 }
 
 export function CrmDashboardModule() {
+  const { dataClientSlug } = useAppContext();
   const [leads, setLeads] = useState<CrmLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,10 +47,13 @@ export function CrmDashboardModule() {
       setError(error.message);
       setLeads([]);
     } else {
-      setLeads((data ?? []).map((row) => mapCrmLeadRow(row as Record<string, unknown>)));
+      const mapped = ((data ?? []) as Record<string, unknown>[])
+        .map((row) => mapCrmLeadRow(row))
+        .filter((lead) => rowMatchesDataClient(lead.client_slug, dataClientSlug));
+      setLeads(mapped);
     }
     setLoading(false);
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     void load();

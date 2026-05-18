@@ -11,6 +11,7 @@ import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { PublishedToModal } from "@/components/ui/published-to-modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { useLanguage } from "@/context/language-context";
+import { apiUrlWithClient } from "@/lib/client-api-credentials";
 import { supabase } from "@/lib/supabase";
 import { MarketingAccessGuard } from "../_components/marketing-access-guard";
 import { PublishedPlatformIconRow, TaskRowStatusBadge } from "@/app/(platform)/projects/_components/task-row-status-badge";
@@ -264,7 +265,7 @@ function formatMetaCampaignBudget(c: MetaAdsCampaignOption): string {
 }
 
 export default function MarketingProjectsPage() {
-  const { t, currentUser, logTaskPublishedToActivity, dataClientSlug } = useAppContext();
+  const { t, currentUser, logTaskPublishedToActivity, dataClientSlug, clientApis } = useAppContext();
   const { t: lt } = useLanguage();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -889,7 +890,7 @@ export default function MarketingProjectsPage() {
     console.log("[marketing/campaigns] sync Metrics from Meta", activeProject.metaCampaignId);
     try {
       const params = new URLSearchParams({ campaign_id: activeProject.metaCampaignId, date_preset: "last_30d" });
-      const res = await fetch(`/api/meta-ads?${params.toString()}`);
+      const res = await fetch(apiUrlWithClient(`/api/meta-ads?${params.toString()}`, dataClientSlug));
       const json = (await res.json()) as {
         error?: string;
         campaigns?: Array<{
@@ -935,7 +936,7 @@ export default function MarketingProjectsPage() {
   }, [activeProject?.id, activeProject?.name]);
 
   useEffect(() => {
-    if (!activeProjectId) {
+    if (!activeProjectId || !clientApis.metaCampaigns) {
       setMetaCampaignOptions([]);
       setMetaCampaignsError("");
       return;
@@ -944,7 +945,7 @@ export default function MarketingProjectsPage() {
     setMetaCampaignsLoading(true);
     setMetaCampaignsError("");
     console.log("[marketing/campaigns] fetch Meta campaigns list for detail panel");
-    void fetch("/api/meta-ads-campaigns")
+    void fetch(apiUrlWithClient("/api/meta-ads-campaigns", dataClientSlug))
       .then((r) => r.json())
       .then((data: { campaigns?: MetaAdsCampaignOption[]; error?: string }) => {
         if (cancelled) return;
@@ -960,7 +961,7 @@ export default function MarketingProjectsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeProjectId]);
+  }, [activeProjectId, clientApis.metaCampaigns, dataClientSlug]);
 
   return (
     <ModuleGuard module="marketing">

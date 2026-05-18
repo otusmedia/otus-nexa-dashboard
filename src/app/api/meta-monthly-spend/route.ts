@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
+import { metaFromRequest } from "@/lib/server/meta-from-request";
 
 export const dynamic = "force-dynamic";
-
-const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-const AD_ACCOUNT_ID_RAW = process.env.META_AD_ACCOUNT_ID;
 
 function normalizeAdAccountId(raw: string): string {
   const trimmed = raw.trim();
@@ -25,8 +23,11 @@ type MetaMonthlySpendRow = { date_start: string; spend: number };
  * Account-level spend by calendar month (Marketing API insights, time_increment=monthly).
  * Used by Strategy "Monthly budget spend" so bars match Meta, not manual marketing_projects.budget_used.
  */
-export async function GET() {
-  if (!ACCESS_TOKEN || !AD_ACCOUNT_ID_RAW?.trim()) {
+export async function GET(request: Request) {
+  const meta = await metaFromRequest(request);
+  const ACCESS_TOKEN = meta.accessToken;
+  const AD_ACCOUNT_ID_RAW = meta.adAccountId;
+  if (!meta.configured || !ACCESS_TOKEN || !AD_ACCOUNT_ID_RAW?.trim()) {
     return NextResponse.json({ source: "unconfigured" as const, rows: [] as MetaMonthlySpendRow[] }, { status: 200 });
   }
 

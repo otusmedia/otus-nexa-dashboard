@@ -1,3 +1,4 @@
+import { apisConfigHasAnyEnabled } from "@/lib/client-apis";
 import type { AppUser, Client, UserCompany } from "@/types";
 
 export function isAgencyCompany(company: UserCompany): boolean {
@@ -25,7 +26,8 @@ export function effectiveUserClientSlug(user: AppUser): string | null {
 }
 
 export function clientHasLiveApis(client: Client | null | undefined): boolean {
-  return client?.apiEnabled === true;
+  if (!client) return false;
+  return client.apiEnabled === true || apisConfigHasAnyEnabled(client.apis);
 }
 
 /** Agency dashboards use integrations; client portals only when `api_enabled` on their client row. */

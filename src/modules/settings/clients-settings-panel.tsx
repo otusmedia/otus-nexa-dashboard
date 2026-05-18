@@ -7,8 +7,14 @@ import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { ClientLogo } from "@/components/ui/client-logo";
 import { slugFromClientName } from "@/lib/client-utils";
+import { EMPTY_CLIENT_APIS } from "@/lib/client-apis";
+import { EMPTY_CLIENT_API_CREDENTIALS } from "@/lib/client-api-credentials";
+import { EMPTY_CLIENT_CRM_INTEGRATION } from "@/lib/client-crm-integration";
+import { ClientCrmIntegrationFields } from "@/modules/settings/client-crm-integration-fields";
+import { uploadClientHeroImage } from "@/lib/client-hero-upload";
 import { readSvgFileAsDataUrl } from "@/lib/client-logo-upload";
-import type { Client } from "@/types";
+import { ClientApisFields } from "@/modules/settings/client-form-fields";
+import type { Client, ClientApiCredentials, ClientApisConfig, ClientCrmIntegration } from "@/types";
 import { cn } from "@/lib/utils";
 
 type ClientFormState = {
@@ -17,10 +23,24 @@ type ClientFormState = {
   primaryColor: string;
   active: boolean;
   logoUrl: string | null;
+  heroImageUrl: string | null;
+  apis: ClientApisConfig;
+  apiCredentials: ClientApiCredentials;
+  crmIntegration: ClientCrmIntegration;
 };
 
 function emptyClientForm(): ClientFormState {
-  return { name: "", slug: "", primaryColor: "#FF4500", active: true, logoUrl: null };
+  return {
+    name: "",
+    slug: "",
+    primaryColor: "#FF4500",
+    active: true,
+    logoUrl: null,
+    heroImageUrl: null,
+    apis: { ...EMPTY_CLIENT_APIS },
+    apiCredentials: { ...EMPTY_CLIENT_API_CREDENTIALS },
+    crmIntegration: { ...EMPTY_CLIENT_CRM_INTEGRATION },
+  };
 }
 
 type ClientsSettingsPanelProps = {
@@ -45,6 +65,21 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
     }
     return counts;
   }, [users]);
+
+  const handleHeroFile = async (
+    slug: string,
+    file: File | undefined,
+    apply: (url: string | null) => void,
+  ) => {
+    if (!file) return;
+    const { url, error } = await uploadClientHeroImage(slug, file);
+    if (!url) {
+      setSaveError(error ?? lt("Could not upload hero image."));
+      return;
+    }
+    setSaveError("");
+    apply(url);
+  };
 
   const handleLogoFile = async (file: File | undefined, apply: (url: string | null) => void) => {
     if (!file) return;
@@ -76,6 +111,10 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       primaryColor: form.primaryColor,
       active: form.active,
       logoUrl: form.logoUrl,
+      heroImageUrl: form.heroImageUrl,
+      apis: form.apis,
+      apiCredentials: form.apiCredentials,
+      crmIntegration: form.crmIntegration,
     });
     if (!result.ok) {
       setSaveError(result.error ?? lt("Could not save client."));
@@ -93,6 +132,10 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       primaryColor: client.primaryColor,
       active: client.active,
       logoUrl: client.logoUrl,
+      heroImageUrl: client.heroImageUrl,
+      apis: { ...client.apis },
+      apiCredentials: { ...client.apiCredentials },
+      crmIntegration: { ...client.crmIntegration },
     });
     setSaveError("");
   };
@@ -111,6 +154,10 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       primaryColor: editForm.primaryColor,
       active: editForm.active,
       logoUrl: editForm.logoUrl,
+      heroImageUrl: editForm.heroImageUrl,
+      apis: editForm.apis,
+      apiCredentials: editForm.apiCredentials,
+      crmIntegration: editForm.crmIntegration,
     });
     if (!result.ok) {
       setSaveError(result.error ?? lt("Could not save client."));
@@ -269,6 +316,48 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
               </div>
             ) : null}
           </div>
+          <div>
+            <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Hero background")}</label>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+              onChange={(e) =>
+                void handleHeroFile(form.slug || slugFromClientName(form.name), e.target.files?.[0], (heroImageUrl) =>
+                  setForm((prev) => ({ ...prev, heroImageUrl })),
+                )
+              }
+              className="w-full text-xs text-[var(--muted)]"
+            />
+            {form.heroImageUrl ? (
+              <div className="mt-2 space-y-2">
+                <img
+                  src={form.heroImageUrl}
+                  alt=""
+                  className="h-20 w-full max-w-xs rounded-lg object-cover"
+                />
+                <button
+                  type="button"
+                  className="btn-ghost rounded px-2 py-1 text-xs"
+                  onClick={() => setForm((prev) => ({ ...prev, heroImageUrl: null }))}
+                >
+                  {lt("Remove hero image")}
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <ClientApisFields
+            value={form.apis}
+            onChange={(apis) => setForm((prev) => ({ ...prev, apis }))}
+            apiCredentials={form.apiCredentials}
+            onCredentialsChange={(apiCredentials) => setForm((prev) => ({ ...prev, apiCredentials }))}
+            lt={lt}
+          />
+          <ClientCrmIntegrationFields
+            value={form.crmIntegration}
+            onChange={(crmIntegration) => setForm((prev) => ({ ...prev, crmIntegration }))}
+            clientSlug={form.slug || slugFromClientName(form.name)}
+            lt={lt}
+          />
           <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
             <input
               type="checkbox"
@@ -353,6 +442,46 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
                 </div>
               ) : null}
             </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Hero background")}</label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                onChange={(e) =>
+                  void handleHeroFile(editForm.slug, e.target.files?.[0], (heroImageUrl) =>
+                    setEditForm((prev) => (prev ? { ...prev, heroImageUrl } : prev)),
+                  )
+                }
+                className="w-full text-xs text-[var(--muted)]"
+              />
+              {editForm.heroImageUrl ? (
+                <div className="mt-2 space-y-2">
+                  <img src={editForm.heroImageUrl} alt="" className="h-20 w-full max-w-xs rounded-lg object-cover" />
+                  <button
+                    type="button"
+                    className="btn-ghost rounded px-2 py-1 text-xs"
+                    onClick={() => setEditForm((prev) => (prev ? { ...prev, heroImageUrl: null } : prev))}
+                  >
+                    {lt("Remove hero image")}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <ClientApisFields
+              value={editForm.apis}
+              onChange={(apis) => setEditForm((prev) => (prev ? { ...prev, apis } : prev))}
+              apiCredentials={editForm.apiCredentials}
+              onCredentialsChange={(apiCredentials) =>
+                setEditForm((prev) => (prev ? { ...prev, apiCredentials } : prev))
+              }
+              lt={lt}
+            />
+            <ClientCrmIntegrationFields
+              value={editForm.crmIntegration}
+              onChange={(crmIntegration) => setEditForm((prev) => (prev ? { ...prev, crmIntegration } : prev))}
+              clientSlug={editForm.slug}
+              lt={lt}
+            />
             <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
               <input
                 type="checkbox"

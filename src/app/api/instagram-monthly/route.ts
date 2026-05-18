@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
+import { instagramConfigured, metaFromRequest } from "@/lib/server/meta-from-request";
 
 export const dynamic = "force-dynamic";
-
-const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-const INSTAGRAM_ID = process.env.META_INSTAGRAM_ID;
 
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -11,7 +9,7 @@ const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Se
  * Honest chart: only current profile `followers_count` is reliable for many accounts.
  * Returns 12 calendar months (oldest → newest); all months 0 except the current month.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const nowEmpty = new Date();
   const emptyMonths: { label: string; value: number }[] = [];
   for (let back = 11; back >= 0; back--) {
@@ -19,13 +17,14 @@ export async function GET() {
     emptyMonths.push({ label: MONTH_SHORT[ref.getUTCMonth()] ?? "—", value: 0 });
   }
 
-  if (!ACCESS_TOKEN || !INSTAGRAM_ID?.trim()) {
+  const meta = await metaFromRequest(request);
+  if (!instagramConfigured(meta)) {
     console.error("[instagram-monthly] META_ACCESS_TOKEN or META_INSTAGRAM_ID not configured.");
     return NextResponse.json({ months: emptyMonths, source: "api", liveFollowersCount: 0 }, { status: 200 });
   }
 
-  const id = INSTAGRAM_ID.trim();
-  const token = ACCESS_TOKEN;
+  const id = meta.instagramId.trim();
+  const token = meta.accessToken;
   const profileUrl = `https://graph.facebook.com/v19.0/${id}?fields=followers_count&access_token=${token}`;
 
   let currentFollowers = 0;

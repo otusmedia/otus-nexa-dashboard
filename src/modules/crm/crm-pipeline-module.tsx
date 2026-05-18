@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { useRouter, useSearchParams } from "next/navigation";
 import type { DropResult } from "@hello-pangea/dnd";
 import { DragDropContext } from "@hello-pangea/dnd";
+import { useAppContext } from "@/components/providers/app-providers";
 import { PageHeader } from "@/components/ui/page-header";
+import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
 import {
   CRM_KANBAN_COLUMNS,
@@ -20,8 +22,10 @@ import { CrmPipelineColumn } from "@/modules/crm/crm-pipeline-column";
 import { CrmLeadDetailPanel } from "@/modules/crm/crm-lead-detail-panel";
 
 export function CrmPipelineModule() {
+  const { dataClientSlug } = useAppContext();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const leadClientSlug = dataClientSlug ?? "rocketride";
   const [leads, setLeads] = useState<CrmLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -45,10 +49,14 @@ export function CrmPipelineModule() {
       console.error("[crm pipeline]", error.message);
       setLeads([]);
     } else {
-      setLeads((data ?? []).map((row) => mapCrmLeadRow(row as Record<string, unknown>)));
+      const rows = (data ?? []) as Record<string, unknown>[];
+      const mapped = rows
+        .map((row) => mapCrmLeadRow(row))
+        .filter((lead) => rowMatchesDataClient(lead.client_slug, dataClientSlug));
+      setLeads(mapped);
     }
     setLoading(false);
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     void load();
@@ -128,6 +136,7 @@ export function CrmPipelineModule() {
         owner: owner.trim() || null,
         description: description.trim() || null,
         status: targetColumn,
+        client_slug: leadClientSlug,
       })
       .select("*")
       .maybeSingle();

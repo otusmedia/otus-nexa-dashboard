@@ -8,6 +8,7 @@ import { DataTooltip } from "@/components/ui/data-tooltip";
 import { PageHeader } from "@/components/ui/page-header";
 import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
+import { apiUrlWithClient } from "@/lib/client-api-credentials";
 import { formatCurrency } from "@/lib/utils";
 import { MarketingAccessGuard } from "../_components/marketing-access-guard";
 
@@ -74,7 +75,7 @@ function campaignsOverviewStatusStyle(status: string): { backgroundColor: string
 }
 
 export default function MarketingStrategyPage() {
-  const { t, currentUser, dataClientSlug } = useAppContext();
+  const { t, currentUser, dataClientSlug, clientApis } = useAppContext();
   const { t: lt } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<Array<Record<string, unknown>>>([]);
@@ -89,8 +90,13 @@ export default function MarketingStrategyPage() {
   const [metaMonthlyRows, setMetaMonthlyRows] = useState<MetaMonthlySpendRow[]>([]);
 
   useEffect(() => {
+    if (!clientApis.metaMonthlySpend) {
+      setMetaMonthlySource("unconfigured");
+      setMetaMonthlyRows([]);
+      return;
+    }
     let cancelled = false;
-    void fetch("/api/meta-monthly-spend")
+    void fetch(apiUrlWithClient("/api/meta-monthly-spend", dataClientSlug))
       .then((r) => r.json())
       .then((j: { source?: string; rows?: Array<{ date_start?: string; spend?: unknown }> }) => {
         if (cancelled) return;
@@ -127,7 +133,7 @@ export default function MarketingStrategyPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [clientApis.metaMonthlySpend, dataClientSlug]);
 
   useEffect(() => {
     let mounted = true;

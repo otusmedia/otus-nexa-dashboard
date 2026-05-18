@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-
-const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-const INSTAGRAM_ID = process.env.META_INSTAGRAM_ID;
+import { instagramConfigured, metaFromRequest } from "@/lib/server/meta-from-request";
 
 const fetchOpts = { next: { revalidate: 300 } as const };
 
@@ -185,15 +183,16 @@ function parseSinceUntilFromRequest(request: Request): { since: number; until: n
 }
 
 export async function GET(request: Request) {
-  if (!ACCESS_TOKEN || !INSTAGRAM_ID?.trim()) {
+  const meta = await metaFromRequest(request);
+  if (!instagramConfigured(meta)) {
     return NextResponse.json(
       { error: "Instagram Insights API is not configured (META_ACCESS_TOKEN, META_INSTAGRAM_ID)." },
       { status: 503 },
     );
   }
 
-  const id = INSTAGRAM_ID.trim();
-  const token = ACCESS_TOKEN;
+  const id = meta.instagramId.trim();
+  const token = meta.accessToken;
   const { since, until } = parseSinceUntilFromRequest(request);
 
   const profileUrl = `https://graph.facebook.com/v19.0/${id}?fields=followers_count,media_count,website,name,biography&access_token=${token}`;

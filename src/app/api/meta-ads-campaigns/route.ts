@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-
-const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-const AD_ACCOUNT_ID_RAW = process.env.META_AD_ACCOUNT_ID;
+import { metaFromRequest } from "@/lib/server/meta-from-request";
 
 function normalizeAdAccountId(raw: string): string {
   const trimmed = raw.trim();
@@ -9,12 +7,14 @@ function normalizeAdAccountId(raw: string): string {
   return trimmed.replace(/^act_/i, "");
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    if (!ACCESS_TOKEN || !AD_ACCOUNT_ID_RAW?.trim()) {
+    const meta = await metaFromRequest(request);
+    const ACCESS_TOKEN = meta.accessToken;
+    const AD_ACCOUNT_ID = normalizeAdAccountId(meta.adAccountId);
+    if (!meta.configured || !ACCESS_TOKEN) {
       return NextResponse.json({ error: "Meta Ads API is not configured (META_ACCESS_TOKEN, META_AD_ACCOUNT_ID)." }, { status: 503 });
     }
-    const AD_ACCOUNT_ID = normalizeAdAccountId(AD_ACCOUNT_ID_RAW);
     if (!AD_ACCOUNT_ID) {
       return NextResponse.json({ error: "META_AD_ACCOUNT_ID is empty." }, { status: 503 });
     }

@@ -31,11 +31,17 @@ export type Ga4DashboardResponse = {
   }>;
 };
 
-export function isGa4Configured(): boolean {
+export function isGa4Configured(propertyIdOverride?: string | null): boolean {
   const email = process.env.GOOGLE_CLIENT_EMAIL?.trim();
   const raw = process.env.GOOGLE_PRIVATE_KEY;
-  const property = process.env.GA4_PROPERTY_ID?.trim();
+  const property = (propertyIdOverride?.trim() || process.env.GA4_PROPERTY_ID?.trim()) ?? "";
   return Boolean(email && raw && String(raw).trim() && property);
+}
+
+function resolvePropertyId(propertyIdOverride?: string | null): string {
+  const fromOverride = propertyIdOverride?.trim();
+  if (fromOverride) return fromOverride;
+  return process.env.GA4_PROPERTY_ID?.trim() || "";
 }
 
 function parseGooglePrivateKeyFromEnv(): string {
@@ -136,9 +142,13 @@ function daysInclusiveYmd(startYmd: string, endYmd: string): number {
   return Math.max(1, Math.round((b - a) / 86400000) + 1);
 }
 
-export async function fetchGa4DashboardSnapshotCustom(startYmd: string, endYmd: string): Promise<Ga4DashboardResponse> {
+export async function fetchGa4DashboardSnapshotCustom(
+  startYmd: string,
+  endYmd: string,
+  propertyIdOverride?: string | null,
+): Promise<Ga4DashboardResponse> {
   logGa4Diagnostics();
-  if (!isGa4Configured()) {
+  if (!isGa4Configured(propertyIdOverride)) {
     return getGa4DashboardUnavailable("GA4 credentials not configured");
   }
 
@@ -148,7 +158,7 @@ export async function fetchGa4DashboardSnapshotCustom(startYmd: string, endYmd: 
       private_key: parseGooglePrivateKeyFromEnv(),
     };
 
-    const propertyId = process.env.GA4_PROPERTY_ID!;
+    const propertyId = resolvePropertyId(propertyIdOverride);
 
     const auth = new google.auth.JWT({
       email: credentials.client_email.trim(),
@@ -235,9 +245,12 @@ export async function fetchGa4DashboardSnapshotCustom(startYmd: string, endYmd: 
   }
 }
 
-export async function fetchGa4DashboardSnapshot(range: Ga4DateRangeParam): Promise<Ga4DashboardResponse> {
+export async function fetchGa4DashboardSnapshot(
+  range: Ga4DateRangeParam,
+  propertyIdOverride?: string | null,
+): Promise<Ga4DashboardResponse> {
   logGa4Diagnostics();
-  if (!isGa4Configured()) {
+  if (!isGa4Configured(propertyIdOverride)) {
     return getGa4DashboardUnavailable("GA4 credentials not configured");
   }
 
@@ -247,7 +260,7 @@ export async function fetchGa4DashboardSnapshot(range: Ga4DateRangeParam): Promi
       private_key: parseGooglePrivateKeyFromEnv(),
     };
 
-    const propertyId = process.env.GA4_PROPERTY_ID!;
+    const propertyId = resolvePropertyId(propertyIdOverride);
 
     const auth = new google.auth.JWT({
       email: credentials.client_email.trim(),

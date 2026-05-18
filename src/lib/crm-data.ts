@@ -63,6 +63,8 @@ export interface CrmLead {
   value: number;
   description: string | null;
   notes: string | null;
+  client_slug: string | null;
+  external_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -106,6 +108,8 @@ export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
     value: Number.isFinite(num) ? num : 0,
     description: row.description != null ? String(row.description) : null,
     notes: row.notes != null ? String(row.notes) : null,
+    client_slug: row.client_slug != null ? String(row.client_slug) : null,
+    external_id: row.external_id != null ? String(row.external_id) : null,
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
   };
