@@ -198,10 +198,28 @@ export function buildCrmFormSnippet(opts: {
     }, true);
   }
 
+  function shouldBindForm(form) {
+    if (!form || form.id === "nexa-lead-form") return false;
+    if (form.getAttribute("data-nexa-ignore") === "1") return false;
+    return true;
+  }
+
   function init() {
-    var standalone = document.getElementById("nexa-lead-form");
-    if (standalone) bindForm(standalone);
-    document.querySelectorAll("form.w-form, form[data-nexa-crm]").forEach(bindForm);
+    var selectors = [
+      ".w-form form",
+      "form.w-form",
+      "form[data-wf-page-id]",
+      'form[id^="wf-form-"]',
+      "form[data-nexa-crm]",
+    ];
+    var seen = new Set();
+    selectors.forEach(function (sel) {
+      document.querySelectorAll(sel).forEach(function (form) {
+        if (!shouldBindForm(form) || seen.has(form)) return;
+        seen.add(form);
+        bindForm(form);
+      });
+    });
   }
 
   if (document.readyState === "loading") {
@@ -211,8 +229,8 @@ export function buildCrmFormSnippet(opts: {
   }
 })();
 </script>
-<!-- Optional standalone form (or use your existing Webflow form with matching field names) -->
-<form id="nexa-lead-form" class="w-form" style="display:none" aria-hidden="true">
+<!-- Honeypot only (not a w-form — avoids stealing Webflow form bindings) -->
+<div id="nexa-lead-honeypot" style="display:none" aria-hidden="true">
   <input name="website" tabindex="-1" autocomplete="off" />
-</form>`;
+</div>`;
 }
