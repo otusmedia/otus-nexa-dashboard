@@ -29,11 +29,9 @@ function resolveSelectedClientName(
   }
 
   if (!isAgencyCompany(currentUser.company)) {
-    return (
-      clients.find((c) => c.slug === currentUser.company)?.name ??
-      String(currentUser.company || "").trim() ||
-      allClientsLabel
-    );
+    const fromClient = clients.find((c) => c.slug === currentUser.company)?.name;
+    const fromCompany = String(currentUser.company || "").trim();
+    return fromClient ?? (fromCompany || allClientsLabel);
   }
 
   return allClientsLabel;
