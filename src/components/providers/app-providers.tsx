@@ -2,6 +2,7 @@
 
 import type { DropResult } from "@hello-pangea/dnd";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { DocumentHead } from "@/components/layout/document-head";
 import { AuthProvider, useAuth } from "@/context/auth-context";
 import { ALL_MODULE_KEYS, ROCKETRIDE_ALLOWED_MODULE_KEYS } from "@/lib/modules";
 import {
@@ -2098,7 +2099,12 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     ],
   );
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      <DocumentHead />
+      {children}
+    </AppContext.Provider>
+  );
 }
 
 export function useAppContext() {

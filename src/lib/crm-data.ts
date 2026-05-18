@@ -89,6 +89,7 @@ export interface CrmContact {
   role: string | null;
   source: string | null;
   notes: string | null;
+  client_slug: string | null;
   created_at: string;
 }
 
@@ -138,6 +139,7 @@ export function mapCrmContactRow(row: Record<string, unknown>): CrmContact {
     role: row.role != null ? String(row.role) : null,
     source: row.source != null ? String(row.source) : null,
     notes: row.notes != null ? String(row.notes) : null,
+    client_slug: row.client_slug != null ? String(row.client_slug) : null,
     created_at: String(row.created_at ?? ""),
   };
 }

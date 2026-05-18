@@ -5,8 +5,12 @@ import { LanguageProvider } from "@/context/language-context";
 import { AppProviders } from "@/components/providers/app-providers";
 
 export const metadata: Metadata = {
-  title: "RocketRide Project Management Platform",
-  description: "Dark-first modular workspace for dashboard, projects, finance and reporting.",
+  title: "NXO System",
+  description: "NXO System — client operations and performance workspace.",
+  icons: {
+    icon: [{ url: "/favicon.png", type: "image/png" }],
+    apple: "/favicon.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -57,7 +57,23 @@ export function CrmDashboardModule() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+
+    const onFocus = () => void load();
+    window.addEventListener("focus", onFocus);
+    const poll = window.setInterval(() => void load(), 20_000);
+    const channel = supabase
+      .channel(`crm-leads-dashboard-${dataClientSlug ?? "all"}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "crm_leads" }, () => {
+        void load();
+      })
+      .subscribe();
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(poll);
+      void supabase.removeChannel(channel);
+    };
+  }, [load, dataClientSlug]);
 
   const total = leads.length;
   const wonCount = leads.filter((l) => normalizeLeadStatus(l.status) === "Won").length;

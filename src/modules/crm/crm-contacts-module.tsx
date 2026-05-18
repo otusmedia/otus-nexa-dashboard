@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
+import { useAppContext } from "@/components/providers/app-providers";
+import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
 import { CRM_SOURCE_OPTIONS, mapCrmContactRow, type CrmContact } from "@/lib/crm-data";
 import { formatDisplayDate } from "@/app/(platform)/projects/data";
@@ -12,6 +14,8 @@ function formatCreated(iso: string) {
 }
 
 export function CrmContactsModule() {
+  const { dataClientSlug } = useAppContext();
+  const contactClientSlug = dataClientSlug ?? "rocketride";
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -33,14 +37,33 @@ export function CrmContactsModule() {
       console.error("[crm contacts]", error.message);
       setContacts([]);
     } else {
-      setContacts((data ?? []).map((row) => mapCrmContactRow(row as Record<string, unknown>)));
+      const mapped = ((data ?? []) as Record<string, unknown>[])
+        .map((row) => mapCrmContactRow(row))
+        .filter((c) => rowMatchesDataClient(c.client_slug, dataClientSlug));
+      setContacts(mapped);
     }
     setLoading(false);
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+
+    const onFocus = () => void load();
+    window.addEventListener("focus", onFocus);
+    const poll = window.setInterval(() => void load(), 20_000);
+    const channel = supabase
+      .channel(`crm-contacts-${dataClientSlug ?? "all"}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "crm_contacts" }, () => {
+        void load();
+      })
+      .subscribe();
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(poll);
+      void supabase.removeChannel(channel);
+    };
+  }, [load, dataClientSlug]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -89,6 +112,7 @@ export function CrmContactsModule() {
       role: role.trim() || null,
       source: source || null,
       notes: notes.trim() || null,
+      client_slug: contactClientSlug,
     };
     if (editingId) {
       const { data, error } = await supabase

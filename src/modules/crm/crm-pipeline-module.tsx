@@ -60,7 +60,29 @@ export function CrmPipelineModule() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+
+    const onFocus = () => void load();
+    window.addEventListener("focus", onFocus);
+
+    const poll = window.setInterval(() => void load(), 20_000);
+
+    const channel = supabase
+      .channel(`crm-leads-pipeline-${dataClientSlug ?? "all"}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "crm_leads" },
+        () => {
+          void load();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(poll);
+      void supabase.removeChannel(channel);
+    };
+  }, [load, dataClientSlug]);
 
   useEffect(() => {
     const leadParam = searchParams.get("lead");
@@ -169,6 +191,7 @@ export function CrmPipelineModule() {
               role: "",
               source: createdLead.source ?? "",
               notes: `Auto-created from lead: ${createdLead.name}`,
+              client_slug: leadClientSlug,
             },
           ]);
           if (contactErr) console.error("[crm] auto-create contact", contactErr.message);
@@ -183,6 +206,7 @@ export function CrmPipelineModule() {
             role: "",
             source: createdLead.source ?? "",
             notes: `Auto-created from lead: ${createdLead.name}`,
+            client_slug: leadClientSlug,
           },
         ]);
         if (contactErr) console.error("[crm] auto-create contact", contactErr.message);
