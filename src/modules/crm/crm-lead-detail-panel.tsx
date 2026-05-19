@@ -69,6 +69,7 @@ export function CrmLeadDetailPanel({
     () => resolveCrmOwnerOptions(users, dataClientSlug, currentUser),
     [users, dataClientSlug, currentUser],
   );
+  const eventClientSlug = (lead.client_slug ?? dataClientSlug ?? "").trim() || null;
   const [nameDraft, setNameDraft] = useState(lead.name);
   const [propDraft, setPropDraft] = useState({
     owner: lead.owner ?? "",
@@ -135,7 +136,22 @@ export function CrmLeadDetailPanel({
 
   useEffect(() => {
     void loadAppointments();
-  }, [loadAppointments]);
+
+    const channel = supabase
+      .channel(`crm-appointments-${lead.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "crm_appointments", filter: `lead_id=eq.${lead.id}` },
+        () => {
+          void loadAppointments();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [loadAppointments, lead.id]);
 
   const propsDirty =
     nameDraft.trim() !== lead.name ||
@@ -276,7 +292,8 @@ export function CrmLeadDetailPanel({
         meet_link: null,
         location: null,
         color: "#10b981",
-        created_by: null,
+        created_by: currentUser.id || null,
+        client_slug: eventClientSlug,
         source: "crm",
         source_id: created.id,
         lead_id: lead.id,
@@ -296,11 +313,11 @@ export function CrmLeadDetailPanel({
       } else if (calIns.data?.id) {
         const ownerName = created.owner?.trim() ?? "";
         const inv = ownerName ? ownerOptions.find((u) => u.name === ownerName) : undefined;
-        if (inv?.email) {
+        if (inv?.email || inv?.id) {
           const { error: invErr } = await supabase.from("calendar_event_invitees").insert({
             event_id: String(calIns.data.id),
             email: inv.email,
-            user_id: null,
+            user_id: inv.id,
             status: "pending",
           });
           if (invErr) console.error("[crm] calendar invitee", invErr.message);

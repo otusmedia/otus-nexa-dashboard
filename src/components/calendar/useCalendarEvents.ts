@@ -128,18 +128,21 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
   const endIso = rangeEnd.toISOString();
 
   const currentEmail = useMemo(() => {
+    const fromProfile = currentUser.email?.trim().toLowerCase();
+    if (fromProfile) return fromProfile;
     const byName = CALENDAR_INVITABLE_USERS.find((u) => u.name === currentUser.name);
-    if (byName) return byName.email.toLowerCase();
-    return "";
-  }, [currentUser.name]);
+    return byName?.email.toLowerCase() ?? "";
+  }, [currentUser.email, currentUser.name]);
 
   const canSeeEvent = useCallback(
     (event: CalendarEvent): boolean => {
       if (event.is_task_deadline) return true;
       if (event.source === "crm") {
         if (currentUser.role === "admin") return true;
-        const invitees = (event.calendar_event_invitees ?? []).map((i) => (i.email ?? "").toLowerCase());
-        if (currentEmail && invitees.includes(currentEmail)) return true;
+        const inviteeRows = event.calendar_event_invitees ?? [];
+        const inviteeEmails = inviteeRows.map((i) => (i.email ?? "").toLowerCase()).filter(Boolean);
+        if (currentEmail && inviteeEmails.includes(currentEmail)) return true;
+        if (inviteeRows.some((i) => i.user_id && i.user_id === currentUser.id)) return true;
         // Fallback when owner->email mapping fails: read owner name persisted in CRM description line.
         const ownerMatch = /(?:^|\n)Owner:\s*(.+?)(?:\n|$)/i.exec(event.description ?? "");
         const ownerName = ownerMatch?.[1]?.trim().toLowerCase() ?? "";
@@ -154,7 +157,7 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
       }
       return true;
     },
-    [currentEmail, currentUser.id, currentUser.name, currentUser.role],
+    [currentEmail, currentUser.email, currentUser.id, currentUser.name, currentUser.role],
   );
 
   const fetchEvents = useCallback(async () => {
