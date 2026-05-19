@@ -1,5 +1,6 @@
 "use client";
 
+import { useLanguage } from "@/context/language-context";
 import { cn } from "@/lib/utils";
 import {
   formatLeadCreatedAt,
@@ -7,6 +8,7 @@ import {
   normalizeSource,
   type CrmLead,
 } from "@/lib/crm-data";
+import { crmSourceLabel } from "@/lib/crm-i18n";
 import { OwnerAvatars } from "@/app/(platform)/projects/_components/owner-avatars";
 
 export function CrmPipelineCard({
@@ -18,8 +20,10 @@ export function CrmPipelineCard({
   isDragging?: boolean;
   onOpen: (lead: CrmLead) => void;
 }) {
+  const { language } = useLanguage();
   const owner = lead.owner?.trim() || "";
   const owners = owner ? [owner] : [];
+  const sourceKey = normalizeSource(lead.source);
 
   return (
     <div
@@ -49,7 +53,7 @@ export function CrmPipelineCard({
         {formatLeadCreatedAt(lead.created_at)}
       </p>
       <span className="mt-2 inline-block rounded-md border border-[rgba(255,69,0,0.35)] bg-[rgba(255,69,0,0.1)] px-2 py-0.5 text-[0.65rem] uppercase tracking-wide text-[#ff9a66]">
-        {normalizeSource(lead.source)}
+        {crmSourceLabel(sourceKey, language)}
       </span>
     </div>
   );

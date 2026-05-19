@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { DataTooltip } from "@/components/ui/data-tooltip";
 import { useAppContext } from "@/components/providers/app-providers";
 import { PageHeader } from "@/components/ui/page-header";
+import { useLanguage } from "@/context/language-context";
 import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
 import {
@@ -20,7 +21,16 @@ import {
   type CrmLead,
   type CrmLeadStatus,
 } from "@/lib/crm-data";
+import { crmLeadStatusLabel, crmSourceLabel } from "@/lib/crm-i18n";
 import { cn } from "@/lib/utils";
+
+type KpiId =
+  | "totalLeads"
+  | "conversionRate"
+  | "closedSales"
+  | "totalSalesValue"
+  | "openProposals"
+  | "openProposalsValue";
 
 function sourceCountMap(leads: CrmLead[]): Record<string, number> {
   const m: Record<string, number> = {};
@@ -34,6 +44,7 @@ function sourceCountMap(leads: CrmLead[]): Record<string, number> {
 
 export function CrmDashboardModule() {
   const { dataClientSlug } = useAppContext();
+  const { language, t: lt } = useLanguage();
   const [leads, setLeads] = useState<CrmLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -100,24 +111,63 @@ export function CrmDashboardModule() {
 
   const kpiCards = useMemo(
     () => [
-      { label: "Total Leads", value: String(total), sub: `${total} total` },
-      { label: "Conversion Rate", value: `${conversionPct}%`, sub: `${wonCount} won / ${total} leads` },
-      { label: "Closed Sales", value: String(closedSales), sub: "Won" },
-      { label: "Total Sales Value", value: formatLeadValue(totalSalesValue), sub: "Won deals" },
-      { label: "Open Proposals", value: String(openProposalsCount), sub: "Proposal Sent" },
-      { label: "Open Proposals Value", value: formatLeadValue(openProposalsValue), sub: "In proposal" },
+      {
+        id: "totalLeads" as KpiId,
+        label: lt("Total Leads"),
+        value: String(total),
+        sub: `${total} ${lt("total")}`,
+      },
+      {
+        id: "conversionRate" as KpiId,
+        label: lt("Conversion Rate"),
+        value: `${conversionPct}%`,
+        sub: `${wonCount} ${lt("won /")} ${total} ${lt("leads")}`,
+      },
+      {
+        id: "closedSales" as KpiId,
+        label: lt("Closed Sales"),
+        value: String(closedSales),
+        sub: lt("Won"),
+      },
+      {
+        id: "totalSalesValue" as KpiId,
+        label: lt("Total Sales Value"),
+        value: formatLeadValue(totalSalesValue),
+        sub: lt("Won deals"),
+      },
+      {
+        id: "openProposals" as KpiId,
+        label: lt("Open Proposals"),
+        value: String(openProposalsCount),
+        sub: lt("Proposal Sent"),
+      },
+      {
+        id: "openProposalsValue" as KpiId,
+        label: lt("Open Proposals Value"),
+        value: formatLeadValue(openProposalsValue),
+        sub: lt("In proposal"),
+      },
     ],
-    [total, conversionPct, wonCount, closedSales, totalSalesValue, openProposalsCount, openProposalsValue],
+    [
+      total,
+      conversionPct,
+      wonCount,
+      closedSales,
+      totalSalesValue,
+      openProposalsCount,
+      openProposalsValue,
+      lt,
+    ],
   );
 
   if (!loading && total === 0 && !error) {
     return (
       <>
-        <PageHeader title="CRM" subtitle="Sales performance and pipeline overview" />
+        <PageHeader title={lt("CRM")} subtitle={lt("Sales performance and pipeline overview")} />
         <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-xl border border-[var(--border)] bg-[#161616] px-6 py-16 text-center">
-          <p className="text-sm font-light text-[rgba(255,255,255,0.55)]">No leads yet</p>
+          <p className="text-sm font-light text-[rgba(255,255,255,0.55)]">{lt("No leads yet")}</p>
           <p className="mt-2 max-w-md text-xs text-[rgba(255,255,255,0.4)]">
-            Add leads from the pipeline to see KPIs, sources, and pipeline overview.
+            {lt("Add leads from the pipeline to see KPIs, sources, and pipeline overview.")}
           </p>
         </div>
       </>
@@ -126,30 +176,32 @@ export function CrmDashboardModule() {
 
   return (
     <>
-      <PageHeader title="CRM" subtitle="Sales performance and pipeline overview" />
+      <PageHeader title={lt("CRM")} subtitle={lt("Sales performance and pipeline overview")} />
       {error ? (
-        <p className="mb-4 text-sm text-[#fca5a5]">Could not load CRM data: {error}</p>
+        <p className="mb-4 text-sm text-[#fca5a5]">
+          {lt("Could not load CRM data:")} {error}
+        </p>
       ) : null}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {kpiCards.map((kpi) => (
-          <Card key={kpi.label} className="p-4">
+          <Card key={kpi.id} className="p-4">
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 items-center gap-1">
                 <p className="kpi-label">{kpi.label}</p>
-                {kpi.label === "Conversion Rate" ? (
+                {kpi.id === "conversionRate" ? (
                   <DataTooltip
                     source="CRM module — Supabase database — calculated"
                     reliability="high"
                     note="Won leads divided by total leads. Accuracy depends on keeping lead statuses updated."
                   />
-                ) : kpi.label === "Total Sales Value" ? (
+                ) : kpi.id === "totalSalesValue" ? (
                   <DataTooltip
                     source="CRM module — Supabase database"
                     reliability="high"
                     note="Sum of deal values for leads marked as Won."
                   />
-                ) : kpi.label === "Open Proposals Value" ? (
+                ) : kpi.id === "openProposalsValue" ? (
                   <DataTooltip
                     source="CRM module — Supabase database"
                     reliability="high"
@@ -173,13 +225,13 @@ export function CrmDashboardModule() {
                     className="h-[2px] rounded-[2px] bg-[rgba(255,255,255,0.35)]"
                     style={{
                       width:
-                        kpi.label === "Total Leads"
+                        kpi.id === "totalLeads"
                           ? "100%"
-                          : kpi.label === "Conversion Rate"
+                          : kpi.id === "conversionRate"
                             ? `${Math.min(100, conversionPct)}%`
-                            : kpi.label === "Closed Sales" && total > 0
+                            : kpi.id === "closedSales" && total > 0
                               ? `${Math.min(100, (closedSales / total) * 100)}%`
-                              : kpi.label === "Open Proposals" && total > 0
+                              : kpi.id === "openProposals" && total > 0
                                 ? `${Math.min(100, (openProposalsCount / total) * 100)}%`
                                 : "35%",
                     }}
@@ -195,7 +247,7 @@ export function CrmDashboardModule() {
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
           <h2 className="text-[0.7rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
-            LEAD SOURCES
+            {lt("LEAD SOURCES")}
           </h2>
           {loading ? (
             <div className="mt-4 space-y-3">
@@ -211,7 +263,7 @@ export function CrmDashboardModule() {
                 return (
                   <li key={label}>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-white">{label}</span>
+                      <span className="text-white">{crmSourceLabel(label, language)}</span>
                       <span className="mono-num text-[rgba(255,255,255,0.45)]">
                         {count} ({pct}%)
                       </span>
@@ -231,7 +283,7 @@ export function CrmDashboardModule() {
 
         <Card className="p-4">
           <h2 className="text-[0.7rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
-            PIPELINE OVERVIEW
+            {lt("PIPELINE OVERVIEW")}
           </h2>
           {loading ? (
             <div className="mt-4 space-y-3">
@@ -248,9 +300,9 @@ export function CrmDashboardModule() {
                     aria-hidden
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm text-white">{stage}</p>
+                    <p className="text-sm text-white">{crmLeadStatusLabel(stage, language)}</p>
                     <p className="mono-num text-xs text-[rgba(255,255,255,0.4)]">
-                      {count} leads · {formatLeadValue(valueSum)}
+                      {count} {lt("leads")} · {formatLeadValue(valueSum)}
                     </p>
                   </div>
                 </li>

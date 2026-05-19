@@ -6,23 +6,30 @@ import type { DropResult } from "@hello-pangea/dnd";
 import { DragDropContext } from "@hello-pangea/dnd";
 import { useAppContext } from "@/components/providers/app-providers";
 import { PageHeader } from "@/components/ui/page-header";
+import { useLanguage } from "@/context/language-context";
 import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
 import {
   CRM_KANBAN_COLUMNS,
   CRM_SOURCE_OPTIONS,
-  CRM_TEAM_MEMBERS,
   groupLeadsByStatus,
   mapCrmLeadRow,
   normalizeLeadStatus,
   type CrmLead,
   type CrmLeadStatus,
 } from "@/lib/crm-data";
+import { crmLeadStatusLabel, crmSourceLabel } from "@/lib/crm-i18n";
+import { resolveCrmOwnerOptions } from "@/lib/crm-team-members";
 import { CrmPipelineColumn } from "@/modules/crm/crm-pipeline-column";
 import { CrmLeadDetailPanel } from "@/modules/crm/crm-lead-detail-panel";
 
 export function CrmPipelineModule() {
-  const { dataClientSlug } = useAppContext();
+  const { dataClientSlug, users, currentUser } = useAppContext();
+  const { language, t: lt } = useLanguage();
+  const ownerOptions = useMemo(
+    () => resolveCrmOwnerOptions(users, dataClientSlug, currentUser),
+    [users, dataClientSlug, currentUser],
+  );
   const router = useRouter();
   const searchParams = useSearchParams();
   const leadClientSlug = dataClientSlug ?? "rocketride";
@@ -142,7 +149,7 @@ export function CrmPipelineModule() {
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) {
-      setNameError("Name is required.");
+      setNameError(lt("Name is required."));
       return;
     }
     const valueNum = Number.parseFloat(valueStr.replace(/,/g, "")) || 0;
@@ -222,7 +229,7 @@ export function CrmPipelineModule() {
   const onLeadDeleted = (leadId: string) => {
     setLeads((prev) => prev.filter((l) => l.id !== leadId));
     setSelectedId(null);
-    setSuccessMessage("Lead deleted successfully.");
+    setSuccessMessage(lt("Lead deleted successfully."));
     window.setTimeout(() => setSuccessMessage(null), 2500);
   };
 
@@ -230,25 +237,28 @@ export function CrmPipelineModule() {
 
   return (
     <div className="w-full min-w-0">
-      <PageHeader title="Pipeline" subtitle="Kanban pipeline" />
+      <PageHeader title={lt("Pipeline")} subtitle={lt("Kanban pipeline")} />
       {successMessage ? (
         <p className="mb-3 rounded-md border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.12)] px-3 py-2 text-sm text-[#86efac]">
           {successMessage}
         </p>
       ) : null}
       {loading ? (
-        <p className="text-sm text-[rgba(255,255,255,0.45)]">Loading pipeline…</p>
+        <p className="text-sm text-[rgba(255,255,255,0.45)]">{lt("Loading pipeline…")}</p>
       ) : (
         <div className="w-full min-w-0 overflow-x-auto">
           <DragDropContext onDragEnd={onDragEnd}>
-            <div className="mb-3 px-1 text-xs font-light text-[rgba(255,255,255,0.4)]">{leadCount} leads</div>
+            <div className="mb-3 px-1 text-xs font-light text-[rgba(255,255,255,0.4)]">
+              {leadCount} {lt("leads")}
+            </div>
             <div className="h-[80vh] w-max overflow-hidden">
               <div className="flex h-full min-h-0 w-max flex-row gap-4 px-1 pb-4">
                 {CRM_KANBAN_COLUMNS.map((col) => (
                   <CrmPipelineColumn
                     key={col.id}
                     columnId={col.id}
-                    label={col.label}
+                    label={crmLeadStatusLabel(col.id, language)}
+                    addLeadLabel={lt("Add New Lead")}
                     dotClass={col.dotClass}
                     leads={byColumn[col.id]}
                     onAddLead={openAddModal}
@@ -277,19 +287,21 @@ export function CrmPipelineModule() {
             className="w-full max-w-xl rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-4"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-normal uppercase tracking-[0.08em] text-white">Add New Lead</h3>
+              <h3 className="text-sm font-normal uppercase tracking-[0.08em] text-white">{lt("Add New Lead")}</h3>
               <button
                 type="button"
                 onClick={closeAddModal}
                 className="rounded-md border border-[var(--border-strong)] px-2 py-1 text-xs text-[rgba(255,255,255,0.7)]"
               >
-                Close
+                {lt("Close")}
               </button>
             </div>
-            <p className="mt-2 text-xs text-[rgba(255,255,255,0.45)]">Status: {targetColumn}</p>
+            <p className="mt-2 text-xs text-[rgba(255,255,255,0.45)]">
+              {lt("Status")}: {crmLeadStatusLabel(targetColumn, language)}
+            </p>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <label className="block space-y-1 md:col-span-2">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Name *</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Name *")}</span>
                 <input
                   value={name}
                   onChange={(e) => {
@@ -302,7 +314,7 @@ export function CrmPipelineModule() {
                 {nameError ? <p className="text-xs text-[#f87171]">{nameError}</p> : null}
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Company</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Company")}</span>
                 <input
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
@@ -310,7 +322,7 @@ export function CrmPipelineModule() {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Email</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Email")}</span>
                 <input
                   type="email"
                   value={email}
@@ -319,7 +331,7 @@ export function CrmPipelineModule() {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Phone</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Phone")}</span>
                 <input
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
@@ -327,7 +339,7 @@ export function CrmPipelineModule() {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Source</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Source")}</span>
                 <select
                   value={source}
                   onChange={(e) => setSource(e.target.value)}
@@ -335,13 +347,13 @@ export function CrmPipelineModule() {
                 >
                   {CRM_SOURCE_OPTIONS.map((s) => (
                     <option key={s} value={s}>
-                      {s}
+                      {crmSourceLabel(s, language)}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Value</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Value")}</span>
                 <input
                   value={valueStr}
                   onChange={(e) => setValueStr(e.target.value)}
@@ -350,23 +362,23 @@ export function CrmPipelineModule() {
                 />
               </label>
               <label className="block space-y-1 md:col-span-2">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Owner</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Owner")}</span>
                 <select
                   value={owner}
                   onChange={(e) => setOwner(e.target.value)}
                   className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 >
-                  <option value="">Unassigned</option>
-                  {CRM_TEAM_MEMBERS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
+                  <option value="">{lt("Unassigned")}</option>
+                  {ownerOptions.map((m) => (
+                    <option key={m.id} value={m.name}>
+                      {m.name}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="block space-y-1 md:col-span-2">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-                  Description
+                  {lt("Description")}
                 </span>
                 <textarea
                   value={description}
@@ -378,10 +390,10 @@ export function CrmPipelineModule() {
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" onClick={closeAddModal} className="btn-ghost rounded-[8px] px-3 py-1.5 text-xs">
-                Cancel
+                {lt("Cancel")}
               </button>
               <button type="submit" className="btn-primary rounded-[8px] px-3 py-1.5 text-xs">
-                Save
+                {lt("Save")}
               </button>
             </div>
           </form>

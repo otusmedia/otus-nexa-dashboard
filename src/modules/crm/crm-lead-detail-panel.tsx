@@ -1,14 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
-import { CALENDAR_INVITABLE_USERS } from "@/components/calendar/calendar-invite-users";
 import { useAppContext } from "@/components/providers/app-providers";
+import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
 import {
   CRM_KANBAN_COLUMNS,
   CRM_SOURCE_OPTIONS,
-  CRM_TEAM_MEMBERS,
   formatAppointmentTime,
   formatLeadCreatedAt,
   mapCrmAppointmentRow,
@@ -18,6 +17,8 @@ import {
   type CrmLead,
   type CrmLeadStatus,
 } from "@/lib/crm-data";
+import { crmLeadStatusLabel, crmSourceLabel } from "@/lib/crm-i18n";
+import { resolveCrmOwnerOptions } from "@/lib/crm-team-members";
 import { formatCurrency } from "@/lib/utils";
 import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { cn } from "@/lib/utils";
@@ -62,7 +63,12 @@ export function CrmLeadDetailPanel({
   onLeadUpdated: (lead: CrmLead) => void;
   onLeadDeleted: (leadId: string) => void;
 }) {
-  const { currentUser } = useAppContext();
+  const { currentUser, users, dataClientSlug } = useAppContext();
+  const { language, t: lt } = useLanguage();
+  const ownerOptions = useMemo(
+    () => resolveCrmOwnerOptions(users, dataClientSlug, currentUser),
+    [users, dataClientSlug, currentUser],
+  );
   const [nameDraft, setNameDraft] = useState(lead.name);
   const [propDraft, setPropDraft] = useState({
     owner: lead.owner ?? "",
@@ -289,8 +295,8 @@ export function CrmLeadDetailPanel({
         console.error("[crm] calendar sync insert", calIns.error.message);
       } else if (calIns.data?.id) {
         const ownerName = created.owner?.trim() ?? "";
-        const inv = ownerName ? CALENDAR_INVITABLE_USERS.find((u) => u.name === ownerName) : undefined;
-        if (inv) {
+        const inv = ownerName ? ownerOptions.find((u) => u.name === ownerName) : undefined;
+        if (inv?.email) {
           const { error: invErr } = await supabase.from("calendar_event_invitees").insert({
             event_id: String(calIns.data.id),
             email: inv.email,
@@ -373,7 +379,9 @@ export function CrmLeadDetailPanel({
               onChange={(e) => setNameDraft(e.target.value)}
               className="w-full border-b border-transparent bg-transparent text-xl font-normal text-white outline-none focus:border-[#ff4500]"
             />
-            <p className="mt-1 text-xs text-[rgba(255,255,255,0.35)]">Created {formatLeadCreatedAt(lead.created_at)}</p>
+            <p className="mt-1 text-xs text-[rgba(255,255,255,0.35)]">
+              {lt("Created")} {formatLeadCreatedAt(lead.created_at)}
+            </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span
                 className={cn(
@@ -389,7 +397,7 @@ export function CrmLeadDetailPanel({
                 >
                   {CRM_KANBAN_COLUMNS.map((c) => (
                     <option key={c.id} value={c.id} className="bg-[#141414]">
-                      {c.label}
+                      {crmLeadStatusLabel(c.id, language)}
                     </option>
                   ))}
                 </select>
@@ -409,26 +417,26 @@ export function CrmLeadDetailPanel({
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <section>
             <h3 className="text-[0.65rem] font-normal uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-              Properties
+              {lt("Properties")}
             </h3>
             <div className="mt-3 grid gap-3">
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Owner</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Owner")}</span>
                 <select
                   value={propDraft.owner}
                   onChange={(e) => setPropDraft((p) => ({ ...p, owner: e.target.value }))}
                   className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 >
-                  <option value="">Unassigned</option>
-                  {CRM_TEAM_MEMBERS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
+                  <option value="">{lt("Unassigned")}</option>
+                  {ownerOptions.map((m) => (
+                    <option key={m.id} value={m.name}>
+                      {m.name}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Company</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Company")}</span>
                 <input
                   value={propDraft.company}
                   onChange={(e) => setPropDraft((p) => ({ ...p, company: e.target.value }))}
@@ -436,7 +444,7 @@ export function CrmLeadDetailPanel({
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Email</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Email")}</span>
                 <input
                   type="email"
                   value={propDraft.email}
@@ -445,7 +453,7 @@ export function CrmLeadDetailPanel({
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Phone</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Phone")}</span>
                 <input
                   value={propDraft.phone}
                   onChange={(e) => setPropDraft((p) => ({ ...p, phone: e.target.value }))}
@@ -453,7 +461,7 @@ export function CrmLeadDetailPanel({
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Source</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Source")}</span>
                 <select
                   value={propDraft.source}
                   onChange={(e) => setPropDraft((p) => ({ ...p, source: e.target.value }))}
@@ -461,13 +469,13 @@ export function CrmLeadDetailPanel({
                 >
                   {CRM_SOURCE_OPTIONS.map((s) => (
                     <option key={s} value={s}>
-                      {s}
+                      {crmSourceLabel(s, language)}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Value ($)</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Value ($)")}</span>
                 <input
                   value={propDraft.valueStr}
                   onChange={(e) => setPropDraft((p) => ({ ...p, valueStr: e.target.value }))}
@@ -475,7 +483,7 @@ export function CrmLeadDetailPanel({
                   className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 />
                 <span className="text-xs text-[rgba(255,255,255,0.35)]">
-                  Preview: {formatCurrency(Number.parseFloat(propDraft.valueStr.replace(/,/g, "")) || 0)}
+                  {lt("Preview")}: {formatCurrency(Number.parseFloat(propDraft.valueStr.replace(/,/g, "")) || 0)}
                 </span>
               </label>
             </div>
@@ -486,7 +494,7 @@ export function CrmLeadDetailPanel({
                 onClick={cancelProperties}
                 className="btn-ghost rounded-[8px] px-3 py-1.5 text-xs disabled:opacity-40"
               >
-                Cancel
+                {lt("Cancel")}
               </button>
               <button
                 type="button"
@@ -494,14 +502,14 @@ export function CrmLeadDetailPanel({
                 onClick={() => void saveProperties()}
                 className="btn-primary rounded-[8px] px-3 py-1.5 text-xs disabled:opacity-40"
               >
-                {propsSaving ? "Saving…" : "Save"}
+                {propsSaving ? lt("Saving…") : lt("Save")}
               </button>
             </div>
           </section>
 
           <section className="mt-8">
             <h3 className="text-[0.65rem] font-normal uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-              Description
+              {lt("Description")}
             </h3>
             <textarea
               value={descDraft}
@@ -516,7 +524,7 @@ export function CrmLeadDetailPanel({
                 onClick={() => setDescDraft(lead.description ?? "")}
                 className="btn-ghost rounded-[8px] px-3 py-1.5 text-xs disabled:opacity-40"
               >
-                Cancel
+                {lt("Cancel")}
               </button>
               <button
                 type="button"
@@ -524,13 +532,13 @@ export function CrmLeadDetailPanel({
                 onClick={() => void saveDescription()}
                 className="btn-primary rounded-[8px] px-3 py-1.5 text-xs disabled:opacity-40"
               >
-                {descSaving ? "Saving…" : "Save"}
+                {descSaving ? lt("Saving…") : lt("Save")}
               </button>
             </div>
           </section>
 
           <section className="mt-8">
-            <h3 className="text-[0.65rem] font-normal uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Notes</h3>
+            <h3 className="text-[0.65rem] font-normal uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Notes")}</h3>
             <textarea
               value={notesDraft}
               onChange={(e) => setNotesDraft(e.target.value)}
@@ -544,7 +552,7 @@ export function CrmLeadDetailPanel({
                 onClick={() => setNotesDraft(lead.notes ?? "")}
                 className="btn-ghost rounded-[8px] px-3 py-1.5 text-xs disabled:opacity-40"
               >
-                Cancel
+                {lt("Cancel")}
               </button>
               <button
                 type="button"
@@ -552,7 +560,7 @@ export function CrmLeadDetailPanel({
                 onClick={() => void saveNotes()}
                 className="btn-primary rounded-[8px] px-3 py-1.5 text-xs disabled:opacity-40"
               >
-                {notesSaving ? "Saving…" : "Save"}
+                {notesSaving ? lt("Saving…") : lt("Save")}
               </button>
             </div>
           </section>
@@ -560,14 +568,14 @@ export function CrmLeadDetailPanel({
           <section className="mt-8">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-[0.65rem] font-normal uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-                APPOINTMENTS
+                {lt("APPOINTMENTS")}
               </h3>
               <button
                 type="button"
                 onClick={() => setShowApptForm((v) => !v)}
                 className="rounded-md border border-[var(--border)] px-2 py-1 text-[0.65rem] text-white hover:bg-[var(--surface-elevated)]"
               >
-                {showApptForm ? "Close" : "Add Appointment"}
+                {showApptForm ? lt("Close") : lt("Add Appointment")}
               </button>
             </div>
 
@@ -575,7 +583,7 @@ export function CrmLeadDetailPanel({
               <div className="mt-3 space-y-3 rounded-lg border border-[var(--border)] bg-[#161616] p-3">
                 <label className="block space-y-1">
                   <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-                    Title *
+                    {lt("Title")} *
                   </span>
                   <input
                     value={apptDraft.title}
@@ -585,7 +593,7 @@ export function CrmLeadDetailPanel({
                 </label>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block space-y-1">
-                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Date</span>
+                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Date")}</span>
                     <input
                       type="date"
                       value={apptDraft.date}
@@ -594,7 +602,7 @@ export function CrmLeadDetailPanel({
                     />
                   </label>
                   <label className="block space-y-1">
-                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Time</span>
+                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Time")}</span>
                     <input
                       type="time"
                       value={apptDraft.time}
@@ -604,23 +612,23 @@ export function CrmLeadDetailPanel({
                   </label>
                 </div>
                 <label className="block space-y-1">
-                  <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Owner</span>
+                  <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Owner")}</span>
                   <select
                     value={apptDraft.owner}
                     onChange={(e) => setApptDraft((p) => ({ ...p, owner: e.target.value }))}
                     className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                   >
-                    <option value="">Unassigned</option>
-                    {CRM_TEAM_MEMBERS.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
+                  <option value="">{lt("Unassigned")}</option>
+                  {ownerOptions.map((m) => (
+                    <option key={m.id} value={m.name}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
                 </label>
                 <label className="block space-y-1">
                   <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-                    Description
+                    {lt("Description")}
                   </span>
                   <textarea
                     value={apptDraft.description}
@@ -635,23 +643,23 @@ export function CrmLeadDetailPanel({
                     onClick={() => setShowApptForm(false)}
                     className="btn-ghost rounded-[8px] px-3 py-1.5 text-xs"
                   >
-                    Cancel
+                    {lt("Cancel")}
                   </button>
                   <button
                     type="button"
                     onClick={() => void saveAppointment()}
                     className="btn-primary rounded-[8px] px-3 py-1.5 text-xs"
                   >
-                    Save
+                    {lt("Save")}
                   </button>
                 </div>
               </div>
             ) : null}
 
             {apptsLoading ? (
-              <p className="mt-3 text-xs text-[rgba(255,255,255,0.4)]">Loading…</p>
+              <p className="mt-3 text-xs text-[rgba(255,255,255,0.4)]">{lt("Loading…")}</p>
             ) : appointments.length === 0 ? (
-              <p className="mt-3 text-xs text-[rgba(255,255,255,0.4)]">No appointments scheduled.</p>
+              <p className="mt-3 text-xs text-[rgba(255,255,255,0.4)]">{lt("No appointments scheduled.")}</p>
             ) : (
               <ul className="mt-3 space-y-3">
                 {appointments.map((a) => (
@@ -675,7 +683,7 @@ export function CrmLeadDetailPanel({
                         onClick={() => setDeleteApptId(a.id)}
                         className="shrink-0 text-xs text-[#fca5a5] hover:underline"
                       >
-                        Delete
+                        {lt("Delete")}
                       </button>
                     </div>
                   </li>
@@ -691,7 +699,7 @@ export function CrmLeadDetailPanel({
               className="w-full rounded-[8px] border px-3 py-2 text-sm text-[#fca5a5] transition-colors hover:bg-[rgba(239,68,68,0.08)]"
               style={{ borderColor: "rgba(239,68,68,0.3)" }}
             >
-              Delete Lead
+              {lt("Delete Lead")}
             </button>
           </section>
         </div>
@@ -699,10 +707,10 @@ export function CrmLeadDetailPanel({
 
       <DeleteConfirmModal
         open={deleteApptId != null}
-        title="Delete appointment"
-        message="Remove this appointment? This cannot be undone."
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        title={lt("Delete appointment")}
+        message={lt("Remove this appointment? This cannot be undone.")}
+        confirmLabel={lt("Delete")}
+        cancelLabel={lt("Cancel")}
         onCancel={() => setDeleteApptId(null)}
         onConfirm={() => void confirmDeleteAppointment()}
       />
@@ -710,16 +718,18 @@ export function CrmLeadDetailPanel({
       {deleteLeadModalOpen ? (
         <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-md rounded-[8px] border border-[var(--border)] bg-[#161616] p-5">
-            <h3 className="section-title">Delete Lead</h3>
+            <h3 className="section-title">{lt("Delete Lead")}</h3>
             <p className="mt-2 text-sm font-light leading-relaxed text-[rgba(255,255,255,0.55)]">
-              This action is permanent and cannot be undone. All appointments linked to this lead will also be deleted.
+              {lt(
+                "This action is permanent and cannot be undone. All appointments linked to this lead will also be deleted.",
+              )}
             </p>
             <label className="mt-4 block space-y-1">
-              <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Passkey</span>
+              <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Passkey")}</span>
               <input
                 value={deletePasskey}
                 onChange={(e) => setDeletePasskey(e.target.value)}
-                placeholder="Type DELETE to confirm"
+                placeholder={lt("Type DELETE to confirm")}
                 className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
               />
             </label>
@@ -732,7 +742,7 @@ export function CrmLeadDetailPanel({
                 }}
                 className="btn-ghost rounded-[8px] px-3 py-1.5 text-xs"
               >
-                Cancel
+                {lt("Cancel")}
               </button>
               <button
                 type="button"
@@ -740,7 +750,7 @@ export function CrmLeadDetailPanel({
                 onClick={() => void confirmDeleteLead()}
                 className="rounded-[8px] bg-[#ef4444] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#dc2626] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {deletingLead ? "Deleting…" : "Delete"}
+                {deletingLead ? lt("Deleting…") : lt("Delete")}
               </button>
             </div>
           </div>

@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { useAppContext } from "@/components/providers/app-providers";
+import { useLanguage } from "@/context/language-context";
 import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
 import { CRM_SOURCE_OPTIONS, mapCrmContactRow, type CrmContact } from "@/lib/crm-data";
+import { crmSourceLabel } from "@/lib/crm-i18n";
 import { formatDisplayDate } from "@/app/(platform)/projects/data";
 
 function formatCreated(iso: string) {
@@ -15,6 +17,7 @@ function formatCreated(iso: string) {
 
 export function CrmContactsModule() {
   const { dataClientSlug } = useAppContext();
+  const { language, t: lt } = useLanguage();
   const contactClientSlug = dataClientSlug ?? "rocketride";
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -155,34 +158,34 @@ export function CrmContactsModule() {
   return (
     <div className="w-full min-w-0">
       <PageHeader
-        title="CONTACTS"
-        subtitle="All contacts and companies"
+        title={lt("CONTACTS")}
+        subtitle={lt("All contacts and companies")}
         action={
           <button type="button" onClick={openCreate} className="btn-primary rounded-lg px-3 py-2 text-sm">
-            Add Contact
+            {lt("Add Contact")}
           </button>
         }
       />
 
       {loading ? (
-        <p className="text-sm text-[rgba(255,255,255,0.45)]">Loading contacts…</p>
+        <p className="text-sm text-[rgba(255,255,255,0.45)]">{lt("Loading contacts…")}</p>
       ) : empty ? (
         <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-xl border border-[var(--border)] bg-[#161616] px-6 py-16 text-center">
-          <p className="text-sm text-[rgba(255,255,255,0.55)]">No contacts yet — add your first contact</p>
+          <p className="text-sm text-[rgba(255,255,255,0.55)]">{lt("No contacts yet — add your first contact")}</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[#161616]">
           <table className="w-full min-w-[900px] text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-                <th className="px-4 py-3 font-normal">Name</th>
-                <th className="px-4 py-3 font-normal">Company</th>
-                <th className="px-4 py-3 font-normal">Email</th>
-                <th className="px-4 py-3 font-normal">Phone</th>
-                <th className="px-4 py-3 font-normal">Role</th>
-                <th className="px-4 py-3 font-normal">Source</th>
-                <th className="px-4 py-3 font-normal">Created</th>
-                <th className="px-4 py-3 font-normal text-right">Actions</th>
+                <th className="px-4 py-3 font-normal">{lt("Name")}</th>
+                <th className="px-4 py-3 font-normal">{lt("Company")}</th>
+                <th className="px-4 py-3 font-normal">{lt("Email")}</th>
+                <th className="px-4 py-3 font-normal">{lt("Phone")}</th>
+                <th className="px-4 py-3 font-normal">{lt("Role")}</th>
+                <th className="px-4 py-3 font-normal">{lt("Source")}</th>
+                <th className="px-4 py-3 font-normal">{lt("Created")}</th>
+                <th className="px-4 py-3 font-normal text-right">{lt("Actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -193,7 +196,9 @@ export function CrmContactsModule() {
                   <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.email ?? "—"}</td>
                   <td className="mono-num px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.phone ?? "—"}</td>
                   <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.role ?? "—"}</td>
-                  <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.source ?? "—"}</td>
+                  <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">
+                    {c.source ? crmSourceLabel(c.source, language) : "—"}
+                  </td>
                   <td className="mono-num px-4 py-3 text-[rgba(255,255,255,0.55)]">{formatCreated(c.created_at)}</td>
                   <td className="px-4 py-3 text-right">
                     <button
@@ -201,14 +206,14 @@ export function CrmContactsModule() {
                       onClick={() => openEdit(c)}
                       className="mr-3 text-xs text-[#ff9a66] hover:underline"
                     >
-                      Edit
+                      {lt("Edit")}
                     </button>
                     <button
                       type="button"
                       onClick={() => setDeleteId(c.id)}
                       className="text-xs text-[#fca5a5] hover:underline"
                     >
-                      Delete
+                      {lt("Delete")}
                     </button>
                   </td>
                 </tr>
@@ -226,19 +231,19 @@ export function CrmContactsModule() {
           >
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-normal uppercase tracking-[0.08em] text-white">
-                {editingId ? "Edit Contact" : "Add Contact"}
+                {editingId ? lt("Edit Contact") : lt("Add Contact")}
               </h3>
               <button
                 type="button"
                 onClick={closeModal}
                 className="rounded-md border border-[var(--border-strong)] px-2 py-1 text-xs text-[rgba(255,255,255,0.7)]"
               >
-                Close
+                {lt("Close")}
               </button>
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <label className="block space-y-1 md:col-span-2">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Name *</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Name *")}</span>
                 <input
                   value={name}
                   onChange={(e) => {
@@ -251,7 +256,7 @@ export function CrmContactsModule() {
                 {nameError ? <p className="text-xs text-[#f87171]">{nameError}</p> : null}
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Company</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Company")}</span>
                 <input
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
@@ -259,7 +264,7 @@ export function CrmContactsModule() {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Email</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Email")}</span>
                 <input
                   type="email"
                   value={email}
@@ -268,7 +273,7 @@ export function CrmContactsModule() {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Phone</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Phone")}</span>
                 <input
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
@@ -276,7 +281,7 @@ export function CrmContactsModule() {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Role</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Role")}</span>
                 <input
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
@@ -284,7 +289,7 @@ export function CrmContactsModule() {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Source</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Source")}</span>
                 <select
                   value={source}
                   onChange={(e) => setSource(e.target.value)}
@@ -292,13 +297,13 @@ export function CrmContactsModule() {
                 >
                   {CRM_SOURCE_OPTIONS.map((s) => (
                     <option key={s} value={s}>
-                      {s}
+                      {crmSourceLabel(s, language)}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="block space-y-1 md:col-span-2">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">Notes</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Notes")}</span>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
@@ -309,10 +314,10 @@ export function CrmContactsModule() {
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" onClick={closeModal} className="btn-ghost rounded-[8px] px-3 py-1.5 text-xs">
-                Cancel
+                {lt("Cancel")}
               </button>
               <button type="submit" className="btn-primary rounded-[8px] px-3 py-1.5 text-xs">
-                Save
+                {lt("Save")}
               </button>
             </div>
           </form>
@@ -321,10 +326,10 @@ export function CrmContactsModule() {
 
       <DeleteConfirmModal
         open={deleteId != null}
-        title="Delete contact"
-        message="Remove this contact? This cannot be undone."
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        title={lt("Delete contact")}
+        message={lt("Remove this contact? This cannot be undone.")}
+        confirmLabel={lt("Delete")}
+        cancelLabel={lt("Cancel")}
         onCancel={() => setDeleteId(null)}
         onConfirm={() => void confirmDelete()}
       />

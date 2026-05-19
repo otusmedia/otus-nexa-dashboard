@@ -7,6 +7,7 @@ import { CrmPipelineCard } from "@/modules/crm/crm-pipeline-card";
 export function CrmPipelineColumn({
   columnId,
   label,
+  addLeadLabel,
   dotClass,
   leads,
   onAddLead,
@@ -14,6 +15,7 @@ export function CrmPipelineColumn({
 }: {
   columnId: CrmLeadStatus;
   label: string;
+  addLeadLabel: string;
   dotClass: string;
   leads: CrmLead[];
   onAddLead: (columnId: CrmLeadStatus) => void;
@@ -61,7 +63,7 @@ export function CrmPipelineColumn({
         onClick={() => onAddLead(columnId)}
         className="mt-2 shrink-0 rounded-[8px] border border-dashed border-[var(--border-strong)] bg-transparent py-2.5 text-xs font-normal text-[rgba(255,255,255,0.4)] transition-colors hover:border-[var(--border)] hover:text-[var(--muted)]"
       >
-        Add New Lead
+        {addLeadLabel}
       </button>
     </div>
   );
