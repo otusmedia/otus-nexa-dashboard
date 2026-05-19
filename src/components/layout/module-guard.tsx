@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { ModuleKey } from "@/types";
 import { useAppContext } from "@/components/providers/app-providers";
+import { hasModuleAccess } from "@/lib/modules";
 
 type ModuleGuardProps =
   | { module: ModuleKey; children: React.ReactNode }
@@ -18,7 +19,7 @@ export function ModuleGuard(props: ModuleGuardProps) {
     "requireAdmin" in props && props.requireAdmin
       ? currentUser.role === "admin"
       : "module" in props
-        ? allowedModules.includes(props.module)
+        ? hasModuleAccess(allowedModules, props.module)
         : false;
 
   useEffect(() => {

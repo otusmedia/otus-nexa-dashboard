@@ -269,7 +269,7 @@ export function PublishingModule() {
       const tab = searchParams.get("tab");
       const edit = searchParams.get("edit");
       if (tab === "compose" || edit) {
-        router.replace("/publishing?tab=schedule", { scroll: false });
+        router.replace("/content-management/compose?tab=schedule", { scroll: false });
       }
       return;
     }
@@ -365,7 +365,7 @@ export function PublishingModule() {
     if (opts?.clearSuccessMessage !== false) setScheduleNote("");
     mediaItems.forEach((m) => URL.revokeObjectURL(m.url));
     setMediaItems([]);
-    router.replace("/publishing", { scroll: false });
+    router.replace("/content-management/compose", { scroll: false });
   };
 
   const insertPost = async (payload: Record<string, unknown>) => {
@@ -598,7 +598,7 @@ export function PublishingModule() {
             type="button"
             onClick={() => {
               setMainTab("compose");
-              router.replace("/publishing?tab=compose", { scroll: false });
+              router.replace("/content-management/compose?tab=compose", { scroll: false });
             }}
             className={cn(
               "rounded-full px-5 py-2 text-sm font-medium transition",
@@ -611,7 +611,7 @@ export function PublishingModule() {
             type="button"
             onClick={() => {
               setMainTab("schedule");
-              router.replace("/publishing?tab=schedule", { scroll: false });
+              router.replace("/content-management/compose?tab=schedule", { scroll: false });
             }}
             className={cn(
               "rounded-full px-5 py-2 text-sm font-medium transition",
@@ -865,7 +865,7 @@ export function PublishingModule() {
             onEditScheduledPost={
               canCompose
                 ? (postId) => {
-                    router.replace(`/publishing?tab=compose&edit=${encodeURIComponent(postId)}`, { scroll: false });
+                    router.replace(`/content-management/compose?tab=compose&edit=${encodeURIComponent(postId)}`, { scroll: false });
                     setMainTab("compose");
                   }
                 : undefined
@@ -1053,7 +1053,7 @@ export function PublishingModule() {
                   onClick={() => {
                     const id = detailPost.id;
                     setDetailPost(null);
-                    router.replace(`/publishing?tab=compose&edit=${encodeURIComponent(id)}`, { scroll: false });
+                    router.replace(`/content-management/compose?tab=compose&edit=${encodeURIComponent(id)}`, { scroll: false });
                     setMainTab("compose");
                   }}
                 >

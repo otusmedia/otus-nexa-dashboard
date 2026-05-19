@@ -16,7 +16,6 @@ import {
   MessageCircle,
   Megaphone,
   MessageSquare,
-  Send,
   Settings,
   Sparkles,
   Wallet,
@@ -30,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { ClientLogo } from "@/components/ui/client-logo";
 import { SidebarClientPicker } from "@/components/layout/sidebar-client-picker";
 import { effectiveUserClientSlug, isAgencyAdmin, isAgencyCompany } from "@/lib/client-utils";
+import { hasModuleAccess } from "@/lib/modules";
 import { Modal } from "@/components/ui/modal";
 import HeroSection from "@/components/layout/hero-section";
 
@@ -41,7 +41,6 @@ const moduleLinks: Array<{
     | "financial"
     | "updates"
     | "marketing"
-    | "publishing"
     | "calendar"
     | "crm"
     | "files"
@@ -54,8 +53,7 @@ const moduleLinks: Array<{
   { key: "financial", labelKey: "financial", href: "/financial", icon: Wallet },
   { key: "updates", labelKey: "updates", href: "/updates", icon: MessageSquare },
   { key: "marketing", labelKey: "marketing", href: "/marketing", icon: Megaphone },
-  { key: "publishing", labelKey: "publishing", href: "/publishing", icon: Send },
-  { key: "content-management" as ModuleKey, labelKey: "publishing", href: "/content-management", icon: Sparkles },
+  { key: "content-management", labelKey: "marketing", href: "/content-management", icon: Sparkles },
   { key: "calendar", labelKey: "calendar", href: "/calendar", icon: Calendar },
   { key: "crm", labelKey: "crm", href: "/crm", icon: Briefcase },
   { key: "files", labelKey: "files", href: "/files", icon: FileUp },
@@ -157,7 +155,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     (currentUser.role === "admin" && (currentUser.company === "nexa" || currentUser.company === "otus")) ||
     (currentUser.role === "manager" && currentUser.modules.includes("marketing"));
   const links = moduleLinks.filter((link) =>
-    link.key === "marketing" ? allowedModules.includes(link.key) && canAccessMarketing : allowedModules.includes(link.key),
+    link.key === "marketing"
+      ? allowedModules.includes(link.key) && canAccessMarketing
+      : hasModuleAccess(allowedModules, link.key),
   );
   const avatarInitial = profileName.trim().slice(0, 1).toUpperCase() || "U";
   const agencyAdmin = isAgencyAdmin(currentUser);
@@ -442,9 +442,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     ? pathname.startsWith("/projects")
                     : link.key === "updates"
                       ? pathname.startsWith("/updates")
-                      : link.key === "publishing"
-                        ? pathname.startsWith("/publishing")
-                        : link.key === "calendar"
+                      : link.key === "calendar"
                           ? pathname.startsWith("/calendar")
                           : pathname === link.href;
                 const Icon = link.icon;

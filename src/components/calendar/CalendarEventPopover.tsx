@@ -185,7 +185,7 @@ export function CalendarEventPopover({
 
         {publishingReadOnly && event.source_id && !publishingScheduleMode ? (
           <Link
-            href={`/publishing?tab=schedule&post=${encodeURIComponent(event.source_id)}`}
+            href={`/content-management/compose?tab=schedule&post=${encodeURIComponent(event.source_id)}`}
             className="inline-flex w-full items-center justify-center rounded-lg bg-[rgba(168,85,247,0.2)] px-3 py-2 text-xs font-medium text-[#d8b4fe] transition hover:bg-[rgba(168,85,247,0.3)]"
             onClick={() => onClose()}
           >

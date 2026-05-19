@@ -6,7 +6,12 @@ import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
-import { ALL_MODULE_KEYS, MODULE_LABELS, ROCKETRIDE_ALLOWED_MODULE_KEYS } from "@/lib/modules";
+import {
+  ALL_MODULE_KEYS,
+  ASSIGNABLE_MODULE_KEYS,
+  MODULE_LABELS,
+  ROCKETRIDE_ALLOWED_MODULE_KEYS,
+} from "@/lib/modules";
 import type { AppLanguage, AppUser, ModuleKey, Role, UserCompany } from "@/types";
 import { cn } from "@/lib/utils";
 import { isAgencyAdmin, isAgencyCompany, isClientCompany, isRocketRideCompany } from "@/lib/client-utils";
@@ -108,13 +113,13 @@ function isNexaOtusManager(user: AppUser): boolean {
 }
 
 function modulesInViewerScope(viewer: AppUser): ModuleKey[] {
-  if (isNexaOtusAdmin(viewer)) return [...ALL_MODULE_KEYS];
-  if (isNexaOtusManager(viewer)) return [...ALL_MODULE_KEYS];
+  if (isNexaOtusAdmin(viewer)) return [...ASSIGNABLE_MODULE_KEYS];
+  if (isNexaOtusManager(viewer)) return [...ASSIGNABLE_MODULE_KEYS];
   if (isRocketRideAdmin(viewer) || isExternalClientAdmin(viewer)) return [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
   if (isClientCompany(viewer.company) && viewer.role === "manager") {
     return ALL_MODULE_KEYS.filter((k) => viewer.modules.includes(k) && ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(k));
   }
-  return [...ALL_MODULE_KEYS];
+  return [...ASSIGNABLE_MODULE_KEYS];
 }
 
 function moduleKeyToggleableByViewer(viewer: AppUser, key: ModuleKey): boolean {

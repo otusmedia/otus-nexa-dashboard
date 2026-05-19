@@ -60,14 +60,14 @@ const LOGIN_SEED: Array<{
     email: "karla@nexamedia.com",
     company: "nexa",
     role: "manager",
-    modules: ["projects", "updates", "marketing", "publishing", "content-management", "files"],
+    modules: ["projects", "updates", "marketing", "content-management", "files"],
   },
   {
     name: "Luca",
     email: "luca@otusmedia.com",
     company: "otus",
     role: "manager",
-    modules: ["projects", "updates", "marketing", "publishing", "content-management", "files"],
+    modules: ["projects", "updates", "marketing", "content-management", "files"],
   },
   {
     name: "Aaron Jimenez",
