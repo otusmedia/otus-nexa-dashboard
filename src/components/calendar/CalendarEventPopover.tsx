@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { ExternalLink, Pencil, Trash2, Video, X } from "lucide-react";
@@ -61,6 +61,7 @@ export function CalendarEventPopover({
   onDeleteScheduledPost?: (postId: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
 
   useEffect(() => {
     if (!event) return;
@@ -74,10 +75,37 @@ export function CalendarEventPopover({
     };
   }, [event, onClose]);
 
+  useLayoutEffect(() => {
+    if (!anchor || !ref.current) {
+      setCoords(null);
+      return;
+    }
+    const margin = 12;
+    const gap = 8;
+    const rect = ref.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const halfW = rect.width / 2;
+
+    const left = Math.min(Math.max(anchor.x, halfW + margin), vw - halfW - margin);
+    const spaceBelow = vh - anchor.y - margin;
+    const spaceAbove = anchor.y - margin;
+    let top: number;
+    if (rect.height + gap <= spaceBelow) {
+      top = anchor.y + gap;
+    } else if (rect.height + gap <= spaceAbove) {
+      top = anchor.y - rect.height - gap;
+    } else {
+      top = Math.max(margin, vh - rect.height - margin);
+    }
+
+    setCoords({ left, top });
+  }, [anchor, event]);
+
   if (!event || !anchor || typeof document === "undefined") return null;
 
-  const left = Math.min(Math.max(anchor.x, 160), window.innerWidth - 160);
-  const top = Math.min(anchor.y + 8, window.innerHeight - 120);
+  const left = coords?.left ?? Math.min(Math.max(anchor.x, 160), window.innerWidth - 160);
+  const top = coords?.top ?? Math.max(12, anchor.y + 8);
 
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString(undefined, {
@@ -101,10 +129,10 @@ export function CalendarEventPopover({
   return createPortal(
     <div
       ref={ref}
-      className="fixed z-[60] w-[min(100vw-2rem,320px)] rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl transition-opacity duration-200"
+      className="fixed z-[200] flex max-h-[min(85vh,calc(100vh-24px))] w-[min(100vw-2rem,320px)] flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl"
       style={{ left, top, transform: "translateX(-50%)" }}
     >
-      <div className="flex items-start justify-between gap-2 border-b border-[var(--border)] p-3">
+      <div className="flex shrink-0 items-start justify-between gap-2 border-b border-[var(--border)] p-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span
@@ -135,7 +163,7 @@ export function CalendarEventPopover({
         </button>
       </div>
 
-      <div className="max-h-[50vh] space-y-3 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {taskReadOnly && event.task_meta ? (
           <p className="text-sm font-light text-[rgba(255,255,255,0.85)]">
             <span className="text-[var(--muted)]">Project: </span>
@@ -249,15 +277,15 @@ export function CalendarEventPopover({
       </div>
 
       {taskReadOnly ? (
-        <p className="border-t border-[var(--border)] p-3 text-center text-[0.65rem] text-[var(--muted)]">
+        <p className="shrink-0 border-t border-[var(--border)] p-3 text-center text-[0.65rem] text-[var(--muted)]">
           Task deadlines are read-only on the calendar.
         </p>
       ) : publishingReadOnly ? (
-        <p className="border-t border-[var(--border)] p-3 text-center text-[0.65rem] text-[var(--muted)]">
+        <p className="shrink-0 border-t border-[var(--border)] p-3 text-center text-[0.65rem] text-[var(--muted)]">
           Scheduled posts are managed in Publishing.
         </p>
       ) : scheduledManage ? (
-        <div className="space-y-2 border-t border-[var(--border)] p-3">
+        <div className="shrink-0 space-y-2 border-t border-[var(--border)] p-3">
           <div className="flex gap-2">
             {publishingScheduledPostAllowEdit && onEditScheduledPost ? (
               <button
@@ -297,7 +325,7 @@ export function CalendarEventPopover({
           </div>
         </div>
       ) : (
-        <div className="space-y-2 border-t border-[var(--border)] p-3">
+        <div className="shrink-0 space-y-2 border-t border-[var(--border)] p-3">
           {crmReadOnly ? (
             <p className="text-center text-[0.65rem] text-[var(--muted)]">Edit this appointment from the CRM pipeline.</p>
           ) : null}
