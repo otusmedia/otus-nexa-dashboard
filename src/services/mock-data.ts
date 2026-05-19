@@ -19,6 +19,7 @@ export const users: AppUser[] = [
     role: "admin",
     company: "nexa",
     clientSlug: null,
+    localePreference: null,
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -27,6 +28,7 @@ export const users: AppUser[] = [
     role: "admin",
     company: "otus",
     clientSlug: null,
+    localePreference: null,
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -35,6 +37,7 @@ export const users: AppUser[] = [
     role: "admin",
     company: "rocketride",
     clientSlug: "rocketride",
+    localePreference: null,
     modules: ["dashboard", "projects", "financial", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -43,6 +46,7 @@ export const users: AppUser[] = [
     role: "admin",
     company: "",
     clientSlug: null,
+    localePreference: null,
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -51,6 +55,7 @@ export const users: AppUser[] = [
     role: "manager",
     company: "nexa",
     clientSlug: null,
+    localePreference: null,
     modules: ["projects", "marketing", "files"],
   },
   {
@@ -59,6 +64,7 @@ export const users: AppUser[] = [
     role: "manager",
     company: "otus",
     clientSlug: null,
+    localePreference: null,
     modules: ["projects", "marketing", "files"],
   },
 ];

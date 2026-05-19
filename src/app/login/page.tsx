@@ -17,6 +17,7 @@ type AppUserDbRow = {
   modules: string[] | null;
   password_hash: string | null;
   client_slug?: string | null;
+  locale_preference?: string | null;
 };
 
 const LOGIN_SEED: Array<{
@@ -103,6 +104,9 @@ function rowToAppUser(row: AppUserDbRow): AppUser {
   const clientSlugRaw = row.client_slug;
   const clientSlug =
     clientSlugRaw != null && String(clientSlugRaw).trim() !== "" ? String(clientSlugRaw).trim() : null;
+  const localePrefRaw = row.locale_preference;
+  const localePreference =
+    localePrefRaw === "pt-BR" || localePrefRaw === "en" ? localePrefRaw : null;
   return {
     id: row.id,
     name: row.name,
@@ -111,6 +115,7 @@ function rowToAppUser(row: AppUserDbRow): AppUser {
     company: normalizeUserCompany(row.company),
     modules: normalizeUserModules(row.modules),
     clientSlug,
+    localePreference,
   };
 }
 
@@ -124,6 +129,7 @@ function mapRecordToRow(r: Record<string, unknown>): AppUserDbRow {
     modules: Array.isArray(r.modules) ? r.modules.map(String) : null,
     password_hash: r.password_hash != null && String(r.password_hash) !== "" ? String(r.password_hash) : null,
     client_slug: r.client_slug != null ? String(r.client_slug) : null,
+    locale_preference: r.locale_preference != null ? String(r.locale_preference) : null,
   };
 }
 

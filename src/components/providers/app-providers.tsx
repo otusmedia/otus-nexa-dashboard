@@ -1,7 +1,7 @@
 "use client";
 
 import type { DropResult } from "@hello-pangea/dnd";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { DocumentHead } from "@/components/layout/document-head";
 import { AuthProvider, useAuth } from "@/context/auth-context";
 import { ALL_MODULE_KEYS, ROCKETRIDE_ALLOWED_MODULE_KEYS } from "@/lib/modules";
@@ -30,7 +30,9 @@ import {
   tasks as tasksSeed,
 } from "@/services/mock-data";
 import { supabase } from "@/lib/supabase";
-import { useLanguage, type AppLanguage } from "@/context/language-context";
+import { useLanguage } from "@/context/language-context";
+import { normalizeAppLanguage, type AppLanguage } from "@/lib/locale-types";
+import { resolveActiveClient, resolveActiveLocale } from "@/lib/resolve-locale";
 import { dictionary, localizeDynamic, localizeStatus, type TranslationKey } from "@/services/i18n";
 import type {
   ActivityLogItem,
@@ -54,6 +56,7 @@ import type {
 
 import {
   effectiveUserClientSlug,
+  isAgencyAdmin,
   isAgencyCompany,
   resolveDataClientSlug,
   rowMatchesDataClient,
@@ -103,6 +106,7 @@ function filterProjectsByColumn(
 interface AppContextValue {
   language: AppLanguage;
   setLanguage: (lang: AppLanguage) => void;
+  saveLocalePreference: (lang: AppLanguage | null) => Promise<void>;
   t: (key: TranslationKey) => string;
   td: (content: string) => string;
   ts: (status: string) => string;
@@ -123,7 +127,7 @@ interface AppContextValue {
   }) => void;
   updateUser: (
     id: string,
-    updates: Partial<Pick<AppUser, "name" | "role" | "modules" | "company" | "email" | "clientSlug">> & {
+    updates: Partial<Pick<AppUser, "name" | "role" | "modules" | "company" | "email" | "clientSlug" | "localePreference">> & {
       password?: string;
     },
   ) => void;
@@ -141,6 +145,7 @@ interface AppContextValue {
     apis?: Client["apis"];
     apiCredentials?: Client["apiCredentials"];
     crmIntegration?: Client["crmIntegration"];
+    defaultLocale?: AppLanguage;
   }) => Promise<{ ok: boolean; error?: string }>;
   updateClient: (
     id: string,
@@ -156,6 +161,7 @@ interface AppContextValue {
         | "apis"
         | "apiCredentials"
         | "crmIntegration"
+        | "defaultLocale"
       >
     >,
   ) => Promise<{ ok: boolean; error?: string }>;
@@ -261,6 +267,7 @@ const GUEST_USER: AppUser = {
   company: "",
   modules: [],
   clientSlug: null,
+  localePreference: null,
 };
 
 const APP_USERS_SEED: Array<{
@@ -351,6 +358,9 @@ function appUserFromAppUsersRow(row: Record<string, unknown>): AppUser {
   const clientSlugRaw = row.client_slug;
   const clientSlug =
     clientSlugRaw != null && String(clientSlugRaw).trim() !== "" ? String(clientSlugRaw).trim() : null;
+  const localePrefRaw = row.locale_preference;
+  const localePreference =
+    localePrefRaw === "pt-BR" || localePrefRaw === "en" ? localePrefRaw : null;
   return {
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
@@ -359,6 +369,7 @@ function appUserFromAppUsersRow(row: Record<string, unknown>): AppUser {
     company,
     modules,
     clientSlug,
+    localePreference,
   };
 }
 
@@ -373,6 +384,7 @@ function clientFromRow(row: Record<string, unknown>): Client {
       row.hero_image_url != null && String(row.hero_image_url).trim() !== "" ? String(row.hero_image_url) : null,
     primaryColor: String(row.primary_color ?? "#FF4500"),
     active: row.active !== false,
+    defaultLocale: normalizeAppLanguage(row.default_locale),
     apiEnabled: row.api_enabled === true || apisConfigHasAnyEnabled(apis),
     apis,
     apiCredentials: parseClientApiCredentials(row.api_credentials),
@@ -506,7 +518,8 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
 
 function AppStateProvider({ children }: { children: React.ReactNode }) {
   const { sessionUserId, persistedUser, logout } = useAuth();
-  const { language, setLanguage, t: tLine } = useLanguage();
+  const { setLanguage: setLanguageRaw, t: tLine } = useLanguage();
+  const [localeSessionOverride, setLocaleSessionOverride] = useState<AppLanguage | null>(null);
   const [users, setUsers] = useState<AppUser[]>([]);
   const [appUsersReady, setAppUsersReady] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -639,6 +652,103 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const dataClientSlug = useMemo(
     () => resolveDataClientSlug(currentUser, projectsClientFilter),
     [currentUser, projectsClientFilter],
+  );
+
+  const activeClient = useMemo(
+    () => resolveActiveClient(currentUser, clients, projectsClientFilter),
+    [currentUser, clients, projectsClientFilter],
+  );
+
+  const viewingAllClients = isAgencyAdmin(currentUser) && projectsClientFilter === "all";
+
+  const language = useMemo(
+    () =>
+      resolveActiveLocale({
+        sessionOverride: localeSessionOverride,
+        userPreference: currentUser.localePreference,
+        clientDefaultLocale: activeClient?.defaultLocale ?? "en",
+        viewingAllClients,
+      }),
+    [
+      localeSessionOverride,
+      currentUser.localePreference,
+      activeClient?.defaultLocale,
+      viewingAllClients,
+    ],
+  );
+
+  const prevClientFilterRef = useRef(projectsClientFilter);
+
+  useEffect(() => {
+    if (!sessionUserId) return;
+    try {
+      const raw = localStorage.getItem(`locale-session:${sessionUserId}`);
+      if (raw === "pt-BR" || raw === "en") {
+        setLocaleSessionOverride(raw);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [sessionUserId]);
+
+  useEffect(() => {
+    setLanguageRaw(language);
+    try {
+      localStorage.setItem("app-language", language);
+    } catch {
+      /* ignore */
+    }
+  }, [language, setLanguageRaw]);
+
+  useEffect(() => {
+    if (prevClientFilterRef.current === projectsClientFilter) return;
+    prevClientFilterRef.current = projectsClientFilter;
+    if (currentUser.localePreference) return;
+    setLocaleSessionOverride(null);
+    try {
+      if (sessionUserId) localStorage.removeItem(`locale-session:${sessionUserId}`);
+    } catch {
+      /* ignore */
+    }
+  }, [projectsClientFilter, currentUser.localePreference, sessionUserId]);
+
+  const setLanguage = useCallback(
+    (lang: AppLanguage) => {
+      setLocaleSessionOverride(lang);
+      setLanguageRaw(lang);
+      try {
+        if (sessionUserId) localStorage.setItem(`locale-session:${sessionUserId}`, lang);
+        localStorage.setItem("app-language", lang);
+      } catch {
+        /* ignore */
+      }
+    },
+    [sessionUserId, setLanguageRaw],
+  );
+
+  const saveLocalePreference = useCallback(
+    async (lang: AppLanguage | null) => {
+      if (!sessionUserId || currentUser.id === GUEST_USER.id) return;
+      const dbVal = lang;
+      const { error } = await supabase
+        .from("app_users")
+        .update({ locale_preference: dbVal })
+        .eq("id", sessionUserId);
+      if (error) {
+        console.error("[supabase] locale_preference update failed:", error.message);
+        return;
+      }
+      setUsers((prev) =>
+        prev.map((u) => (u.id === sessionUserId ? { ...u, localePreference: lang } : u)),
+      );
+      setLocaleSessionOverride(null);
+      try {
+        if (sessionUserId) localStorage.removeItem(`locale-session:${sessionUserId}`);
+      } catch {
+        /* ignore */
+      }
+    },
+    [sessionUserId, currentUser.id],
   );
 
   const allowedModules: ModuleKey[] =
@@ -1195,6 +1305,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     () => ({
       language,
       setLanguage,
+      saveLocalePreference,
       t,
       td,
       ts,
@@ -1298,6 +1409,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (rest.role !== undefined) dbPatch.role = rest.role;
         if (rest.company !== undefined) dbPatch.company = rest.company;
         if (rest.clientSlug !== undefined) dbPatch.client_slug = rest.clientSlug;
+        if (rest.localePreference !== undefined) dbPatch.locale_preference = rest.localePreference;
         if (rest.modules !== undefined) dbPatch.modules = rest.modules;
         if (passwordUpdate !== undefined && String(passwordUpdate).trim() !== "") {
           dbPatch.password_hash = hashAppPassword(String(passwordUpdate).trim());
@@ -1692,6 +1804,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         apis,
         apiCredentials,
         crmIntegration,
+        defaultLocale,
       }) => {
         const trimmedName = name.trim();
         const trimmedSlug = slug.trim().toLowerCase();
@@ -1707,6 +1820,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             slug: trimmedSlug,
             primary_color: primaryColor || "#FF4500",
             active,
+            default_locale: defaultLocale ?? "en",
             api_enabled: anyApi,
             logo_url: logoUrl ?? null,
             hero_image_url: heroUrl ?? null,
@@ -1792,6 +1906,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
         if (updates.crmIntegration !== undefined) {
           dbPatch.crm_integration = clientCrmIntegrationToDb(updates.crmIntegration);
+        }
+        if (updates.defaultLocale !== undefined) {
+          dbPatch.default_locale = updates.defaultLocale;
         }
         if (Object.keys(dbPatch).length === 0) return { ok: true };
         const { data, error } = await supabase.from("clients").update(dbPatch).eq("id", id).select("*").single();
@@ -2056,8 +2173,13 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       language,
+      setLanguage,
+      saveLocalePreference,
       tLine,
       currentUser,
+      localeSessionOverride,
+      activeClient?.defaultLocale,
+      viewingAllClients,
       sessionUserId,
       users,
       appUsersReady,

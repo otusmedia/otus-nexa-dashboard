@@ -497,6 +497,19 @@ const platformPtBR: Record<string, string> = {
 
   "Using first image attachment as cover — or upload a dedicated cover image":
     "Usando o primeiro anexo de imagem como capa — ou envie uma imagem de capa dedicada",
+
+  "Matrix language": "Idioma matriz",
+  "Default UI language for this client": "Idioma padrão da interface para este cliente",
+  English: "Inglês",
+  "Portuguese (Brazil)": "Português (Brasil)",
+  "Preferred language": "Idioma preferido",
+  "Use client matrix language": "Usar idioma matriz do cliente",
+  "Save as my default language": "Salvar como meu idioma padrão",
+  "Translating…": "Traduzindo…",
+  "Translation unavailable": "Tradução indisponível",
+  "Original (English)": "Original (inglês)",
+  "Original (Portuguese)": "Original (português)",
+  "Hide original": "Ocultar original",
 };
 
 export const translations = {

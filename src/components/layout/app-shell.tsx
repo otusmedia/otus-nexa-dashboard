@@ -129,10 +129,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     dataClientSlug,
     projectsClientFilter,
     setProjectsClientFilter,
+    language,
+    setLanguage,
+    saveLocalePreference,
     t,
     td,
   } = useAppContext();
-  const { t: lt, setLanguage, language } = useLanguage();
+  const { t: lt } = useLanguage();
   const [openNotifications, setOpenNotifications] = useState(false);
   const [openProfileMenu, setOpenProfileMenu] = useState(false);
   const [openSettingsModal, setOpenSettingsModal] = useState(false);
@@ -661,6 +664,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   >
                     {lt("PT — Português (Brasil)")}
                   </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void saveLocalePreference(language);
+                        setLangMenuOpen(false);
+                      }}
+                      className="block w-full border-t border-[var(--border)] px-3 py-2 text-left text-[0.7rem] text-[var(--muted)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text)]"
+                    >
+                      {lt("Save as my default language")}
+                    </button>
                   </div>
                 ) : null}
               </div>

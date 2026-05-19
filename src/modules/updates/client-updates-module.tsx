@@ -17,7 +17,9 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { MentionTextarea } from "@/components/ui/mention-textarea";
+import { LocalizedContent } from "@/components/ui/localized-content";
 import { useAppContext } from "@/components/providers/app-providers";
+import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
 import { rowMatchesDataClient } from "@/lib/client-utils";
 import { cn } from "@/lib/utils";
@@ -63,6 +65,7 @@ type UpdateAttachmentRow = {
 type ClientUpdateRow = {
   id: string;
   content: string;
+  content_locale?: string | null;
   category: string;
   author_name: string;
   is_pinned: boolean;
@@ -132,9 +135,13 @@ function mapUpdateRow(row: Record<string, unknown>): ClientUpdateRow {
         created_at: r.created_at != null ? String(r.created_at) : undefined,
       }))
     : [];
+  const contentLocaleRaw = row.content_locale;
+  const content_locale =
+    contentLocaleRaw === "pt-BR" || contentLocaleRaw === "en" ? contentLocaleRaw : null;
   return {
     id: String(row.id ?? ""),
     content: String(row.content ?? ""),
+    content_locale,
     category: String(row.category ?? "Other"),
     author_name: String(row.author_name ?? ""),
     is_pinned: Boolean(row.is_pinned),
@@ -158,6 +165,7 @@ function isNexaOtusAdmin(role: string, company: string) {
 
 export function ClientUpdatesModule() {
   const { currentUser, users, dataClientSlug } = useAppContext();
+  const { language } = useLanguage();
   const adminNexaOtus = isNexaOtusAdmin(currentUser.role, currentUser.company);
   const [updates, setUpdates] = useState<ClientUpdateRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -298,6 +306,7 @@ export function ClientUpdatesModule() {
         .insert([
           {
             content: text,
+            content_locale: language,
             category: composerCategory,
             author_name: currentUser.name,
             client_slug: dataClientSlug ?? "rocketride",
@@ -369,7 +378,7 @@ export function ClientUpdatesModule() {
     u.author_name.trim() === currentUser.name.trim() || adminNexaOtus;
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[#0a0a0a] px-4 py-6 text-white lg:px-8">
+    <>
       <PageHeader title="Updates" subtitle="Share updates, meeting notes and highlights with the team" />
 
       <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
@@ -544,7 +553,7 @@ export function ClientUpdatesModule() {
             document.body,
           )
         : null}
-    </div>
+    </>
   );
 }
 
@@ -604,9 +613,15 @@ function UpdateCard({
           >
             {st.label}
           </span>
-          <p className="mt-3 whitespace-pre-wrap text-sm font-light leading-relaxed text-[rgba(255,255,255,0.92)]">
-            {update.content}
-          </p>
+          <LocalizedContent
+            text={update.content}
+            contentLocale={
+              update.content_locale === "pt-BR" || update.content_locale === "en"
+                ? update.content_locale
+                : null
+            }
+            className="mt-3"
+          />
           {atts.length > 0 ? (
             <ul className="mt-3 space-y-2">
               {atts.map((att) => {

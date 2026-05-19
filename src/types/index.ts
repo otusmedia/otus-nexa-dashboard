@@ -151,6 +151,8 @@ export type ClientCrmIntegration = {
   mirrorToInternalCrm: boolean;
 };
 
+export type AppLanguage = "en" | "pt-BR";
+
 export interface Client {
   id: string;
   name: string;
@@ -159,6 +161,8 @@ export interface Client {
   heroImageUrl: string | null;
   primaryColor: string;
   active: boolean;
+  /** Default UI locale for this client (matrix language). */
+  defaultLocale: AppLanguage;
   /** Legacy master flag; kept in sync when any integration is enabled. */
   apiEnabled: boolean;
   apis: ClientApisConfig;
@@ -175,6 +179,8 @@ export interface AppUser {
   modules: ModuleKey[];
   company: UserCompany;
   clientSlug: string | null;
+  /** When set, overrides client matrix locale until session toggle. */
+  localePreference: AppLanguage | null;
 }
 
 export interface IdeaItem {

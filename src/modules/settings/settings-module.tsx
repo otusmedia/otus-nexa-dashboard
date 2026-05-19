@@ -7,7 +7,7 @@ import { Modal } from "@/components/ui/modal";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { ALL_MODULE_KEYS, MODULE_LABELS, ROCKETRIDE_ALLOWED_MODULE_KEYS } from "@/lib/modules";
-import type { AppUser, ModuleKey, Role, UserCompany } from "@/types";
+import type { AppLanguage, AppUser, ModuleKey, Role, UserCompany } from "@/types";
 import { cn } from "@/lib/utils";
 import { isAgencyAdmin, isAgencyCompany, isClientCompany, isRocketRideCompany } from "@/lib/client-utils";
 import { ClientsSettingsPanel } from "@/modules/settings/clients-settings-panel";
@@ -29,6 +29,8 @@ type EditFormState = {
   company: UserCompany;
   clientSlug: string;
   password: string;
+  /** "" = use client matrix language */
+  localePreference: AppLanguage | "";
 };
 
 function emptyForm(defaultCompany: UserCompany, defaultClientSlug = ""): FormState {
@@ -52,6 +54,7 @@ function emptyEditForm(user: AppUser): EditFormState {
     company,
     clientSlug: user.clientSlug ?? (isClientCompany(company) ? company : ""),
     password: "",
+    localePreference: user.localePreference ?? "",
   };
 }
 
@@ -314,6 +317,7 @@ export function SettingsModule() {
       role,
       modules,
       clientSlug,
+      localePreference: editForm.localePreference === "" ? null : editForm.localePreference,
     };
     if (editForm.password.trim()) {
       payload.password = editForm.password.trim();
@@ -769,6 +773,27 @@ export function SettingsModule() {
                 </div>
               </div>
             ) : null}
+            <div>
+              <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Preferred language")}</label>
+              <select
+                value={editForm.localePreference}
+                onChange={(e) =>
+                  setEditForm((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          localePreference: e.target.value as AppLanguage | "",
+                        }
+                      : prev,
+                  )
+                }
+                className="w-full rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">{lt("Use client matrix language")}</option>
+                <option value="en">{lt("English")}</option>
+                <option value="pt-BR">{lt("Portuguese (Brazil)")}</option>
+              </select>
+            </div>
             <div>
               <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Password")}</label>
               <input

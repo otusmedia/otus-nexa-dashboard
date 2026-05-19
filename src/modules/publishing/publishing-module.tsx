@@ -582,7 +582,7 @@ export function PublishingModule() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[#0a0a0a] px-4 py-6 text-white lg:px-8">
+    <>
       <PageHeader
         title="Publishing"
         subtitle={
@@ -1078,7 +1078,7 @@ export function PublishingModule() {
           </div>
         ) : null}
       </Modal>
-    </div>
+    </>
   );
 }
 

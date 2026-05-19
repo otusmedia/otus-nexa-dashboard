@@ -14,7 +14,7 @@ import { ClientCrmIntegrationFields } from "@/modules/settings/client-crm-integr
 import { uploadClientHeroImage } from "@/lib/client-hero-upload";
 import { readSvgFileAsDataUrl } from "@/lib/client-logo-upload";
 import { ClientApisFields } from "@/modules/settings/client-form-fields";
-import type { Client, ClientApiCredentials, ClientApisConfig, ClientCrmIntegration } from "@/types";
+import type { AppLanguage, Client, ClientApiCredentials, ClientApisConfig, ClientCrmIntegration } from "@/types";
 import { cn } from "@/lib/utils";
 
 type ClientFormState = {
@@ -27,6 +27,7 @@ type ClientFormState = {
   apis: ClientApisConfig;
   apiCredentials: ClientApiCredentials;
   crmIntegration: ClientCrmIntegration;
+  defaultLocale: AppLanguage;
 };
 
 function emptyClientForm(): ClientFormState {
@@ -40,6 +41,7 @@ function emptyClientForm(): ClientFormState {
     apis: { ...EMPTY_CLIENT_APIS },
     apiCredentials: { ...EMPTY_CLIENT_API_CREDENTIALS },
     crmIntegration: { ...EMPTY_CLIENT_CRM_INTEGRATION },
+    defaultLocale: "en",
   };
 }
 
@@ -115,6 +117,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       apis: form.apis,
       apiCredentials: form.apiCredentials,
       crmIntegration: form.crmIntegration,
+      defaultLocale: form.defaultLocale,
     });
     if (!result.ok) {
       setSaveError(result.error ?? lt("Could not save client."));
@@ -136,6 +139,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       apis: { ...client.apis },
       apiCredentials: { ...client.apiCredentials },
       crmIntegration: { ...client.crmIntegration },
+      defaultLocale: client.defaultLocale,
     });
     setSaveError("");
   };
@@ -158,6 +162,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       apis: editForm.apis,
       apiCredentials: editForm.apiCredentials,
       crmIntegration: editForm.crmIntegration,
+      defaultLocale: editForm.defaultLocale,
     });
     if (!result.ok) {
       setSaveError(result.error ?? lt("Could not save client."));
@@ -289,6 +294,20 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
               onChange={(e) => setForm((prev) => ({ ...prev, primaryColor: e.target.value }))}
               className="h-10 w-full cursor-pointer rounded-lg border border-[var(--border)] bg-transparent"
             />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Matrix language")}</label>
+            <p className="mb-1 text-[0.7rem] text-[var(--muted)]">{lt("Default UI language for this client")}</p>
+            <select
+              value={form.defaultLocale}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, defaultLocale: e.target.value as AppLanguage }))
+              }
+              className="w-full rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="en">{lt("English")}</option>
+              <option value="pt-BR">{lt("Portuguese (Brazil)")}</option>
+            </select>
           </div>
           <div>
             <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Logo (SVG)")}</label>
@@ -482,6 +501,22 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
               clientSlug={editForm.slug}
               lt={lt}
             />
+            <div>
+              <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Matrix language")}</label>
+              <p className="mb-1 text-[0.7rem] text-[var(--muted)]">{lt("Default UI language for this client")}</p>
+              <select
+                value={editForm.defaultLocale}
+                onChange={(e) =>
+                  setEditForm((prev) =>
+                    prev ? { ...prev, defaultLocale: e.target.value as AppLanguage } : prev,
+                  )
+                }
+                className="w-full rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="en">{lt("English")}</option>
+                <option value="pt-BR">{lt("Portuguese (Brazil)")}</option>
+              </select>
+            </div>
             <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
               <input
                 type="checkbox"

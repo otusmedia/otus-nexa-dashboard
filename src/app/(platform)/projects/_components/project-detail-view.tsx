@@ -43,6 +43,8 @@ import { useLanguage } from "@/context/language-context";
 import { Card } from "@/components/ui/card";
 import { PublishedToModal } from "@/components/ui/published-to-modal";
 import { MentionTextarea } from "@/components/ui/mention-textarea";
+import { LocalizedContent } from "@/components/ui/localized-content";
+import type { AppLanguage } from "@/lib/locale-types";
 import { supabase } from "@/lib/supabase";
 import { getTaskHighlightCoverUrl } from "@/lib/task-highlight-cover";
 import { fetchPublishedAtByTaskIds } from "@/lib/task-published-at-from-scheduled-posts";
@@ -216,6 +218,7 @@ type ProjectComment = {
   project_id: string;
   user_name: string;
   content: string;
+  content_locale?: string | null;
   created_at: string;
 };
 
@@ -425,7 +428,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     logTaskReviewActivity,
     logTaskPublishedToActivity,
   } = useAppContext();
-  const { t: lt } = useLanguage();
+  const { t: lt, language } = useLanguage();
   const isRocketRideClient = isClientCompany(currentUser.company);
   const canSetReviewStatus = isRocketRideClient;
   const canRespondToClientFeedback = Boolean(currentUser.id) && currentUser.id !== "__guest__";
@@ -1338,7 +1341,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     const userName = currentUser.name.trim() || "User";
     const { data, error } = await supabase
       .from("project_comments")
-      .insert([{ project_id: project.id, user_name: userName, content }])
+      .insert([{ project_id: project.id, user_name: userName, content, content_locale: language }])
       .select()
       .single();
     if (error) {
@@ -2210,7 +2213,15 @@ export function ProjectDetailView({ project }: { project: Project }) {
                           </div>
                         </div>
                       ) : (
-                        <p className="mt-1 text-sm font-light text-[rgba(255,255,255,0.85)]">{comment.content}</p>
+                        <LocalizedContent
+                          text={comment.content}
+                          contentLocale={
+                            comment.content_locale === "pt-BR" || comment.content_locale === "en"
+                              ? (comment.content_locale as AppLanguage)
+                              : null
+                          }
+                          className="mt-1 text-sm font-light text-[rgba(255,255,255,0.85)]"
+                        />
                       )}
                       <p className="mt-1 text-[0.72rem] font-light text-[rgba(255,255,255,0.4)]">
                         {formatCommentTimestamp(comment.created_at)}

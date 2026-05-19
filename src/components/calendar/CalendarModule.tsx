@@ -12,7 +12,6 @@ import { useCalendar } from "./useCalendar";
 import { useCalendarEvents } from "./useCalendarEvents";
 
 export function CalendarModule() {
-  console.log("calendar render");
   const { view, setView, currentDate, weekStart, goToday, goPrev, goNext } = useCalendar();
 
   const { rangeStart, rangeEnd } = useMemo(() => {
@@ -52,8 +51,7 @@ export function CalendarModule() {
   const persistedCount = events.filter((e) => !e.is_task_deadline).length;
 
   return (
-    <div className="min-h-[calc(100vh-6rem)] w-full bg-[#0a0a0a] text-white">
-      <div className="mx-auto max-w-[1600px] px-4 py-6 lg:px-8">
+    <div className="min-w-0 w-full text-white">
         <CalendarHeader
           view={view}
           onViewChange={setView}
@@ -126,7 +124,6 @@ export function CalendarModule() {
             if (popover) void deleteEvent(popover.event.id);
           }}
         />
-      </div>
     </div>
   );
 }

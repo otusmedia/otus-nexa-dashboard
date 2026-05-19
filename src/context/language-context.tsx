@@ -2,8 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { t as translateLine } from "@/lib/i18n";
-
-export type AppLanguage = "en" | "pt-BR";
+export type { AppLanguage } from "@/lib/locale-types";
+import type { AppLanguage } from "@/lib/locale-types";
 
 const STORAGE_KEY = "app-language";
 
