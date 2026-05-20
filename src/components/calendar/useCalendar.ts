@@ -5,7 +5,6 @@ import type { CalendarView } from "@/types/calendar";
 import { addDays, addMonths, startOfWeekSunday } from "./calendar-utils";
 
 const VIEW_KEY = "calendar-view";
-const POS_KEY = "calendar-position";
 
 type PersistedView = "month" | "week";
 
@@ -19,23 +18,6 @@ function readPersistedView(): PersistedView {
   return "month";
 }
 
-function readPersistedDate(): Date {
-  try {
-    const raw = localStorage.getItem(POS_KEY);
-    if (raw) {
-      const o = JSON.parse(raw) as { y?: unknown; m?: unknown };
-      const y = typeof o.y === "number" ? o.y : new Date().getFullYear();
-      const m = typeof o.m === "number" ? o.m : new Date().getMonth();
-      if (Number.isFinite(y) && Number.isFinite(m) && m >= 0 && m <= 11) {
-        return new Date(y, m, 1);
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return new Date();
-}
-
 export function useCalendar() {
   const [view, setViewState] = useState<CalendarView>("month");
   const [currentDate, setCurrentDate] = useState(() => new Date());
@@ -43,7 +25,7 @@ export function useCalendar() {
 
   useEffect(() => {
     setViewState(readPersistedView());
-    setCurrentDate(readPersistedDate());
+    setCurrentDate(new Date());
     setHydrated(true);
   }, []);
 
@@ -56,15 +38,6 @@ export function useCalendar() {
       /* ignore */
     }
   }, [view, hydrated]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(POS_KEY, JSON.stringify({ y: currentDate.getFullYear(), m: currentDate.getMonth() }));
-    } catch {
-      /* ignore */
-    }
-  }, [currentDate, hydrated]);
 
   const setView = useCallback((v: CalendarView) => {
     if (v === "day") return;

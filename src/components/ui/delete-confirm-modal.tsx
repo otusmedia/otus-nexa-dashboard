@@ -1,5 +1,7 @@
 "use client";
 
+import { createPortal } from "react-dom";
+
 export function DeleteConfirmModal({
   open,
   title,
@@ -17,10 +19,10 @@ export function DeleteConfirmModal({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 px-4 py-6">
+  return createPortal(
+    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 px-4 py-6">
       <div
         className="w-full max-w-md rounded-[8px] border border-[var(--border)] bg-[#161616] p-5 shadow-lg"
         role="dialog"
@@ -44,6 +46,7 @@ export function DeleteConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -20,6 +20,7 @@ import {
 import { crmLeadStatusLabel, crmSourceLabel } from "@/lib/crm-i18n";
 import { resolveCrmOwnerOptions } from "@/lib/crm-team-members";
 import { formatCurrency } from "@/lib/utils";
+import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
 import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { cn } from "@/lib/utils";
 
@@ -292,7 +293,7 @@ export function CrmLeadDetailPanel({
         meet_link: null,
         location: null,
         color: "#10b981",
-        created_by: currentUser.id || null,
+        created_by: null,
         client_slug: eventClientSlug,
         source: "crm",
         source_id: created.id,
@@ -313,11 +314,11 @@ export function CrmLeadDetailPanel({
       } else if (calIns.data?.id) {
         const ownerName = created.owner?.trim() ?? "";
         const inv = ownerName ? ownerOptions.find((u) => u.name === ownerName) : undefined;
-        if (inv?.email || inv?.id) {
+        if (inv?.email) {
           const { error: invErr } = await supabase.from("calendar_event_invitees").insert({
             event_id: String(calIns.data.id),
             email: inv.email,
-            user_id: inv.id,
+            user_id: null,
             status: "pending",
           });
           if (invErr) console.error("[crm] calendar invitee", invErr.message);
@@ -528,10 +529,10 @@ export function CrmLeadDetailPanel({
             <h3 className="text-[0.65rem] font-normal uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
               {lt("Description")}
             </h3>
-            <textarea
+            <AutoResizeTextarea
               value={descDraft}
               onChange={(e) => setDescDraft(e.target.value)}
-              rows={4}
+              minRows={3}
               className="mt-2 w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
             />
             <div className="mt-2 flex justify-end gap-2">
@@ -556,10 +557,10 @@ export function CrmLeadDetailPanel({
 
           <section className="mt-8">
             <h3 className="text-[0.65rem] font-normal uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Notes")}</h3>
-            <textarea
+            <AutoResizeTextarea
               value={notesDraft}
               onChange={(e) => setNotesDraft(e.target.value)}
-              rows={4}
+              minRows={3}
               className="mt-2 w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
             />
             <div className="mt-2 flex justify-end gap-2">
