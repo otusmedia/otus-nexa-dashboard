@@ -1,45 +1,55 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import {
+  clearMetaAdsCsvForClient,
+  readMetaAdsCsvForClient,
+  writeMetaAdsCsvForClient,
+  type PersistedMetaAdsCsv,
+} from "@/lib/dashboard-csv-storage";
 import type { MetaAdsCampaign, MetaAdsSource, MetaAdsSummary } from "@/types/meta-ads";
-
-const STORAGE_KEY = "meta-ads-import";
-
-type PersistedMetaAds = {
-  campaigns: MetaAdsCampaign[];
-  summary: MetaAdsSummary;
-  lastImported: string;
-  source: "csv" | "api";
-};
 
 type MetaAdsContextValue = {
   campaigns: MetaAdsCampaign[];
   summary: MetaAdsSummary | null;
   lastImported: string | null;
   source: MetaAdsSource;
-  setImportedCsv: (payload: { campaigns: MetaAdsCampaign[]; summary: MetaAdsSummary }) => void;
-  clearImported: () => void;
+  activeClientSlug: string | null;
+  loadCsvForClient: (clientSlug: string | null) => void;
+  setImportedCsv: (
+    clientSlug: string,
+    payload: { campaigns: MetaAdsCampaign[]; summary: MetaAdsSummary },
+  ) => void;
+  clearImportedForClient: (clientSlug: string) => void;
 };
 
 const MetaAdsContext = createContext<MetaAdsContextValue | null>(null);
 
-function readStorage(): PersistedMetaAds | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw) as PersistedMetaAds;
-    if (!data || !Array.isArray(data.campaigns) || !data.summary) return null;
-    if (data.source !== "csv" && data.source !== "api") return null;
-    return data;
-  } catch {
-    return null;
-  }
+function applyPersisted(
+  data: PersistedMetaAdsCsv,
+  setters: {
+    setCampaigns: (c: MetaAdsCampaign[]) => void;
+    setSummary: (s: MetaAdsSummary) => void;
+    setLastImported: (iso: string) => void;
+    setSource: (s: MetaAdsSource) => void;
+  },
+) {
+  setters.setCampaigns(data.campaigns);
+  setters.setSummary(data.summary);
+  setters.setLastImported(data.lastImported);
+  setters.setSource("csv");
 }
 
-function writeStorage(data: PersistedMetaAds) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+function clearInMemory(setters: {
+  setCampaigns: (c: MetaAdsCampaign[]) => void;
+  setSummary: (s: MetaAdsSummary | null) => void;
+  setLastImported: (iso: string | null) => void;
+  setSource: (s: MetaAdsSource) => void;
+}) {
+  setters.setCampaigns([]);
+  setters.setSummary(null);
+  setters.setLastImported(null);
+  setters.setSource(null);
 }
 
 export function MetaAdsProvider({ children }: { children: React.ReactNode }) {
@@ -47,40 +57,61 @@ export function MetaAdsProvider({ children }: { children: React.ReactNode }) {
   const [summary, setSummary] = useState<MetaAdsSummary | null>(null);
   const [lastImported, setLastImported] = useState<string | null>(null);
   const [source, setSource] = useState<MetaAdsSource>(null);
+  const [activeClientSlug, setActiveClientSlug] = useState<string | null>(null);
 
-  useEffect(() => {
-    const stored = readStorage();
-    if (stored) {
-      setCampaigns(stored.campaigns);
-      setSummary(stored.summary);
-      setLastImported(stored.lastImported);
-      setSource(stored.source);
-    }
-  }, []);
+  const setters = useMemo(
+    () => ({
+      setCampaigns,
+      setSummary,
+      setLastImported,
+      setSource,
+    }),
+    [],
+  );
 
-  const setImportedCsv = useCallback((payload: { campaigns: MetaAdsCampaign[]; summary: MetaAdsSummary }) => {
-    const iso = new Date().toISOString();
-    setCampaigns(payload.campaigns);
-    setSummary(payload.summary);
-    setLastImported(iso);
-    setSource("csv");
-    writeStorage({
-      campaigns: payload.campaigns,
-      summary: payload.summary,
-      lastImported: iso,
-      source: "csv",
-    });
-  }, []);
+  const loadCsvForClient = useCallback(
+    (clientSlug: string | null) => {
+      setActiveClientSlug(clientSlug);
+      if (!clientSlug) {
+        clearInMemory(setters);
+        return;
+      }
+      const stored = readMetaAdsCsvForClient(clientSlug);
+      if (stored) {
+        applyPersisted(stored, setters);
+        return;
+      }
+      clearInMemory(setters);
+    },
+    [setters],
+  );
 
-  const clearImported = useCallback(() => {
-    setCampaigns([]);
-    setSummary(null);
-    setLastImported(null);
-    setSource(null);
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }, []);
+  const setImportedCsv = useCallback(
+    (clientSlug: string, payload: { campaigns: MetaAdsCampaign[]; summary: MetaAdsSummary }) => {
+      const iso = new Date().toISOString();
+      setActiveClientSlug(clientSlug);
+      setCampaigns(payload.campaigns);
+      setSummary(payload.summary);
+      setLastImported(iso);
+      setSource("csv");
+      writeMetaAdsCsvForClient(clientSlug, {
+        campaigns: payload.campaigns,
+        summary: payload.summary,
+        lastImported: iso,
+      });
+    },
+    [],
+  );
+
+  const clearImportedForClient = useCallback(
+    (clientSlug: string) => {
+      clearMetaAdsCsvForClient(clientSlug);
+      if (activeClientSlug === clientSlug) {
+        clearInMemory(setters);
+      }
+    },
+    [activeClientSlug, setters],
+  );
 
   const value = useMemo<MetaAdsContextValue>(
     () => ({
@@ -88,10 +119,21 @@ export function MetaAdsProvider({ children }: { children: React.ReactNode }) {
       summary,
       lastImported,
       source,
+      activeClientSlug,
+      loadCsvForClient,
       setImportedCsv,
-      clearImported,
+      clearImportedForClient,
     }),
-    [campaigns, summary, lastImported, source, setImportedCsv, clearImported],
+    [
+      campaigns,
+      summary,
+      lastImported,
+      source,
+      activeClientSlug,
+      loadCsvForClient,
+      setImportedCsv,
+      clearImportedForClient,
+    ],
   );
 
   return <MetaAdsContext.Provider value={value}>{children}</MetaAdsContext.Provider>;

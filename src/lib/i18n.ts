@@ -69,6 +69,11 @@ const platformPtBR: Record<string, string> = {
   "Instagram Feed": "Feed do Instagram",
   "Manage Posts": "Gerenciar Posts",
   "Import CSV": "Importar CSV",
+  "Remove CSV": "Remover CSV",
+  "Remove imported Meta Ads CSV for this client?":
+    "Remover a importação CSV de Meta Ads deste cliente?",
+  "Remove imported Instagram CSV for this client?":
+    "Remover a importação CSV do Instagram deste cliente?",
   "Open in GA4": "Abrir no GA4",
   "Last 7 days": "Últimos 7 dias",
   "Last 30 days": "Últimos 30 dias",
@@ -588,6 +593,21 @@ const platformPtBR: Record<string, string> = {
   "Won deals": "Negócios ganhos",
   "In proposal": "Em proposta",
   "leads ·": "leads ·",
+  "Priority leads": "Leads prioritários",
+  "Leads created": "Leads criados",
+  "Upcoming appointments": "Próximos compromissos",
+  "Today's schedule": "Agenda de hoje",
+  "Recent activity": "Atividade recente",
+  "No activity yet": "Nenhuma atividade ainda",
+  "Lead updated": "Lead atualizado",
+  Appointment: "Compromisso",
+  "View in pipeline": "Ver no funil",
+  "View pipeline": "Ver funil",
+  "Showing aggregated data for all clients. Select a client for scoped appointments and charts.":
+    "Exibindo dados agregados de todos os clientes. Selecione um cliente para compromissos e gráficos filtrados.",
+  "Expand menu": "Expandir menu",
+  "Collapse menu": "Recolher menu",
+  "Minimize sidebar": "Minimizar menu lateral",
 };
 
 export const translations = {

@@ -12,6 +12,11 @@ import { useLanguage } from "@/context/language-context";
 import { useMetaAds } from "@/context/meta-ads-context";
 import { apiUrlWithClient } from "@/lib/client-api-credentials";
 import { canImportData } from "@/lib/can-import-data";
+import {
+  clearInstagramCsvForClient,
+  readInstagramCsvForClient,
+  writeInstagramCsvForClient,
+} from "@/lib/dashboard-csv-storage";
 import { parseInstagramInsightsCsv, type InstagramInsightMetricRow } from "@/lib/parse-instagram-csv";
 import { parseMetaAdsCsv } from "@/lib/parse-meta-csv";
 import { supabase } from "@/lib/supabase";
@@ -29,13 +34,12 @@ import {
   Play,
   Plus,
   Share2,
+  Trash2,
   Upload,
   Watch,
   X,
 } from "lucide-react";
 import { mergeProjectsByColumn } from "@/app/(platform)/projects/data";
-
-const INSTAGRAM_INSIGHTS_STORAGE_KEY = "instagram-insights-import";
 
 const META_ADS_METRIC_CARD_LABELS = ["Impressions", "Clicks", "CTR", "CPL", "ROAS"] as const;
 
@@ -859,8 +863,8 @@ export function DashboardModule() {
   };
 
   const confirmImportCsv = () => {
-    if (!importPreview) return;
-    metaAds.setImportedCsv(importPreview);
+    if (!importPreview || !dataClientSlug) return;
+    metaAds.setImportedCsv(dataClientSlug, importPreview);
     setImportSuccessMessage(`Data imported successfully — ${new Date().toLocaleString()}`);
     setImportSuccess(true);
     setImportPreview(null);
@@ -902,12 +906,12 @@ export function DashboardModule() {
   };
 
   const confirmIgImportCsv = () => {
-    if (!igImportPreview) return;
+    if (!igImportPreview || !dataClientSlug) return;
     const iso = new Date().toISOString();
     const payload = { metrics: igImportPreview.metrics, lastImported: iso };
     setInstagramImported(payload);
     try {
-      localStorage.setItem(INSTAGRAM_INSIGHTS_STORAGE_KEY, JSON.stringify(payload));
+      writeInstagramCsvForClient(dataClientSlug, payload);
     } catch {
       /* ignore quota */
     }
@@ -923,18 +927,26 @@ export function DashboardModule() {
   };
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = localStorage.getItem(INSTAGRAM_INSIGHTS_STORAGE_KEY);
-      if (!raw) return;
-      const data = JSON.parse(raw) as { metrics: InstagramInsightMetricRow[]; lastImported: string };
-      if (Array.isArray(data.metrics) && data.metrics.length > 0 && data.lastImported) {
-        setInstagramImported({ metrics: data.metrics, lastImported: data.lastImported });
-      }
-    } catch {
-      /* ignore */
+    metaAds.loadCsvForClient(dataClientSlug);
+    if (!dataClientSlug) {
+      setInstagramImported(null);
+      return;
     }
-  }, []);
+    setInstagramImported(readInstagramCsvForClient(dataClientSlug));
+  }, [dataClientSlug, metaAds.loadCsvForClient]);
+
+  const removeMetaCsvImport = () => {
+    if (!dataClientSlug) return;
+    if (!window.confirm(lt("Remove imported Meta Ads CSV for this client?"))) return;
+    metaAds.clearImportedForClient(dataClientSlug);
+  };
+
+  const removeIgCsvImport = () => {
+    if (!dataClientSlug) return;
+    if (!window.confirm(lt("Remove imported Instagram CSV for this client?"))) return;
+    clearInstagramCsvForClient(dataClientSlug);
+    setInstagramImported(null);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -1997,18 +2009,30 @@ export function DashboardModule() {
               </span>
             ) : null}
           </div>
-          {canImportData(currentUser) && igDataMode !== "live" ? (
-            <button
-              type="button"
-              onClick={() => {
-                resetIgImportModal();
-                setIgImportModalOpen(true);
-              }}
-              className="btn-ghost inline-flex shrink-0 items-center gap-2 rounded-lg border border-white/35 px-2.5 py-1.5 text-xs text-white"
-            >
-              <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />
-              {lt("Import CSV")}
-            </button>
+          {canImportData(currentUser) && dataClientSlug && igDataMode !== "live" ? (
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {igDataMode === "csv" ? (
+                <button
+                  type="button"
+                  onClick={removeIgCsvImport}
+                  className="btn-ghost inline-flex items-center gap-2 rounded-lg border border-red-500/40 px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  {lt("Remove CSV")}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  resetIgImportModal();
+                  setIgImportModalOpen(true);
+                }}
+                className="btn-ghost inline-flex items-center gap-2 rounded-lg border border-white/35 px-2.5 py-1.5 text-xs text-white"
+              >
+                <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />
+                {lt("Import CSV")}
+              </button>
+            </div>
           ) : null}
         </div>
         <div className="mt-3 grid gap-3 xl:grid-cols-3">
@@ -2178,18 +2202,30 @@ export function DashboardModule() {
               </span>
             ) : null}
           </div>
-          {canImportData(currentUser) && metaDataMode !== "live" ? (
-            <button
-              type="button"
-              onClick={() => {
-                resetImportModal();
-                setImportModalOpen(true);
-              }}
-              className="btn-ghost inline-flex shrink-0 items-center gap-2 rounded-lg border border-white/35 px-2.5 py-1.5 text-xs text-white"
-            >
-              <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />
-              {lt("Import CSV")}
-            </button>
+          {canImportData(currentUser) && dataClientSlug && metaDataMode !== "live" ? (
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {metaDataMode === "csv" ? (
+                <button
+                  type="button"
+                  onClick={removeMetaCsvImport}
+                  className="btn-ghost inline-flex items-center gap-2 rounded-lg border border-red-500/40 px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  {lt("Remove CSV")}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  resetImportModal();
+                  setImportModalOpen(true);
+                }}
+                className="btn-ghost inline-flex items-center gap-2 rounded-lg border border-white/35 px-2.5 py-1.5 text-xs text-white"
+              >
+                <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />
+                {lt("Import CSV")}
+              </button>
+            </div>
           ) : null}
         </div>
         <div className="mt-3 grid items-stretch gap-3 xl:grid-cols-2">

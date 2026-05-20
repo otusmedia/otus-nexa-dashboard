@@ -1,11 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/context/auth-context";
 import {
-  Bell,
   BarChart3,
   Briefcase,
   Calendar,
@@ -26,10 +24,12 @@ import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
-import { ClientLogo } from "@/components/ui/client-logo";
-import { SidebarClientPicker } from "@/components/layout/sidebar-client-picker";
-import { SidebarNav, type SidebarNavLink } from "@/components/layout/sidebar-nav";
+import { FloatingSidebarRail } from "@/components/layout/floating-sidebar-rail";
+import { SidebarDrawer } from "@/components/layout/sidebar-drawer";
+import { SidebarPanelContent, type SidebarPanelContentProps } from "@/components/layout/sidebar-panel-content";
+import type { SidebarNavLink } from "@/components/layout/sidebar-nav";
 import { orderSidebarLinks, readSidebarNavOrder, writeSidebarNavOrder } from "@/lib/sidebar-nav-order";
+import { readSidebarLayout, writeSidebarLayout } from "@/lib/sidebar-layout-preference";
 import { effectiveUserClientSlug, isAgencyAdmin, isAgencyCompany } from "@/lib/client-utils";
 import { hasModuleAccess } from "@/lib/modules";
 import { Modal } from "@/components/ui/modal";
@@ -53,6 +53,8 @@ const GUEST_USER_ID = "__guest__";
 const WHATSAPP_POS_KEY = "whatsapp-button-position";
 const WH_BTN = 36;
 const WH_MARGIN = 20;
+/** Rail width (52) + left offset (12) + spacing */
+const SIDEBAR_RAIL_LEFT_OFFSET = 72;
 
 function clampWhatsAppPosition(left: number, top: number): { left: number; top: number } {
   const w = window.innerWidth;
@@ -63,23 +65,28 @@ function clampWhatsAppPosition(left: number, top: number): { left: number; top: 
   };
 }
 
-function getDefaultWhatsAppPosition(): { left: number; top: number } {
+function getDefaultWhatsAppPosition(sidebarExpanded: boolean): { left: number; top: number } {
   const h = window.innerHeight;
-  const w = window.innerWidth;
   const lg = window.matchMedia("(min-width: 1024px)").matches;
-  const sidebar = lg ? 256 : 0;
+  let sidebar = 0;
+  if (!sidebarExpanded) {
+    sidebar = SIDEBAR_RAIL_LEFT_OFFSET;
+  } else if (lg) {
+    sidebar = 256;
+  }
   return clampWhatsAppPosition(WH_MARGIN + sidebar, h - WH_MARGIN - WH_BTN);
 }
 
-function readStoredWhatsAppPosition(): { left: number; top: number } {
+function readStoredWhatsAppPosition(userId: string): { left: number; top: number } {
+  const expanded = readSidebarLayout(userId) !== "collapsed";
   try {
     const raw = localStorage.getItem(WHATSAPP_POS_KEY);
-    if (!raw) return getDefaultWhatsAppPosition();
+    if (!raw) return getDefaultWhatsAppPosition(expanded);
     const o = JSON.parse(raw) as { left?: unknown; top?: unknown };
-    if (typeof o.left !== "number" || typeof o.top !== "number") return getDefaultWhatsAppPosition();
+    if (typeof o.left !== "number" || typeof o.top !== "number") return getDefaultWhatsAppPosition(expanded);
     return clampWhatsAppPosition(o.left, o.top);
   } catch {
-    return getDefaultWhatsAppPosition();
+    return getDefaultWhatsAppPosition(expanded);
   }
 }
 
@@ -143,10 +150,53 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     (currentUser.role === "admin" && (currentUser.company === "nexa" || currentUser.company === "otus")) ||
     (currentUser.role === "manager" && currentUser.modules.includes("marketing"));
   const [navOrder, setNavOrder] = useState<ModuleKey[] | null>(null);
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const [sidebarLayoutHydrated, setSidebarLayoutHydrated] = useState(false);
+  const [isLgViewport, setIsLgViewport] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : true,
+  );
 
   useEffect(() => {
     setNavOrder(readSidebarNavOrder(currentUser.id));
   }, [currentUser.id]);
+
+  useEffect(() => {
+    const stored = readSidebarLayout(currentUser.id);
+    setSidebarExpanded(stored !== "collapsed");
+    setSidebarLayoutHydrated(true);
+  }, [currentUser.id]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsLgViewport(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const setSidebarExpandedPersist = useCallback(
+    (expanded: boolean) => {
+      setSidebarExpanded(expanded);
+      writeSidebarLayout(currentUser.id, expanded ? "expanded" : "collapsed");
+    },
+    [currentUser.id],
+  );
+
+  const prevLgViewportRef = useRef(isLgViewport);
+  useEffect(() => {
+    if (prevLgViewportRef.current && !isLgViewport) {
+      setSidebarExpandedPersist(false);
+    }
+    prevLgViewportRef.current = isLgViewport;
+  }, [isLgViewport, setSidebarExpandedPersist]);
+
+  useEffect(() => {
+    if (!isLgViewport && sidebarExpanded) {
+      setSidebarExpandedPersist(false);
+    }
+    // Close mobile drawer after route change only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   const filteredLinks = useMemo(
     () =>
@@ -326,10 +376,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const waRemoveDocListenersRef = useRef<(() => void) | null>(null);
 
   useLayoutEffect(() => {
-    const p = readStoredWhatsAppPosition();
+    const p = readStoredWhatsAppPosition(currentUser.id);
     setWaPos(p);
     waLivePosRef.current = p;
-  }, []);
+  }, [currentUser.id]);
 
   useEffect(() => {
     const onResize = () => {
@@ -432,239 +482,91 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.push("/login");
   };
 
+  const sidebarPanelProps: Omit<SidebarPanelContentProps, "variant" | "onCollapse" | "onCloseDrawer"> = {
+    pathname,
+    links,
+    tNav: t,
+    tPlatform: t as (key: string) => string,
+    lt,
+    dragLabel: lt("Drag to reorder"),
+    showUpdatesUnreadDot,
+    marketingMenuOpen,
+    setMarketingMenuOpen,
+    contentMenuOpen,
+    setContentMenuOpen,
+    crmMenuOpen,
+    setCrmMenuOpen,
+    onReorder: handleNavReorder,
+    collapseLabel: lt("Minimize sidebar"),
+    agencyAdmin,
+    clients,
+    projectsClientFilter,
+    setProjectsClientFilter,
+    language,
+    langMenuOpen,
+    setLangMenuOpen,
+    langMenuRef,
+    setLanguage,
+    saveLocalePreference,
+    openNotifications,
+    setOpenNotifications,
+    unreadCount,
+    notifications,
+    markAllAsRead,
+    markNotificationRead,
+    dismissNotification,
+    td,
+    openProfileMenu,
+    setOpenProfileMenu,
+    profileImage,
+    avatarInitial,
+    profileName,
+    sidebarClient,
+    onOpenSettings: () => setOpenSettingsModal(true),
+    onLogout: handleLogout,
+    isAdmin,
+  };
+
+  const showRail =
+    !sidebarExpanded && (sidebarLayoutHydrated || !isLgViewport);
+  const showDesktopAside = sidebarLayoutHydrated && sidebarExpanded && isLgViewport;
+  const showMobileDrawer = sidebarLayoutHydrated && sidebarExpanded && !isLgViewport;
+
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--text)]">
       <div className="flex min-w-0 flex-row">
-        <aside className="sticky top-0 hidden h-screen w-64 min-w-64 shrink-0 flex-col border-r border-[var(--border)] bg-black lg:flex">
-          <div className="flex min-h-0 flex-1 flex-col px-4 pb-2 pt-4">
-            <div className="mb-6 flex shrink-0 items-center px-3">
-              <div className="flex h-[36.8px] items-center justify-start">
-                <img
-                  src="/frame-1.svg"
-                  alt="RocketRide logo"
-                  className="h-[36.8px] w-auto max-w-[93.15px] object-contain object-left"
-                />
-              </div>
-            </div>
-            <nav className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <SidebarNav
-                links={links}
-                pathname={pathname}
-                t={t}
-                dragLabel={lt("Drag to reorder")}
-                showUpdatesUnreadDot={showUpdatesUnreadDot}
-                marketingMenuOpen={marketingMenuOpen}
-                setMarketingMenuOpen={setMarketingMenuOpen}
-                contentMenuOpen={contentMenuOpen}
-                setContentMenuOpen={setContentMenuOpen}
-                crmMenuOpen={crmMenuOpen}
-                setCrmMenuOpen={setCrmMenuOpen}
-                onReorder={handleNavReorder}
-              />
-            </nav>
-          </div>
+        {showDesktopAside ? (
+          <aside className="sticky top-0 hidden h-screen w-64 min-w-64 shrink-0 flex-col border-r border-[var(--border)] bg-black lg:flex">
+            <SidebarPanelContent
+              {...sidebarPanelProps}
+              variant="aside"
+              onCollapse={() => setSidebarExpandedPersist(false)}
+            />
+          </aside>
+        ) : null}
 
-          <div className="shrink-0 space-y-3 border-t border-[rgba(255,255,255,0.06)] px-3 pb-8 pt-3">
-            {agencyAdmin ? (
-              <SidebarClientPicker
-                clients={clients}
-                value={projectsClientFilter}
-                onChange={setProjectsClientFilter}
-                label={lt("Viewing client")}
-                allLabel={lt("All clients")}
-                className="pb-1"
-              />
-            ) : null}
-            <div className="relative w-full min-w-0">
-              <div className="flex items-center justify-between">
-              <div className="relative ml-3" ref={langMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => setLangMenuOpen((o) => !o)}
-                  className="cursor-pointer border-none bg-transparent text-[0.8rem] font-light text-[rgba(255,255,255,0.5)] outline-none"
-                  aria-expanded={langMenuOpen}
-                  aria-haspopup="listbox"
-                >
-                  {language === "pt-BR" ? "PT" : "EN"}
-                </button>
-                {langMenuOpen ? (
-                  <div
-                    className="absolute bottom-full left-0 z-[60] mb-1 min-w-[200px] rounded-lg border border-[var(--border)] bg-[var(--surface)] py-1 shadow-lg"
-                    role="listbox"
-                  >
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={language === "en"}
-                      onClick={() => {
-                        setLanguage("en");
-                        setLangMenuOpen(false);
-                      }}
-                      className="block w-full px-3 py-2 text-left text-xs text-[var(--text)] hover:bg-[var(--surface-elevated)]"
-                    >
-                    {lt("EN — English")}
-                  </button>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={language === "pt-BR"}
-                    onClick={() => {
-                      setLanguage("pt-BR");
-                      setLangMenuOpen(false);
-                    }}
-                    className="block w-full px-3 py-2 text-left text-xs text-[var(--text)] hover:bg-[var(--surface-elevated)]"
-                  >
-                    {lt("PT — Português (Brasil)")}
-                  </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void saveLocalePreference(language);
-                        setLangMenuOpen(false);
-                      }}
-                      className="block w-full border-t border-[var(--border)] px-3 py-2 text-left text-[0.7rem] text-[var(--muted)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text)]"
-                    >
-                      {lt("Save as my default language")}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-                <button
-                  type="button"
-                  onClick={() => setOpenNotifications((prev) => !prev)}
-                  className="relative inline-flex shrink-0 p-1 text-[rgba(255,255,255,0.5)] transition hover:text-[rgba(255,255,255,0.75)]"
-                  aria-label={t("notifications")}
-                >
-                  <Bell className="h-5 w-5" strokeWidth={1.5} />
-                  {unreadCount > 0 ? (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[10px] font-medium text-white">
-                      {unreadCount > 99 ? "99+" : unreadCount}
-                    </span>
-                  ) : null}
-                </button>
-              </div>
-              {openNotifications ? (
-                <div className="absolute bottom-full left-0 right-0 z-50 mb-2 min-w-0 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-xl">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="min-w-0 truncate text-sm font-normal">{t("notifications")}</p>
-                    <button type="button" onClick={markAllAsRead} className="shrink-0 text-xs text-[var(--primary)]">
-                      {t("markAll")}
-                    </button>
-                  </div>
-                  <div className="max-h-72 space-y-2 overflow-auto">
-                    {notifications.map((item) => (
-                      <div
-                        key={item.id}
-                        className={cn(
-                          "flex min-w-0 items-stretch gap-1 rounded-lg border text-xs",
-                          item.read
-                            ? "border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--muted)]"
-                            : "border-[var(--border-strong)] bg-[var(--primary)]/10 text-white",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => markNotificationRead(item.id)}
-                          className="min-w-0 flex-1 px-3 py-2 text-left font-light"
-                        >
-                          {td(item.message)}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            dismissNotification(item.id);
-                          }}
-                          className="shrink-0 px-2 text-[rgba(255,255,255,0.45)] transition hover:text-white"
-                          aria-label="Dismiss notification"
-                        >
-                          <X className="h-3.5 w-3.5" strokeWidth={1.5} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
+        {showRail ? (
+          <FloatingSidebarRail
+            onExpand={() => setSidebarExpandedPersist(true)}
+            profileImage={profileImage}
+            avatarInitial={avatarInitial}
+            profileName={profileName}
+            expandLabel={lt("Expand menu")}
+            profileMenuLabel={lt("Profile menu")}
+            profileLabel={lt("Profile")}
+            logoutLabel={lt("Logout")}
+            onOpenSettings={() => setOpenSettingsModal(true)}
+            onLogout={handleLogout}
+            unreadCount={unreadCount}
+          />
+        ) : null}
 
-            <div className="flex items-center gap-1">
-              <div className="relative min-w-0 flex-1">
-                <button
-                  type="button"
-                  onClick={() => setOpenProfileMenu((prev) => !prev)}
-                  className="flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-1.5 text-left transition hover:bg-[var(--surface-elevated)]"
-                  aria-label={lt("Profile menu")}
-                >
-                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-elevated)]">
-                    {profileImage ? (
-                      <img src={profileImage} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="text-xs text-[var(--text)]">{avatarInitial}</span>
-                    )}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-light text-[rgba(255,255,255,0.5)]">{profileName}</span>
-                    {sidebarClient ? (
-                      sidebarClient.logoUrl ? (
-                        <span className="mt-1 block">
-                          <ClientLogo client={sidebarClient} size="xs" />
-                        </span>
-                      ) : (
-                        <span
-                          className="mt-0.5 inline-flex max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] font-normal text-[rgba(255,255,255,0.65)]"
-                          style={{ borderColor: sidebarClient.primaryColor }}
-                        >
-                          {sidebarClient.name}
-                        </span>
-                      )
-                    ) : null}
-                  </span>
-                </button>
-                {openProfileMenu ? (
-                  <div className="absolute bottom-full left-0 right-0 z-50 mb-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOpenSettingsModal(true);
-                        setOpenProfileMenu(false);
-                      }}
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-[var(--text)] hover:bg-[var(--surface-elevated)]"
-                    >
-                      <Settings className="h-4 w-4" />
-                      {lt("Profile")}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="shrink-0 rounded-lg p-2 text-[rgba(255,255,255,0.5)] transition hover:bg-[var(--surface-elevated)] hover:text-[rgba(255,255,255,0.75)]"
-                aria-label={lt("Logout")}
-              >
-                <LogOut className="h-4 w-4" strokeWidth={1.5} />
-              </button>
-            </div>
+        <SidebarDrawer
+          {...sidebarPanelProps}
+          open={showMobileDrawer}
+          onClose={() => setSidebarExpandedPersist(false)}
+        />
 
-            {isAdmin ? (
-              <>
-                <div className="border-t border-[rgba(255,255,255,0.06)]" />
-                <Link
-                  href="/settings"
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition [border-image:none]",
-                    pathname === "/settings"
-                      ? "border-l-2 border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] pl-[10px] text-[#FF4500]"
-                      : "border-l-2 border-transparent text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
-                  )}
-                >
-                  <Settings className="h-4 w-4" strokeWidth={1.5} />
-                  {lt("Settings")}
-                </Link>
-              </>
-            ) : null}
-          </div>
-        </aside>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
           <div className="shrink-0">
             <HeroSection />
