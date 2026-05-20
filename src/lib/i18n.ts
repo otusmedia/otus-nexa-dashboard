@@ -562,6 +562,7 @@ const platformPtBR: Record<string, string> = {
   "Remove this appointment? This cannot be undone.": "Remover este compromisso? Esta ação não pode ser desfeita.",
   "Type DELETE to confirm": "Digite DELETE para confirmar",
   "Share updates, meeting notes and highlights with the team": "Compartilhe atualizações, atas e destaques com a equipe",
+  "Drag to reorder": "Arrastar para reordenar",
 
   "Saving…": "Salvando…",
   "Deleting…": "Excluindo…",

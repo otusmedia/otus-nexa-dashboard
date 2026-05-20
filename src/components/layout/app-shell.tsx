@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/context/auth-context";
 import {
   Bell,
@@ -28,26 +28,14 @@ import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { ClientLogo } from "@/components/ui/client-logo";
 import { SidebarClientPicker } from "@/components/layout/sidebar-client-picker";
+import { SidebarNav, type SidebarNavLink } from "@/components/layout/sidebar-nav";
+import { orderSidebarLinks, readSidebarNavOrder, writeSidebarNavOrder } from "@/lib/sidebar-nav-order";
 import { effectiveUserClientSlug, isAgencyAdmin, isAgencyCompany } from "@/lib/client-utils";
 import { hasModuleAccess } from "@/lib/modules";
 import { Modal } from "@/components/ui/modal";
 import HeroSection from "@/components/layout/hero-section";
 
-const moduleLinks: Array<{
-  key: ModuleKey;
-  labelKey:
-    | "dashboard"
-    | "projects"
-    | "financial"
-    | "updates"
-    | "marketing"
-    | "calendar"
-    | "crm"
-    | "files"
-    | "contracts";
-  href: string;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-}> = [
+const moduleLinks: SidebarNavLink[] = [
   { key: "dashboard", labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
   { key: "projects", labelKey: "projects", href: "/projects", icon: BarChart3 },
   { key: "financial", labelKey: "financial", href: "/financial", icon: Wallet },
@@ -154,10 +142,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const canAccessMarketing =
     (currentUser.role === "admin" && (currentUser.company === "nexa" || currentUser.company === "otus")) ||
     (currentUser.role === "manager" && currentUser.modules.includes("marketing"));
-  const links = moduleLinks.filter((link) =>
-    link.key === "marketing"
-      ? allowedModules.includes(link.key) && canAccessMarketing
-      : hasModuleAccess(allowedModules, link.key),
+  const [navOrder, setNavOrder] = useState<ModuleKey[] | null>(null);
+
+  useEffect(() => {
+    setNavOrder(readSidebarNavOrder(currentUser.id));
+  }, [currentUser.id]);
+
+  const filteredLinks = useMemo(
+    () =>
+      moduleLinks.filter((link) =>
+        link.key === "marketing"
+          ? allowedModules.includes(link.key) && canAccessMarketing
+          : hasModuleAccess(allowedModules, link.key),
+      ),
+    [allowedModules, canAccessMarketing],
+  );
+
+  const links = useMemo(
+    () => orderSidebarLinks(filteredLinks, navOrder),
+    [filteredLinks, navOrder],
+  );
+
+  const handleNavReorder = useCallback(
+    (order: ModuleKey[]) => {
+      setNavOrder(order);
+      writeSidebarNavOrder(currentUser.id, order);
+    },
+    [currentUser.id],
   );
   const avatarInitial = profileName.trim().slice(0, 1).toUpperCase() || "U";
   const agencyAdmin = isAgencyAdmin(currentUser);
@@ -435,178 +446,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 />
               </div>
             </div>
-            <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
-              {links.map((link) => {
-                const isActive =
-                  link.key === "projects"
-                    ? pathname.startsWith("/projects")
-                    : link.key === "updates"
-                      ? pathname.startsWith("/updates")
-                      : link.key === "calendar"
-                          ? pathname.startsWith("/calendar")
-                          : pathname === link.href;
-                const Icon = link.icon;
-                if (link.key === "marketing") {
-                  const isMarketingActive = pathname.startsWith("/marketing");
-                  const submenuItems = [
-                    { label: "Strategy", href: "/marketing/strategy" },
-                    { label: "Campaigns", href: "/marketing/campaigns" },
-                    { label: "Reports", href: "/marketing/reports" },
-                  ] as const;
-                  return (
-                    <div key={link.key}>
-                      <button
-                        type="button"
-                        onClick={() => setMarketingMenuOpen((prev) => !prev)}
-                        className={cn(
-                          "flex w-full items-center gap-3 rounded-lg border-l-2 border-transparent px-3 py-2 text-sm transition [border-image:none]",
-                          isMarketingActive
-                            ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
-                            : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
-                        )}
-                      >
-                        <Icon className="h-4 w-4" strokeWidth={1.5} />
-                        {t(link.labelKey)}
-                      </button>
-                      {marketingMenuOpen ? (
-                        <div className="mt-1 space-y-1 pl-7">
-                          {submenuItems.map((item) => {
-                            const subActive = pathname === item.href;
-                            return (
-                              <Link
-                                key={item.href}
-                                href={item.href}
-                                className={cn(
-                                  "flex items-center rounded-lg border-l-2 border-transparent px-3 py-1.5 text-xs transition [border-image:none]",
-                                  subActive
-                                    ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
-                                    : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
-                                )}
-                              >
-                                {item.label}
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                }
-                if (link.key === "content-management") {
-                  const isContentActive = pathname.startsWith("/content-management");
-                  const contentSubmenuItems = [
-                    { label: "AI Studio", href: "/content-management/ai-studio" },
-                    { label: "Compose", href: "/content-management/compose" },
-                  ] as const;
-                  return (
-                    <div key={link.key}>
-                      <button
-                        type="button"
-                        onClick={() => setContentMenuOpen((prev) => !prev)}
-                        className={cn(
-                          "flex w-full items-center gap-3 rounded-lg border-l-2 border-transparent px-3 py-2 text-sm transition [border-image:none]",
-                          isContentActive
-                            ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
-                            : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
-                        )}
-                      >
-                        <Icon className="h-4 w-4" strokeWidth={1.5} />
-                        Content Management
-                      </button>
-                      {contentMenuOpen ? (
-                        <div className="mt-1 space-y-1 pl-7">
-                          {contentSubmenuItems.map((item) => {
-                            const subActive = pathname === item.href;
-                            return (
-                              <Link
-                                key={item.href}
-                                href={item.href}
-                                className={cn(
-                                  "flex items-center rounded-lg border-l-2 border-transparent px-3 py-1.5 text-xs transition [border-image:none]",
-                                  subActive
-                                    ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
-                                    : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
-                                )}
-                              >
-                                {item.label}
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                }
-                if (link.key === "crm") {
-                  const isCrmActive = pathname.startsWith("/crm");
-                  const crmSubmenuItems = [
-                    { label: "Dashboard", href: "/crm/dashboard" },
-                    { label: "Pipeline", href: "/crm/pipeline" },
-                    { label: "Contacts", href: "/crm/contacts" },
-                    { label: "Reports", href: "/crm/reports" },
-                  ] as const;
-                  return (
-                    <div key={link.key}>
-                      <button
-                        type="button"
-                        onClick={() => setCrmMenuOpen((prev) => !prev)}
-                        className={cn(
-                          "flex w-full items-center gap-3 rounded-lg border-l-2 border-transparent px-3 py-2 text-sm transition [border-image:none]",
-                          isCrmActive
-                            ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
-                            : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
-                        )}
-                      >
-                        <Icon className="h-4 w-4" strokeWidth={1.5} />
-                        {t(link.labelKey)}
-                      </button>
-                      {crmMenuOpen ? (
-                        <div className="mt-1 space-y-1 pl-7">
-                          {crmSubmenuItems.map((item) => {
-                            const subActive = pathname === item.href;
-                            return (
-                              <Link
-                                key={item.href}
-                                href={item.href}
-                                className={cn(
-                                  "flex items-center rounded-lg border-l-2 border-transparent px-3 py-1.5 text-xs transition [border-image:none]",
-                                  subActive
-                                    ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
-                                    : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
-                                )}
-                              >
-                                {item.label}
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                }
-                return (
-                  <Link
-                    key={link.key}
-                    href={link.href}
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg border-l-2 border-transparent px-3 py-2 text-sm transition [border-image:none]",
-                      link.key === "updates" && "relative",
-                      isActive
-                        ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
-                        : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
-                    )}
-                  >
-                    <Icon className="h-4 w-4" strokeWidth={1.5} />
-                    {t(link.labelKey)}
-                    {link.key === "updates" && showUpdatesUnreadDot ? (
-                      <span
-                        className="pointer-events-none absolute right-2 top-2 h-2 w-2 shrink-0 rounded-full bg-[#FF4500]"
-                        aria-hidden
-                      />
-                    ) : null}
-                  </Link>
-                );
-              })}
+            <nav className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <SidebarNav
+                links={links}
+                pathname={pathname}
+                t={t}
+                dragLabel={lt("Drag to reorder")}
+                showUpdatesUnreadDot={showUpdatesUnreadDot}
+                marketingMenuOpen={marketingMenuOpen}
+                setMarketingMenuOpen={setMarketingMenuOpen}
+                contentMenuOpen={contentMenuOpen}
+                setContentMenuOpen={setContentMenuOpen}
+                crmMenuOpen={crmMenuOpen}
+                setCrmMenuOpen={setCrmMenuOpen}
+                onReorder={handleNavReorder}
+              />
             </nav>
           </div>
 
