@@ -16,7 +16,11 @@ import {
   type ProjectTaskRow,
   type ProjectsByColumn,
 } from "@/app/(platform)/projects/data";
-import { parseTaskAttachmentsNested } from "@/lib/task-highlight-cover";
+import {
+  groupTaskAttachmentsByTaskId,
+  mergeTaskHighlightAttachments,
+  parseTaskAttachmentsNested,
+} from "@/lib/task-highlight-cover";
 import { fetchPublishedAtByTaskIds } from "@/lib/task-published-at-from-scheduled-posts";
 import {
   activityLog as activitySeed,
@@ -469,6 +473,32 @@ function statusToColumn(status: string | null | undefined): KanbanColumnId {
   return "planning";
 }
 
+async function enrichFeaturedTasksWithAttachments(taskRows: DbTaskRow[]): Promise<DbTaskRow[]> {
+  const featuredIds = taskRows.filter((t) => t.is_featured).map((t) => t.id);
+  if (featuredIds.length === 0) return taskRows;
+
+  const { data, error } = await supabase
+    .from("task_attachments")
+    .select("*")
+    .in("task_id", featuredIds);
+
+  if (error) {
+    console.error("[supabase] featured task_attachments fetch failed:", error.message);
+    return taskRows;
+  }
+
+  const byTask = groupTaskAttachmentsByTaskId((data as Record<string, unknown>[]) ?? []);
+  return taskRows.map((task) => {
+    if (!task.is_featured) return task;
+    const fetched = byTask.get(task.id);
+    if (!fetched?.length) return task;
+    return {
+      ...task,
+      task_attachments: mergeTaskHighlightAttachments(task.task_attachments, fetched),
+    };
+  });
+}
+
 function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTaskRow[]): ProjectsByColumn {
   const projects: Project[] = projectRows.map((row) => {
     const column = statusToColumn(row.status);
@@ -495,7 +525,7 @@ function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTask
         reviewStatus: task.review_status?.trim() ? String(task.review_status) : null,
         publishedTo: Array.isArray(task.published_to) ? task.published_to.map(String) : [],
         publishedAt: task.published_at?.trim() ? String(task.published_at) : null,
-        attachments: parseTaskAttachmentsNested(task.task_attachments),
+        attachments: mergeTaskHighlightAttachments(task.task_attachments),
       }));
     return {
       id: row.id,
@@ -1162,7 +1192,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           return { ...t, published_at: iso };
         });
       }
-      setAllProjectsByColumn(mapRowsToProjectsByColumn(projectRows, taskRows));
+      const enrichedTasks = await enrichFeaturedTasksWithAttachments(taskRows);
+      if (!mounted) return;
+      setAllProjectsByColumn(mapRowsToProjectsByColumn(projectRows, enrichedTasks));
       if (mounted) setProjectsLoading(false);
     })();
     return () => {
@@ -2053,6 +2085,39 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             cancelled: prev.cancelled.map(mapProject),
           };
         });
+
+        const needsAttachmentSync =
+          updates.isFeatured === true &&
+          (!updates.attachments || updates.attachments.length === 0) &&
+          !(prevTask?.attachments?.length);
+        if (needsAttachmentSync) {
+          void supabase
+            .from("task_attachments")
+            .select("*")
+            .eq("task_id", taskId)
+            .then(({ data, error }) => {
+              if (error || !data?.length) return;
+              const byTask = groupTaskAttachmentsByTaskId((data as Record<string, unknown>[]) ?? []);
+              const attachments = byTask.get(taskId);
+              if (!attachments?.length) return;
+              setAllProjectsByColumn((prev) => {
+                const mapProject = (p: Project): Project => {
+                  if (p.id !== projectId) return p;
+                  return {
+                    ...p,
+                    tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, attachments } : t)),
+                  };
+                };
+                return {
+                  planning: prev.planning.map(mapProject),
+                  in_progress: prev.in_progress.map(mapProject),
+                  paused: prev.paused.map(mapProject),
+                  done: prev.done.map(mapProject),
+                  cancelled: prev.cancelled.map(mapProject),
+                };
+              });
+            });
+        }
       },
       deleteBoardProject: (projectId) => {
         let deletedName = "";

@@ -21,7 +21,11 @@ import { parseInstagramInsightsCsv, type InstagramInsightMetricRow } from "@/lib
 import { parseMetaAdsCsv } from "@/lib/parse-meta-csv";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
-import { getTaskHighlightCoverUrl, parseTaskAttachmentsNested } from "@/lib/task-highlight-cover";
+import {
+  getTaskHighlightCoverUrl,
+  mergeTaskHighlightAttachments,
+  parseTaskAttachmentsNested,
+} from "@/lib/task-highlight-cover";
 import type { MetaAdsCampaign, MetaAdsSummary } from "@/types/meta-ads";
 import {
   ChevronLeft,
@@ -1338,7 +1342,7 @@ export function DashboardModule() {
     const pending: { projectId: string; taskId: string }[] = [];
     for (const p of mergedProjects) {
       for (const task of p.tasks) {
-        if (!task.isFeatured || task.coverImage?.trim()) continue;
+        if (!task.isFeatured) continue;
         if (getTaskHighlightCoverUrl(task)) continue;
         pending.push({ projectId: p.id, taskId: task.id });
       }
@@ -1358,8 +1362,10 @@ export function DashboardModule() {
 
       const rows = data as Record<string, unknown>[];
       for (const item of pending) {
-        const taskRows = rows.filter((row) => String(row.task_id ?? "") === item.taskId);
-        const attachments = parseTaskAttachmentsNested(taskRows);
+        const attRows = rows.filter((row) => String(row.task_id ?? "") === item.taskId);
+        const project = mergedProjects.find((p) => p.id === item.projectId);
+        const existing = project?.tasks.find((t) => t.id === item.taskId)?.attachments;
+        const attachments = mergeTaskHighlightAttachments(existing, parseTaskAttachmentsNested(attRows));
         if (attachments.length > 0) {
           updateBoardProjectTask(item.projectId, item.taskId, { attachments });
         }
@@ -1960,19 +1966,15 @@ export function DashboardModule() {
                 {slides.map((slide) => (
                   <div key={slide.key} className="w-full min-w-full snap-start">
                     <div className="relative min-h-[50vh] w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[#1a1a1a]">
-                      <div
-                        className="absolute inset-0"
-                        style={
-                          slide.coverImage
-                            ? {
-                                backgroundImage: `url(${slide.coverImage})`,
-                                backgroundSize: "cover",
-                                backgroundPosition: "center",
-                                backgroundRepeat: "no-repeat",
-                              }
-                            : undefined
-                        }
-                      />
+                      {slide.coverImage ? (
+                        <img
+                          src={slide.coverImage}
+                          alt=""
+                          className="absolute inset-0 h-full w-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      ) : null}
                       <div className="absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.85)_0%,rgba(0,0,0,0.4)_50%,transparent_100%)]" />
                       <div className="absolute inset-x-0 bottom-0 z-10 p-6">
                         <div className="max-w-[50%] text-left">

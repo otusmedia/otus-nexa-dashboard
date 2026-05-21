@@ -881,12 +881,22 @@ export function ProjectDetailView({ project }: { project: Project }) {
       return false;
     }
 
-    const nextTasks = tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task));
-    setTasks(nextTasks);
+    let mergedUpdates = { ...updates };
     const currentTask = tasks.find((t) => t.id === taskId);
+    if (updates.isFeatured === true && currentTask && currentTask.attachments.length === 0) {
+      const { data: attData } = await supabase.from("task_attachments").select("*").eq("task_id", taskId);
+      const list = ((attData as Array<Record<string, unknown>> | null) ?? []).map((row) =>
+        taskAttachmentFromRow(row),
+      );
+      if (list.length > 0) mergedUpdates = { ...mergedUpdates, attachments: list };
+    }
+
+    const nextTasks = tasks.map((task) => (task.id === taskId ? { ...task, ...mergedUpdates } : task));
+    setTasks(nextTasks);
+    const syncedTask = nextTasks.find((t) => t.id === taskId);
     const rowPatch: Partial<ProjectTaskRow> = {};
-    if (updates.isFeatured !== undefined && currentTask && currentTask.attachments.length > 0) {
-      rowPatch.attachments = currentTask.attachments.map((a) => ({
+    if (updates.isFeatured !== undefined && syncedTask && syncedTask.attachments.length > 0) {
+      rowPatch.attachments = syncedTask.attachments.map((a) => ({
         type: a.type,
         name: a.name,
         url: a.url,
