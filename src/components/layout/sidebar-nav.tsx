@@ -14,6 +14,7 @@ export type SidebarNavLink = {
     | "financial"
     | "updates"
     | "marketing"
+    | "content-management"
     | "calendar"
     | "crm"
     | "files"
@@ -26,6 +27,7 @@ type SidebarNavProps = {
   links: SidebarNavLink[];
   pathname: string;
   t: (key: SidebarNavLink["labelKey"]) => string;
+  lt: (key: string) => string;
   dragLabel: string;
   showUpdatesUnreadDot: boolean;
   marketingMenuOpen: boolean;
@@ -58,15 +60,16 @@ function NavItemContent({
   setContentMenuOpen,
   crmMenuOpen,
   setCrmMenuOpen,
+  lt,
 }: Omit<SidebarNavProps, "links" | "onReorder" | "dragLabel"> & { link: SidebarNavLink }) {
   const isActive = isLinkActive(link, pathname);
   const Icon = link.icon;
 
   if (link.key === "marketing") {
     const submenuItems = [
-      { label: "Strategy", href: "/marketing/strategy" },
-      { label: "Campaigns", href: "/marketing/campaigns" },
-      { label: "Reports", href: "/marketing/reports" },
+      { labelKey: "Strategy", href: "/marketing/strategy" },
+      { labelKey: "Campaigns", href: "/marketing/campaigns" },
+      { labelKey: "Reports", href: "/marketing/reports" },
     ] as const;
     return (
       <>
@@ -98,7 +101,7 @@ function NavItemContent({
                       : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
                   )}
                 >
-                  {item.label}
+                  {lt(item.labelKey)}
                 </Link>
               );
             })}
@@ -110,8 +113,8 @@ function NavItemContent({
 
   if (link.key === "content-management") {
     const contentSubmenuItems = [
-      { label: "AI Studio", href: "/content-management/ai-studio" },
-      { label: "Compose", href: "/content-management/compose" },
+      { labelKey: "AI Studio", href: "/content-management/ai-studio" },
+      { labelKey: "Compose", href: "/content-management/compose" },
     ] as const;
     return (
       <>
@@ -126,7 +129,7 @@ function NavItemContent({
           )}
         >
           <Icon className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-          Content Management
+          {t(link.labelKey)}
         </button>
         {contentMenuOpen ? (
           <div className="mt-1 space-y-1 pl-7">
@@ -143,7 +146,7 @@ function NavItemContent({
                       : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
                   )}
                 >
-                  {item.label}
+                  {lt(item.labelKey)}
                 </Link>
               );
             })}
@@ -155,10 +158,10 @@ function NavItemContent({
 
   if (link.key === "crm") {
     const crmSubmenuItems = [
-      { label: "Dashboard", href: "/crm/dashboard" },
-      { label: "Pipeline", href: "/crm/pipeline" },
-      { label: "Contacts", href: "/crm/contacts" },
-      { label: "Reports", href: "/crm/reports" },
+      { labelKey: "Dashboard", href: "/crm/dashboard" },
+      { labelKey: "Pipeline", href: "/crm/pipeline" },
+      { labelKey: "Contacts", href: "/crm/contacts" },
+      { labelKey: "Reports", href: "/crm/reports" },
     ] as const;
     return (
       <>
@@ -190,7 +193,7 @@ function NavItemContent({
                       : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
                   )}
                 >
-                  {item.label}
+                  {lt(item.labelKey)}
                 </Link>
               );
             })}
@@ -269,6 +272,7 @@ export function SidebarNav(props: SidebarNavProps) {
                           link={link}
                           pathname={props.pathname}
                           t={props.t}
+                          lt={props.lt}
                           showUpdatesUnreadDot={props.showUpdatesUnreadDot}
                           marketingMenuOpen={props.marketingMenuOpen}
                           setMarketingMenuOpen={props.setMarketingMenuOpen}

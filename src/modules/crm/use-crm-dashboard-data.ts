@@ -6,6 +6,7 @@ import {
   CRM_LEAD_SOURCE_LABELS,
   CRM_LEAD_STATUSES,
   formatLeadValue,
+  isCrmAppointmentDone,
   mapCrmAppointmentRow,
   mapCrmLeadRow,
   normalizeLeadStatus,
@@ -262,7 +263,7 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
 
   const upcomingAppointments = useMemo(() => {
     return appointmentsWithLead
-      .filter((a) => a.date != null && a.date >= today)
+      .filter((a) => !isCrmAppointmentDone(a) && a.date != null && a.date >= today)
       .sort((a, b) => {
         const da = `${a.date ?? ""}T${a.time ?? "00:00"}`;
         const db = `${b.date ?? ""}T${b.time ?? "00:00"}`;
@@ -273,7 +274,7 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
 
   const todayAppointments = useMemo(() => {
     return appointmentsWithLead
-      .filter((a) => a.date === today)
+      .filter((a) => !isCrmAppointmentDone(a) && a.date === today)
       .sort((a, b) => (a.time ?? "").localeCompare(b.time ?? ""));
   }, [appointmentsWithLead, today]);
 

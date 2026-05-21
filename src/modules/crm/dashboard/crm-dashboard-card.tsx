@@ -7,7 +7,7 @@ export function CrmDashboardCard({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <Card className={cn("rounded-2xl border-white/[0.08] p-5 md:p-6", className)} {...props}>
+    <Card className={cn("flex h-full flex-col rounded-2xl border-white/[0.08] p-5 md:p-6", className)} {...props}>
       {children}
     </Card>
   );

@@ -24,8 +24,9 @@ export function CrmDashboardAppointmentsGrid({ slots, appointments, loading, lt 
     <CrmDashboardCard>
       <CrmDashboardSectionTitle>{lt("Upcoming appointments")}</CrmDashboardSectionTitle>
 
+      <div className="mt-4 flex min-h-0 flex-1 flex-col">
       {loading ? (
-        <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
           {Array.from({ length: 6 }).map((_, i) => (
             <CrmDashboardSkeleton key={i} className="h-20 rounded-xl" />
           ))}
@@ -61,10 +62,13 @@ export function CrmDashboardAppointmentsGrid({ slots, appointments, loading, lt 
               ))}
             </ul>
           ) : (
-            <p className="mt-4 text-xs text-[rgba(255,255,255,0.35)]">{lt("No appointments scheduled.")}</p>
+            <p className="flex flex-1 items-center text-xs text-[rgba(255,255,255,0.35)]">
+              {lt("No appointments scheduled.")}
+            </p>
           )}
         </>
       )}
+      </div>
     </CrmDashboardCard>
   );
 }

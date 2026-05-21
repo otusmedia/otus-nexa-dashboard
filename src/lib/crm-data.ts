@@ -1,5 +1,9 @@
 import { formatDisplayDate } from "@/app/(platform)/projects/data";
+import type { AppLanguage } from "@/lib/locale-types";
+import { supabase } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/utils";
+
+export type CrmAppointmentStatus = "pending" | "done";
 
 export const CRM_LEAD_STATUSES = [
   "New Lead",
@@ -77,7 +81,73 @@ export interface CrmAppointment {
   time: string | null;
   description: string | null;
   owner: string | null;
+  status: CrmAppointmentStatus;
+  completed_at: string | null;
+  completed_by: string | null;
   created_at: string;
+}
+
+export function isCrmAppointmentDone(a: Pick<CrmAppointment, "status" | "completed_at">): boolean {
+  return a.status === "done" || Boolean(a.completed_at?.trim());
+}
+
+export function formatCrmAppointmentCompletedAt(iso: string | null, lang: AppLanguage): string {
+  if (!iso?.trim()) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(lang === "pt-BR" ? "pt-BR" : "en-US", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export async function completeCrmAppointment(
+  appointmentId: string,
+  completedBy: string,
+  lang: AppLanguage,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const trimmedBy = completedBy.trim();
+  if (!trimmedBy) return { ok: false, error: "Missing user" };
+
+  const completedAt = new Date().toISOString();
+  const { error } = await supabase
+    .from("crm_appointments")
+    .update({
+      status: "done",
+      completed_at: completedAt,
+      completed_by: trimmedBy,
+    })
+    .eq("id", appointmentId);
+
+  if (error) return { ok: false, error: error.message };
+
+  const completionLabel = formatCrmAppointmentCompletedAt(completedAt, lang);
+  const logLine =
+    lang === "pt-BR"
+      ? `\n✓ Concluído por ${trimmedBy} em ${completionLabel}`
+      : `\n✓ Completed by ${trimmedBy} on ${completionLabel}`;
+
+  const { data: calRow } = await supabase
+    .from("calendar_events")
+    .select("id, description")
+    .eq("source", "crm")
+    .eq("source_id", appointmentId)
+    .maybeSingle();
+
+  if (calRow?.id) {
+    const prevDesc = calRow.description != null ? String(calRow.description) : "";
+    const alreadyLogged = prevDesc.includes("✓ Concluído") || prevDesc.includes("✓ Completed");
+    const description = alreadyLogged ? prevDesc : `${prevDesc.trim()}${logLine}`.trim();
+    await supabase
+      .from("calendar_events")
+      .update({ description, color: "#6b7280" })
+      .eq("id", String(calRow.id));
+  }
+
+  return { ok: true };
 }
 
 export interface CrmContact {
@@ -117,6 +187,9 @@ export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
 }
 
 export function mapCrmAppointmentRow(row: Record<string, unknown>): CrmAppointment {
+  const statusRaw = String(row.status ?? "").trim().toLowerCase();
+  const status: CrmAppointmentStatus =
+    statusRaw === "done" || row.completed_at != null ? "done" : "pending";
   return {
     id: String(row.id ?? ""),
     lead_id: String(row.lead_id ?? ""),
@@ -125,6 +198,9 @@ export function mapCrmAppointmentRow(row: Record<string, unknown>): CrmAppointme
     time: row.time != null ? String(row.time) : null,
     description: row.description != null ? String(row.description) : null,
     owner: row.owner != null ? String(row.owner) : null,
+    status,
+    completed_at: row.completed_at != null ? String(row.completed_at) : null,
+    completed_by: row.completed_by != null ? String(row.completed_by) : null,
     created_at: String(row.created_at ?? ""),
   };
 }

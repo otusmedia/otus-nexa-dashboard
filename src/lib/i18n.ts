@@ -624,6 +624,67 @@ const platformPtBR: Record<string, string> = {
   "Location or link": "Local ou link",
   "Start time": "Hora de início",
   "End time": "Hora de término",
+
+  // Navigation submenus
+  "Content Management": "Gestão de Conteúdo",
+  "AI Studio": "Estúdio IA",
+  Compose: "Compor",
+  Strategy: "Estratégia",
+  Campaigns: "Campanhas",
+  Contacts: "Contatos",
+
+  // Hero
+  "Good morning,": "Bom dia,",
+  "Good afternoon,": "Boa tarde,",
+  "Good evening,": "Boa noite,",
+  "Hide hero background": "Ocultar fundo do hero",
+  "Show hero background": "Mostrar fundo do hero",
+  "Exit hero fullscreen": "Sair da tela cheia do hero",
+  "Enter hero fullscreen": "Entrar em tela cheia do hero",
+  "Dashboard hero": "Hero do painel",
+  "Clock display mode": "Modo de exibição do relógio",
+  "Digital clock": "Relógio digital",
+  "Analog clock": "Relógio analógico",
+  "Resize hero height": "Redimensionar altura do hero",
+
+  // AI Studio / Content Management
+  "Generate and manage content powered by RocketRide AI":
+    "Gere e gerencie conteúdo com a IA RocketRide",
+  "RocketRide Pipeline": "Pipeline RocketRide",
+  "What content do you need?": "Que conteúdo você precisa?",
+  "Ex: Suggest 3 content ideas about RocketRide pipeline nodes for developers...":
+    "Ex.: Sugira 3 ideias de conteúdo sobre nós do pipeline RocketRide para desenvolvedores...",
+  "Generating...": "Gerando...",
+  "Generate with RocketRide": "Gerar com RocketRide",
+  "Generated Content": "Conteúdo gerado",
+  "Running RocketRide pipeline...": "Executando pipeline RocketRide...",
+  "Generated content will appear here. You can edit before saving.":
+    "O conteúdo gerado aparecerá aqui. Você pode editar antes de salvar.",
+  "Save as Draft": "Salvar como rascunho",
+  "Submit for Approval": "Enviar para aprovação",
+  "Content for Review": "Conteúdo para revisão",
+  Drafts: "Rascunhos",
+  "Error saving. Try again.": "Erro ao salvar. Tente novamente.",
+  "Submitted for approval!": "Enviado para aprovação!",
+  "Saved as draft.": "Salvo como rascunho.",
+  "Could not reach the RocketRide pipeline. Make sure it is running locally.":
+    "Não foi possível conectar ao pipeline RocketRide. Verifique se está rodando localmente.",
+  "No content drafts yet.": "Nenhum rascunho de conteúdo ainda.",
+  By: "Por",
+  "Feedback (optional)": "Feedback (opcional)",
+  "Add feedback for the creator...": "Adicione feedback para o criador...",
+  "Link to Project (optional)": "Vincular ao projeto (opcional)",
+  Approve: "Aprovar",
+  Reject: "Rejeitar",
+  Reports: "Relatórios",
+  None: "Nenhum",
+  Platforms: "Plataformas",
+  Draft: "Rascunho",
+  "Mark as done": "Marcar como feito",
+  "Completed by": "Concluído por",
+  "CRM Lead": "Lead CRM",
+  "Edit this appointment from the CRM pipeline.":
+    "Edite este compromisso no funil do CRM.",
 };
 
 export const translations = {

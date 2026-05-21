@@ -24,8 +24,9 @@ export function CrmDashboardPipeline({ rows, loading, language, lt }: Props) {
     <CrmDashboardCard>
       <CrmDashboardSectionTitle>{lt("PIPELINE OVERVIEW")}</CrmDashboardSectionTitle>
 
+      <div className="mt-4 flex min-h-0 flex-1 flex-col">
       {loading ? (
-        <div className="mt-4 space-y-3">
+        <div className="space-y-3">
           {[1, 2, 3, 4].map((i) => (
             <CrmDashboardSkeleton key={i} className="h-12" />
           ))}
@@ -48,6 +49,7 @@ export function CrmDashboardPipeline({ rows, loading, language, lt }: Props) {
           ))}
         </ul>
       )}
+      </div>
     </CrmDashboardCard>
   );
 }

@@ -21,7 +21,7 @@ import { parseInstagramInsightsCsv, type InstagramInsightMetricRow } from "@/lib
 import { parseMetaAdsCsv } from "@/lib/parse-meta-csv";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
-import { getTaskHighlightCoverUrl } from "@/lib/task-highlight-cover";
+import { getTaskHighlightCoverUrl, parseTaskAttachmentsNested } from "@/lib/task-highlight-cover";
 import type { MetaAdsCampaign, MetaAdsSummary } from "@/types/meta-ads";
 import {
   ChevronLeft,
@@ -659,6 +659,7 @@ export function DashboardModule() {
     clientApisEnabled,
     dataClientSlug,
     projectsLoading,
+    updateBoardProjectTask,
   } = useAppContext();
   const { t: lt } = useLanguage();
   const canSeeActivity = currentUser?.company === "nexa" || currentUser?.company === "otus";
@@ -1331,6 +1332,44 @@ export function DashboardModule() {
     }
     return out;
   }, [mergedProjects]);
+
+  useEffect(() => {
+    if (projectsLoading) return;
+    const pending: { projectId: string; taskId: string }[] = [];
+    for (const p of mergedProjects) {
+      for (const task of p.tasks) {
+        if (!task.isFeatured || task.coverImage?.trim()) continue;
+        if (getTaskHighlightCoverUrl(task)) continue;
+        pending.push({ projectId: p.id, taskId: task.id });
+      }
+    }
+    if (pending.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("task_attachments")
+        .select("*")
+        .in(
+          "task_id",
+          pending.map((item) => item.taskId),
+        );
+      if (cancelled || error || !data?.length) return;
+
+      const rows = data as Record<string, unknown>[];
+      for (const item of pending) {
+        const taskRows = rows.filter((row) => String(row.task_id ?? "") === item.taskId);
+        const attachments = parseTaskAttachmentsNested(taskRows);
+        if (attachments.length > 0) {
+          updateBoardProjectTask(item.projectId, item.taskId, { attachments });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mergedProjects, projectsLoading, updateBoardProjectTask]);
 
   const slides = featuredSlides;
 

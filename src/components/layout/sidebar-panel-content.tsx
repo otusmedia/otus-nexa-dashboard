@@ -146,6 +146,7 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
           links={links}
           pathname={pathname}
           t={tNav}
+          lt={lt}
           dragLabel={dragLabel}
           showUpdatesUnreadDot={showUpdatesUnreadDot}
           marketingMenuOpen={marketingMenuOpen}

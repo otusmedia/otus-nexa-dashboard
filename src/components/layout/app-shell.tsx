@@ -43,7 +43,7 @@ const moduleLinks: SidebarNavLink[] = [
   { key: "financial", labelKey: "financial", href: "/financial", icon: Wallet },
   { key: "updates", labelKey: "updates", href: "/updates", icon: MessageSquare },
   { key: "marketing", labelKey: "marketing", href: "/marketing", icon: Megaphone },
-  { key: "content-management", labelKey: "marketing", href: "/content-management", icon: Sparkles },
+  { key: "content-management", labelKey: "content-management", href: "/content-management", icon: Sparkles },
   { key: "calendar", labelKey: "calendar", href: "/calendar", icon: Calendar },
   { key: "crm", labelKey: "crm", href: "/crm", icon: Briefcase },
   { key: "files", labelKey: "files", href: "/files", icon: FileUp },

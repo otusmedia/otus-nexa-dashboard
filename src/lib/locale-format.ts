@@ -1,31 +1,25 @@
 import type { AppLanguage } from "@/lib/locale-types";
 
-export function localeToIntl(locale: AppLanguage): string {
-  return locale === "pt-BR" ? "pt-BR" : "en-US";
+export function localeTag(lang: AppLanguage): string {
+  return lang === "pt-BR" ? "pt-BR" : "en-US";
 }
 
-export function formatDate(
-  value: Date | string | number,
-  locale: AppLanguage,
-  options?: Intl.DateTimeFormatOptions,
-): string {
-  const d = value instanceof Date ? value : new Date(value);
-  return d.toLocaleDateString(localeToIntl(locale), options);
+export function formatLongDate(date: Date, lang: AppLanguage): string {
+  return new Intl.DateTimeFormat(localeTag(lang), {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }).format(date);
 }
 
-export function formatDateTime(value: Date | string | number, locale: AppLanguage): string {
-  const d = value instanceof Date ? value : new Date(value);
-  return d.toLocaleString(localeToIntl(locale));
-}
-
-export function formatNumber(value: number, locale: AppLanguage, options?: Intl.NumberFormatOptions): string {
-  return value.toLocaleString(localeToIntl(locale), options);
-}
-
-export function formatCurrency(value: number, locale: AppLanguage, currency = "USD"): string {
-  return value.toLocaleString(localeToIntl(locale), {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  });
+export function timeOfDayGreeting(lang: AppLanguage): string {
+  const h = new Date().getHours();
+  if (lang === "pt-BR") {
+    if (h >= 5 && h < 12) return "Bom dia,";
+    if (h >= 12 && h < 18) return "Boa tarde,";
+    return "Boa noite,";
+  }
+  if (h >= 5 && h < 12) return "Good morning,";
+  if (h >= 12 && h < 18) return "Good afternoon,";
+  return "Good evening,";
 }

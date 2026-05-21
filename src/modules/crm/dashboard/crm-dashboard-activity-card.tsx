@@ -19,17 +19,18 @@ export function CrmDashboardActivityCard({ latest, items, loading, lt }: Props) 
     <CrmDashboardCard>
       <CrmDashboardSectionTitle>{lt("Recent activity")}</CrmDashboardSectionTitle>
 
+      <div className="mt-4 flex min-h-0 flex-1 flex-col">
       {loading ? (
-        <div className="mt-4 space-y-3">
+        <div className="space-y-3">
           <CrmDashboardSkeleton className="h-24 w-full rounded-xl" />
           <CrmDashboardSkeleton className="h-4 w-full" />
           <CrmDashboardSkeleton className="h-4 w-3/4" />
         </div>
       ) : !latest ? (
-        <p className="mt-4 text-sm text-[rgba(255,255,255,0.4)]">{lt("No activity yet")}</p>
+        <p className="flex flex-1 items-center text-sm text-[rgba(255,255,255,0.4)]">{lt("No activity yet")}</p>
       ) : (
         <>
-          <div className="mt-4 rounded-xl border border-white/[0.08] bg-[rgba(255,255,255,0.03)] p-4">
+          <div className="rounded-xl border border-white/[0.08] bg-[rgba(255,255,255,0.03)] p-4">
             <p className="text-[0.65rem] uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
               {latest.type === "lead" ? lt("Lead updated") : lt("Appointment")}
             </p>
@@ -61,6 +62,7 @@ export function CrmDashboardActivityCard({ latest, items, loading, lt }: Props) 
           ) : null}
         </>
       )}
+      </div>
     </CrmDashboardCard>
   );
 }

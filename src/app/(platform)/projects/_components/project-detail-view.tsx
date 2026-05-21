@@ -46,7 +46,7 @@ import { MentionTextarea } from "@/components/ui/mention-textarea";
 import { LocalizedContent } from "@/components/ui/localized-content";
 import type { AppLanguage } from "@/lib/locale-types";
 import { supabase } from "@/lib/supabase";
-import { getTaskHighlightCoverUrl } from "@/lib/task-highlight-cover";
+import { getTaskHighlightCoverUrl, parseTaskAttachmentsNested } from "@/lib/task-highlight-cover";
 import { fetchPublishedAtByTaskIds } from "@/lib/task-published-at-from-scheduled-posts";
 import { OwnerAvatars } from "./owner-avatars";
 import { ProgressInline } from "./progress-inline";
@@ -95,6 +95,7 @@ type DbProjectTaskRow = {
   review_status: string | null;
   published_to: string[] | null;
   published_at: string | null;
+  task_attachments?: unknown;
 };
 
 type ClientReviewDecision = "Approved" | "Needs Changes" | "Rejected";
@@ -388,6 +389,7 @@ const BOARD_TASK_KEYS = new Set<keyof ProjectTaskRow>([
   "reviewStatus",
   "publishedTo",
   "publishedAt",
+  "attachments",
 ]);
 
 const TASK_TABLE_FILTER_ORDER: TaskRowStatus[] = [
@@ -575,7 +577,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     void (async () => {
       const { data, error } = await supabase
         .from("tasks")
-        .select("*")
+        .select("*, task_attachments(*)")
         .eq("project_id", project.id)
         .order("created_at", { ascending: true });
       if (!mounted) return;
@@ -611,7 +613,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
           reviewStatus: row.review_status?.trim() ? String(row.review_status) : null,
           publishedTo: Array.isArray(row.published_to) ? row.published_to.map(String) : [],
           publishedAt: row.published_at?.trim() ? String(row.published_at) : null,
-          attachments: [],
+          attachments: parseTaskAttachmentsNested(row.task_attachments),
         } satisfies LocalTask;
       });
       const needFallback = mapped.filter((t) => t.status === "Published" && !t.publishedAt);
@@ -622,17 +624,25 @@ export function ProjectDetailView({ project }: { project: Project }) {
               needFallback.map((t) => t.id),
             )
           : new Map<string, string>();
-      setTasks(
-        mapped.map((t) => ({
-          ...t,
-          publishedAt: t.publishedAt ?? fromPosts.get(t.id) ?? null,
-        })),
-      );
+      const finalTasks = mapped.map((t) => ({
+        ...t,
+        publishedAt: t.publishedAt ?? fromPosts.get(t.id) ?? null,
+      }));
+      setTasks(finalTasks);
+      if (!isRocketRideClient) {
+        for (const t of finalTasks) {
+          if (t.attachments.length > 0) {
+            updateBoardProjectTask(project.id, t.id, {
+              attachments: t.attachments.map((a) => ({ type: a.type, name: a.name, url: a.url })),
+            });
+          }
+        }
+      }
     })();
     return () => {
       mounted = false;
     };
-  }, [project.id]);
+  }, [isRocketRideClient, project.id, updateBoardProjectTask]);
 
   useEffect(() => {
     const tid = searchParams.get("taskId");
@@ -873,7 +883,15 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
     const nextTasks = tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task));
     setTasks(nextTasks);
+    const currentTask = tasks.find((t) => t.id === taskId);
     const rowPatch: Partial<ProjectTaskRow> = {};
+    if (updates.isFeatured !== undefined && currentTask && currentTask.attachments.length > 0) {
+      rowPatch.attachments = currentTask.attachments.map((a) => ({
+        type: a.type,
+        name: a.name,
+        url: a.url,
+      }));
+    }
     (Object.keys(updates) as (keyof LocalTask)[]).forEach((key) => {
       if (BOARD_TASK_KEYS.has(key as keyof ProjectTaskRow)) {
         const k = key as keyof ProjectTaskRow;

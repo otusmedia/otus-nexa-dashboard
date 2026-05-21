@@ -3,7 +3,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { ExternalLink, Pencil, Trash2, Video, X } from "lucide-react";
+import { CheckCircle, ExternalLink, Pencil, Trash2, Video, X } from "lucide-react";
+import { useAppContext } from "@/components/providers/app-providers";
+import { useLanguage } from "@/context/language-context";
+import {
+  completeCrmAppointment,
+  formatCrmAppointmentCompletedAt,
+  isCrmAppointmentDone,
+  type CrmAppointment,
+} from "@/lib/crm-data";
+import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent, CalendarEventType } from "@/types/calendar";
 import { eventDisplayColor } from "./calendar-utils";
@@ -47,6 +56,7 @@ export function CalendarEventPopover({
   publishingScheduledPostAllowEdit = true,
   onEditScheduledPost,
   onDeleteScheduledPost,
+  onCrmAppointmentCompleted,
 }: {
   event: CalendarEvent | null;
   anchor: { x: number; y: number } | null;
@@ -59,9 +69,45 @@ export function CalendarEventPopover({
   publishingScheduledPostAllowEdit?: boolean;
   onEditScheduledPost?: (postId: string) => void;
   onDeleteScheduledPost?: (postId: string) => void;
+  onCrmAppointmentCompleted?: () => void;
 }) {
+  const { currentUser, language } = useAppContext();
+  const { t: lt } = useLanguage();
   const ref = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
+  const [crmAppt, setCrmAppt] = useState<Pick<CrmAppointment, "status" | "completed_at" | "completed_by"> | null>(
+    null,
+  );
+  const [crmCompleting, setCrmCompleting] = useState(false);
+
+  useEffect(() => {
+    if (!event?.source_id || event.source !== "crm") {
+      setCrmAppt(null);
+      return;
+    }
+    let cancelled = false;
+    void supabase
+      .from("crm_appointments")
+      .select("status, completed_at, completed_by")
+      .eq("id", event.source_id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) {
+          setCrmAppt(null);
+          return;
+        }
+        const row = data as Record<string, unknown>;
+        const statusRaw = String(row.status ?? "").trim().toLowerCase();
+        setCrmAppt({
+          status: statusRaw === "done" || row.completed_at != null ? "done" : "pending",
+          completed_at: row.completed_at != null ? String(row.completed_at) : null,
+          completed_by: row.completed_by != null ? String(row.completed_by) : null,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [event?.id, event?.source, event?.source_id]);
 
   useEffect(() => {
     if (!event) return;
@@ -125,6 +171,26 @@ export function CalendarEventPopover({
   const canDelete = !taskReadOnly && !publishingReadOnly;
   const scheduledManage =
     publishingScheduleMode && (event.source === "scheduled_post" || event.is_scheduled_post) && event.source_id;
+  const crmDone = crmAppt ? isCrmAppointmentDone(crmAppt) : false;
+  const canMarkCrmDone = crmReadOnly && Boolean(event.source_id) && !crmDone;
+
+  const handleMarkCrmDone = async () => {
+    if (!event?.source_id || !currentUser.name?.trim()) return;
+    setCrmCompleting(true);
+    const result = await completeCrmAppointment(event.source_id, currentUser.name, language);
+    setCrmCompleting(false);
+    if (!result.ok) {
+      console.error("[calendar] complete crm appointment", result.error);
+      return;
+    }
+    const completedAt = new Date().toISOString();
+    setCrmAppt({
+      status: "done",
+      completed_at: completedAt,
+      completed_by: currentUser.name.trim(),
+    });
+    onCrmAppointmentCompleted?.();
+  };
 
   return createPortal(
     <div
@@ -177,7 +243,7 @@ export function CalendarEventPopover({
 
         {event.source === "crm" && event.lead_name ? (
           <p className="text-sm">
-            <span className="text-[var(--muted)]">CRM Lead: </span>
+            <span className="text-[var(--muted)]">{lt("CRM Lead")}: </span>
             <Link
               href={event.lead_id ? `/crm/pipeline?lead=${encodeURIComponent(event.lead_id)}` : "/crm/pipeline"}
               className="font-medium text-[#10b981] underline-offset-2 hover:underline"
@@ -185,6 +251,15 @@ export function CalendarEventPopover({
             >
               {event.lead_name}
             </Link>
+          </p>
+        ) : null}
+
+        {crmReadOnly && crmDone && crmAppt?.completed_by ? (
+          <p className="rounded-lg border border-[rgba(34,197,94,0.25)] bg-[rgba(34,197,94,0.08)] px-3 py-2 text-xs text-[#86efac]">
+            {lt("Completed by")} {crmAppt.completed_by}
+            {crmAppt.completed_at
+              ? ` · ${formatCrmAppointmentCompletedAt(crmAppt.completed_at, language)}`
+              : ""}
           </p>
         ) : null}
 
@@ -326,8 +401,21 @@ export function CalendarEventPopover({
         </div>
       ) : (
         <div className="shrink-0 space-y-2 border-t border-[var(--border)] p-3">
-          {crmReadOnly ? (
-            <p className="text-center text-[0.65rem] text-[var(--muted)]">Edit this appointment from the CRM pipeline.</p>
+          {canMarkCrmDone ? (
+            <button
+              type="button"
+              disabled={crmCompleting}
+              onClick={() => void handleMarkCrmDone()}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.12)] py-2.5 text-xs font-medium text-[#86efac] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-50"
+            >
+              <CheckCircle className="h-4 w-4" strokeWidth={1.5} />
+              {crmCompleting ? lt("Saving…") : lt("Mark as done")}
+            </button>
+          ) : null}
+          {crmReadOnly && !canMarkCrmDone && !crmDone ? (
+            <p className="text-center text-[0.65rem] text-[var(--muted)]">
+              {lt("Edit this appointment from the CRM pipeline.")}
+            </p>
           ) : null}
           <div className="flex gap-2">
             {canEdit ? (

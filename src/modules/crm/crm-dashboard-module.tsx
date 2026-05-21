@@ -40,6 +40,7 @@ export function CrmDashboardModule() {
     sourceTotal,
     pipelineRows,
     upcomingDateSlots,
+    reload,
   } = useCrmDashboardData(dataClientSlug, chartRange, language);
 
   const accentColor = activeClient?.primaryColor ?? "#FF4500";
@@ -82,11 +83,11 @@ export function CrmDashboardModule() {
         </p>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <div className="xl:col-span-4">
+      <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-12">
+        <div className="h-full xl:col-span-4">
           <CrmDashboardHero hero={heroMetric} compactKpis={compactKpis} loading={loading} lt={lt} />
         </div>
-        <div className="xl:col-span-5">
+        <div className="h-full xl:col-span-5">
           <CrmDashboardTrendChart
             bars={trendBars}
             range={chartRange}
@@ -96,11 +97,11 @@ export function CrmDashboardModule() {
             lt={lt}
           />
         </div>
-        <div className="xl:col-span-3">
+        <div className="h-full xl:col-span-3">
           <CrmDashboardLeadList leads={priorityLeads} loading={loading} lt={lt} />
         </div>
 
-        <div className="xl:col-span-4">
+        <div className="h-full xl:col-span-4">
           <CrmDashboardAppointmentsGrid
             slots={upcomingDateSlots}
             appointments={upcomingAppointments}
@@ -108,10 +109,15 @@ export function CrmDashboardModule() {
             lt={lt}
           />
         </div>
-        <div className="xl:col-span-4">
-          <CrmDashboardSchedule appointments={todayAppointments} loading={loading} lt={lt} />
+        <div className="h-full xl:col-span-4">
+          <CrmDashboardSchedule
+            appointments={todayAppointments}
+            loading={loading}
+            lt={lt}
+            onAppointmentCompleted={() => void reload()}
+          />
         </div>
-        <div className="xl:col-span-4">
+        <div className="h-full xl:col-span-4">
           <CrmDashboardActivityCard
             latest={latestActivity}
             items={recentActivity}
@@ -120,7 +126,7 @@ export function CrmDashboardModule() {
           />
         </div>
 
-        <div className="xl:col-span-6">
+        <div className="h-full xl:col-span-6">
           <CrmDashboardSources
             sourceMap={sourceMap}
             sourceTotal={sourceTotal}
@@ -129,7 +135,7 @@ export function CrmDashboardModule() {
             lt={lt}
           />
         </div>
-        <div className="xl:col-span-6">
+        <div className="h-full xl:col-span-6">
           <CrmDashboardPipeline rows={pipelineRows} loading={loading} language={language} lt={lt} />
         </div>
       </div>

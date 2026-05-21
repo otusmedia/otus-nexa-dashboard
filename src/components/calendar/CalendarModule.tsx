@@ -24,7 +24,10 @@ export function CalendarModule() {
     };
   }, [view, currentDate, weekStart]);
 
-  const { events, loading, createEvent, updateEvent, deleteEvent } = useCalendarEvents(rangeStart, rangeEnd);
+  const { events, loading, createEvent, updateEvent, deleteEvent, refetch } = useCalendarEvents(
+    rangeStart,
+    rangeEnd,
+  );
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
@@ -122,6 +125,9 @@ export function CalendarModule() {
           }}
           onDelete={() => {
             if (popover) void deleteEvent(popover.event.id);
+          }}
+          onCrmAppointmentCompleted={() => {
+            void refetch();
           }}
         />
     </div>

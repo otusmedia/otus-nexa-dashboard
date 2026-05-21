@@ -3,6 +3,8 @@
 import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Clock, Eye, EyeOff, Maximize2, Minimize2, Watch } from "lucide-react";
 import { useAppContext } from "@/components/providers/app-providers";
+import { useLanguage } from "@/context/language-context";
+import { formatLongDate, localeTag, timeOfDayGreeting } from "@/lib/locale-format";
 import { cn } from "@/lib/utils";
 
 const HERO_CLOCK_MODE_KEY = "clock-mode";
@@ -49,12 +51,8 @@ const heroClockToggleShellStyle: CSSProperties = {
 
 type HeroClockMode = "digital" | "analog";
 
-function formatHeroLongDate(d: Date): string {
-  return new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(d);
-}
-
-function HeroDigitalClockTime({ date, timeZone }: { date: Date; timeZone: string }) {
-  const parts = new Intl.DateTimeFormat("en-US", {
+function HeroDigitalClockTime({ date, timeZone, lang }: { date: Date; timeZone: string; lang: "en" | "pt-BR" }) {
+  const parts = new Intl.DateTimeFormat(localeTag(lang), {
     timeZone,
     hour: "numeric",
     minute: "2-digit",
@@ -74,13 +72,6 @@ function HeroDigitalClockTime({ date, timeZone }: { date: Date; timeZone: string
       )}
     </p>
   );
-}
-
-function timeOfDayGreeting(): string {
-  const h = new Date().getHours();
-  if (h >= 5 && h < 12) return "Good morning,";
-  if (h >= 12 && h < 18) return "Good afternoon,";
-  return "Good evening,";
 }
 
 function getHMSInZone(date: Date, timeZone: string): { hour: number; minute: number; second: number } {
@@ -121,7 +112,8 @@ function HeroAnalogClock({ date, timeZone }: { date: Date; timeZone: string }) {
 }
 
 function HeroSection() {
-  const { currentUser, heroImageUrl } = useAppContext();
+  const { currentUser, heroImageUrl, language } = useAppContext();
+  const { t: lt } = useLanguage();
   const [, setTick] = useState(0);
   const sectionRef = useRef<HTMLElement>(null);
   const handleRef = useRef<HTMLDivElement>(null);
@@ -304,7 +296,7 @@ function HeroSection() {
         !heroBgVisible && "bg-transparent",
       )}
       style={{ height: isHeroFullscreen ? "100dvh" : heroHeightPx }}
-      aria-label="Dashboard hero"
+      aria-label={lt("Dashboard hero")}
     >
       {heroBgVisible ? (
         <>
@@ -330,7 +322,7 @@ function HeroSection() {
         <button
           type="button"
           onClick={toggleHeroBgVisible}
-          aria-label={heroBgVisible ? "Hide hero background" : "Show hero background"}
+          aria-label={heroBgVisible ? lt("Hide hero background") : lt("Show hero background")}
           className="text-[rgba(255,255,255,0.4)]"
           style={heroBgToggleButtonStyle}
         >
@@ -343,7 +335,7 @@ function HeroSection() {
         <button
           type="button"
           onClick={() => void handleScreensaverFullscreenClick()}
-          aria-label={isHeroFullscreen ? "Exit hero fullscreen" : "Enter hero fullscreen"}
+          aria-label={isHeroFullscreen ? lt("Exit hero fullscreen") : lt("Enter hero fullscreen")}
           className="text-[rgba(255,255,255,0.4)]"
           style={heroBgToggleButtonStyle}
         >
@@ -362,11 +354,11 @@ function HeroSection() {
       >
         <div className="flex min-w-0 flex-col">
           <p className="text-[0.8rem] font-light tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-            {formatHeroLongDate(now)}
+            {formatLongDate(now, language)}
           </p>
           <h1 className="mt-2 font-light">
             <span className="block text-[clamp(3rem,6vw,5rem)] leading-none text-white opacity-[0.64]">
-              {timeOfDayGreeting()}
+              {timeOfDayGreeting(language)}
             </span>
             <span className="mt-1 block text-[clamp(3rem,6vw,5rem)] leading-none text-white opacity-100">
               {firstName}
@@ -375,11 +367,11 @@ function HeroSection() {
         </div>
         <div className="flex shrink-0 flex-col items-start justify-start">
           <div className="flex flex-col items-center">
-            <div className="mb-4 inline-flex shrink-0" style={heroClockToggleShellStyle} role="group" aria-label="Clock display mode">
+            <div className="mb-4 inline-flex shrink-0" style={heroClockToggleShellStyle} role="group" aria-label={lt("Clock display mode")}>
               <button
                 type="button"
                 onClick={() => setClockModePersist("digital")}
-                aria-label="Digital clock"
+                aria-label={lt("Digital clock")}
                 className={cn(
                   "inline-flex items-center justify-center rounded-[16px]",
                   clockMode === "digital" ? "bg-white text-[#111111]" : "bg-transparent text-[rgba(255,255,255,0.4)]",
@@ -391,7 +383,7 @@ function HeroSection() {
               <button
                 type="button"
                 onClick={() => setClockModePersist("analog")}
-                aria-label="Analog clock"
+                aria-label={lt("Analog clock")}
                 className={cn(
                   "inline-flex items-center justify-center rounded-[16px]",
                   clockMode === "analog" ? "bg-white text-[#111111]" : "bg-transparent text-[rgba(255,255,255,0.4)]",
@@ -408,7 +400,7 @@ function HeroSection() {
                     San Francisco
                   </p>
                   {clockMode === "digital" ? (
-                    <HeroDigitalClockTime date={now} timeZone="America/Los_Angeles" />
+                    <HeroDigitalClockTime date={now} timeZone="America/Los_Angeles" lang={language} />
                   ) : (
                     <HeroAnalogClock date={now} timeZone="America/Los_Angeles" />
                   )}
@@ -419,7 +411,7 @@ function HeroSection() {
                 <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center gap-2 p-[24px] text-center">
                   <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">Curitiba</p>
                   {clockMode === "digital" ? (
-                    <HeroDigitalClockTime date={now} timeZone="America/Sao_Paulo" />
+                    <HeroDigitalClockTime date={now} timeZone="America/Sao_Paulo" lang={language} />
                   ) : (
                     <HeroAnalogClock date={now} timeZone="America/Sao_Paulo" />
                   )}
@@ -438,7 +430,7 @@ function HeroSection() {
           onTouchStart={startTouchResize}
           role="separator"
           aria-orientation="horizontal"
-          aria-label="Resize hero height"
+          aria-label={lt("Resize hero height")}
         >
           <div className="pointer-events-none h-0.5 w-10 rounded-sm bg-[rgba(255,255,255,0.2)] opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100" />
         </div>

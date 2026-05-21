@@ -18,14 +18,15 @@ export function CrmDashboardSources({ sourceMap, sourceTotal, loading, language,
     <CrmDashboardCard>
       <CrmDashboardSectionTitle>{lt("LEAD SOURCES")}</CrmDashboardSectionTitle>
 
+      <div className="mt-4 flex min-h-0 flex-1 flex-col">
       {loading ? (
-        <div className="mt-4 space-y-3">
+        <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <CrmDashboardSkeleton key={i} className="h-10" />
           ))}
         </div>
       ) : (
-        <ul className="mt-4 space-y-4">
+        <ul className="space-y-4">
           {CRM_LEAD_SOURCE_LABELS.map((label) => {
             const count = sourceMap[label] ?? 0;
             const pct = Math.round((count / sourceTotal) * 1000) / 10;
@@ -48,6 +49,7 @@ export function CrmDashboardSources({ sourceMap, sourceTotal, loading, language,
           })}
         </ul>
       )}
+      </div>
     </CrmDashboardCard>
   );
 }

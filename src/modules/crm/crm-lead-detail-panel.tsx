@@ -8,8 +8,11 @@ import { supabase } from "@/lib/supabase";
 import {
   CRM_KANBAN_COLUMNS,
   CRM_SOURCE_OPTIONS,
+  completeCrmAppointment,
   formatAppointmentTime,
+  formatCrmAppointmentCompletedAt,
   formatLeadCreatedAt,
+  isCrmAppointmentDone,
   mapCrmAppointmentRow,
   mapCrmLeadRow,
   normalizeLeadStatus,
@@ -96,6 +99,7 @@ export function CrmLeadDetailPanel({
     description: "",
   });
   const [deleteApptId, setDeleteApptId] = useState<string | null>(null);
+  const [completingApptId, setCompletingApptId] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [deleteLeadModalOpen, setDeleteLeadModalOpen] = useState(false);
   const [deletePasskey, setDeletePasskey] = useState("");
@@ -348,6 +352,30 @@ export function CrmLeadDetailPanel({
     if (calDelErr) console.error("[crm] calendar delete", calDelErr.message);
     setAppointments((prev) => prev.filter((a) => a.id !== apptId));
     setDeleteApptId(null);
+  };
+
+  const markAppointmentDone = async (apptId: string) => {
+    if (!currentUser.name?.trim()) return;
+    setCompletingApptId(apptId);
+    const result = await completeCrmAppointment(apptId, currentUser.name, language);
+    setCompletingApptId(null);
+    if (!result.ok) {
+      console.error("[crm] complete appointment", result.error);
+      return;
+    }
+    const completedAt = new Date().toISOString();
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === apptId
+          ? {
+              ...a,
+              status: "done",
+              completed_at: completedAt,
+              completed_by: currentUser.name.trim(),
+            }
+          : a,
+      ),
+    );
   };
 
   const canConfirmDeleteLead = deletePasskey === "DELETE";
@@ -680,32 +708,67 @@ export function CrmLeadDetailPanel({
               <p className="mt-3 text-xs text-[rgba(255,255,255,0.4)]">{lt("No appointments scheduled.")}</p>
             ) : (
               <ul className="mt-3 space-y-3">
-                {appointments.map((a) => (
-                  <li
-                    key={a.id}
-                    className="rounded-lg border border-[var(--border)] bg-[#161616] p-3 text-sm text-white"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-medium">{a.title}</p>
-                        <p className="mt-1 text-xs text-[rgba(255,255,255,0.45)]">
-                          {a.date ?? "—"} · {formatAppointmentTime(a.time)}
-                          {a.owner ? ` · ${a.owner}` : ""}
-                        </p>
-                        {a.description?.trim() ? (
-                          <p className="mt-2 text-xs font-light text-[rgba(255,255,255,0.55)]">{a.description}</p>
-                        ) : null}
+                {appointments.map((a) => {
+                  const done = isCrmAppointmentDone(a);
+                  return (
+                    <li
+                      key={a.id}
+                      className={cn(
+                        "rounded-lg border border-[var(--border)] bg-[#161616] p-3 text-sm text-white",
+                        done && "opacity-80",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className={cn("font-medium", done && "line-through text-[rgba(255,255,255,0.55)]")}>
+                              {a.title}
+                            </p>
+                            {done ? (
+                              <span className="rounded-full bg-[rgba(34,197,94,0.15)] px-2 py-0.5 text-[0.65rem] font-medium text-[#86efac]">
+                                {lt("Done")}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 text-xs text-[rgba(255,255,255,0.45)]">
+                            {a.date ?? "—"} · {formatAppointmentTime(a.time)}
+                            {a.owner ? ` · ${a.owner}` : ""}
+                          </p>
+                          {done && a.completed_by ? (
+                            <p className="mt-1 text-xs text-[#86efac]">
+                              {lt("Completed by")} {a.completed_by}
+                              {a.completed_at
+                                ? ` · ${formatCrmAppointmentCompletedAt(a.completed_at, language)}`
+                                : ""}
+                            </p>
+                          ) : null}
+                          {a.description?.trim() ? (
+                            <p className="mt-2 text-xs font-light text-[rgba(255,255,255,0.55)]">{a.description}</p>
+                          ) : null}
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          {!done ? (
+                            <button
+                              type="button"
+                              disabled={completingApptId === a.id}
+                              onClick={() => void markAppointmentDone(a.id)}
+                              className="rounded-md border border-[rgba(34,197,94,0.35)] px-2 py-1 text-[0.65rem] font-medium text-[#86efac] transition hover:bg-[rgba(34,197,94,0.12)] disabled:opacity-50"
+                            >
+                              {completingApptId === a.id ? lt("Saving…") : lt("Mark as done")}
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setDeleteApptId(a.id)}
+                            className="text-xs text-[#fca5a5] hover:underline"
+                          >
+                            {lt("Delete")}
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteApptId(a.id)}
-                        className="shrink-0 text-xs text-[#fca5a5] hover:underline"
-                      >
-                        {lt("Delete")}
-                      </button>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
