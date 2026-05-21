@@ -423,7 +423,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     deleteBoardProjectTask,
     updateBoardProject,
     currentUser,
-    users,
+    mentionOptions,
     notifyProjectComment,
     logTaskReviewActivity,
     logTaskPublishedToActivity,
@@ -506,7 +506,6 @@ export function ProjectDetailView({ project }: { project: Project }) {
     { group: "Complete", options: TASK_STATUS_OPTIONS.filter((option) => option.group === "Complete") },
   ] as const;
   const completedStatuses = new Set<TaskRowStatus>(["Done", "Published"]);
-  const mentionOptions = useMemo(() => users.map((u) => u.name), [users]);
   const progressPercentage = useMemo(() => {
     if (tasks.length === 0) return 0;
     const completed = tasks.filter((task) => completedStatuses.has(task.status)).length;
@@ -1267,6 +1266,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
           due_date: dueDate || null,
           priority: "Medium",
           description: "",
+          client_slug: project.clientSlug?.trim() || null,
         },
       ])
       .select()

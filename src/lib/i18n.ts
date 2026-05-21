@@ -608,6 +608,22 @@ const platformPtBR: Record<string, string> = {
   "Expand menu": "Expandir menu",
   "Collapse menu": "Recolher menu",
   "Minimize sidebar": "Minimizar menu lateral",
+  "Failed to save event. Try again.": "Falha ao salvar evento. Tente novamente.",
+  "No team members available for this client": "Nenhum membro da equipe disponível para este cliente",
+  "Log Published Post": "Registrar post publicado",
+  "Record a post that was already published": "Registre um post que já foi publicado",
+  "Scheduled post": "Post agendado",
+  "Published date": "Data de publicação",
+  "Published time": "Hora de publicação",
+  "New event": "Novo evento",
+  "Edit event": "Editar evento",
+  "Participants": "Participantes",
+  "External emails (comma-separated)": "E-mails externos (separados por vírgula)",
+  "Meeting": "Reunião",
+  "Reminder": "Lembrete",
+  "Location or link": "Local ou link",
+  "Start time": "Hora de início",
+  "End time": "Hora de término",
 };
 
 export const translations = {

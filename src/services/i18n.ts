@@ -189,6 +189,8 @@ const dynamicMap: Record<string, string> = {
   comments: "comentarios",
   attachments: "anexos",
   assignee: "responsavel",
+  published: "publicado",
+  scheduled: "agendado",
 };
 
 export function localizeDynamic(lang: "en" | "pt-BR", content: string) {

@@ -22,12 +22,14 @@ import {
 import type { ModuleKey } from "@/types";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
+import { uploadProfileAvatar } from "@/lib/profile-avatar";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { FloatingSidebarRail } from "@/components/layout/floating-sidebar-rail";
 import { SidebarDrawer } from "@/components/layout/sidebar-drawer";
 import { SidebarPanelContent, type SidebarPanelContentProps } from "@/components/layout/sidebar-panel-content";
 import type { SidebarNavLink } from "@/components/layout/sidebar-nav";
+import { SIDEBAR_RAIL_LAYOUT_WIDTH } from "@/lib/sidebar-layout-preference";
 import { orderSidebarLinks, readSidebarNavOrder, writeSidebarNavOrder } from "@/lib/sidebar-nav-order";
 import { readSidebarLayout, writeSidebarLayout } from "@/lib/sidebar-layout-preference";
 import { effectiveUserClientSlug, isAgencyAdmin, isAgencyCompany } from "@/lib/client-utils";
@@ -53,8 +55,7 @@ const GUEST_USER_ID = "__guest__";
 const WHATSAPP_POS_KEY = "whatsapp-button-position";
 const WH_BTN = 36;
 const WH_MARGIN = 20;
-/** Rail width (52) + left offset (12) + spacing */
-const SIDEBAR_RAIL_LEFT_OFFSET = 72;
+const SIDEBAR_RAIL_LEFT_OFFSET = SIDEBAR_RAIL_LAYOUT_WIDTH;
 
 function clampWhatsAppPosition(left: number, top: number): { left: number; top: number } {
   const w = window.innerWidth;
@@ -112,6 +113,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { logout: authLogout } = useAuth();
   const {
     currentUser,
+    setProfileAvatarUrl,
     unreadCount,
     markAllAsRead,
     notifications,
@@ -140,7 +142,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [profileName, setProfileName] = useState(currentUser.name);
   const [profileEmail, setProfileEmail] = useState(`${currentUser.name.toLowerCase().replace(/\s+/g, ".")}@rocketride.com`);
   const [profilePassword, setProfilePassword] = useState("");
-  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [profileImage, setProfileImage] = useState<string | null>(currentUser.avatarUrl);
+  const [profileImageUploading, setProfileImageUploading] = useState(false);
+  const [profileImageError, setProfileImageError] = useState("");
   const [latestClientUpdateAt, setLatestClientUpdateAt] = useState<string | null>(null);
   const dataClientSlugRef = useRef(dataClientSlug);
   dataClientSlugRef.current = dataClientSlug;
@@ -469,11 +473,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     drag.hasMoved = false;
   };
 
+  useEffect(() => {
+    setProfileImage(currentUser.avatarUrl);
+  }, [currentUser.avatarUrl]);
+
   const handleProfileImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
-    const objectUrl = URL.createObjectURL(file);
-    setProfileImage(objectUrl);
+    if (!file || currentUser.id === GUEST_USER_ID) return;
+    setProfileImageError("");
+    setProfileImageUploading(true);
+    void (async () => {
+      const result = await uploadProfileAvatar(currentUser.id, file);
+      if (!result.ok) {
+        setProfileImageError(lt("Upload failed. Try again."));
+        setProfileImageUploading(false);
+        return;
+      }
+      await setProfileAvatarUrl(result.url);
+      setProfileImage(result.url);
+      setProfileImageUploading(false);
+    })();
   };
 
   const handleLogout = () => {
@@ -546,19 +565,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ) : null}
 
         {showRail ? (
-          <FloatingSidebarRail
-            onExpand={() => setSidebarExpandedPersist(true)}
-            profileImage={profileImage}
-            avatarInitial={avatarInitial}
-            profileName={profileName}
-            expandLabel={lt("Expand menu")}
-            profileMenuLabel={lt("Profile menu")}
-            profileLabel={lt("Profile")}
-            logoutLabel={lt("Logout")}
-            onOpenSettings={() => setOpenSettingsModal(true)}
-            onLogout={handleLogout}
-            unreadCount={unreadCount}
-          />
+          <div
+            className="sticky top-0 hidden h-screen shrink-0 lg:flex lg:flex-col lg:items-center lg:justify-center"
+            style={{ width: SIDEBAR_RAIL_LAYOUT_WIDTH }}
+          >
+            <FloatingSidebarRail
+              onExpand={() => setSidebarExpandedPersist(true)}
+              profileImage={profileImage}
+              avatarInitial={avatarInitial}
+              profileName={profileName}
+              expandLabel={lt("Expand menu")}
+              profileMenuLabel={lt("Profile menu")}
+              profileLabel={lt("Profile")}
+              logoutLabel={lt("Logout")}
+              onOpenSettings={() => setOpenSettingsModal(true)}
+              onLogout={handleLogout}
+              unreadCount={unreadCount}
+            />
+          </div>
         ) : null}
 
         <SidebarDrawer
@@ -672,7 +696,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="text-sm text-[var(--text)]">{avatarInitial}</span>
               )}
             </div>
-            <input type="file" accept="image/*" onChange={handleProfileImageChange} className="text-xs" />
+            <input
+              type="file"
+              accept="image/*"
+              disabled={profileImageUploading}
+              onChange={handleProfileImageChange}
+              className="text-xs"
+            />
+            {profileImageError ? <p className="text-xs text-red-400">{profileImageError}</p> : null}
+            {profileImageUploading ? <p className="text-xs text-[var(--muted)]">{lt("Saving…")}</p> : null}
           </div>
           <input
             value={profileName}

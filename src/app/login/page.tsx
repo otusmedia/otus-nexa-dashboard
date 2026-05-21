@@ -18,6 +18,7 @@ type AppUserDbRow = {
   password_hash: string | null;
   client_slug?: string | null;
   locale_preference?: string | null;
+  avatar_url?: string | null;
 };
 
 const LOGIN_SEED: Array<{
@@ -116,6 +117,10 @@ function rowToAppUser(row: AppUserDbRow): AppUser {
     modules: normalizeUserModules(row.modules),
     clientSlug,
     localePreference,
+    avatarUrl:
+      row.avatar_url != null && String(row.avatar_url).trim() !== ""
+        ? String(row.avatar_url).trim()
+        : null,
   };
 }
 
@@ -130,6 +135,7 @@ function mapRecordToRow(r: Record<string, unknown>): AppUserDbRow {
     password_hash: r.password_hash != null && String(r.password_hash) !== "" ? String(r.password_hash) : null,
     client_slug: r.client_slug != null ? String(r.client_slug) : null,
     locale_preference: r.locale_preference != null ? String(r.locale_preference) : null,
+    avatar_url: r.avatar_url != null ? String(r.avatar_url) : null,
   };
 }
 

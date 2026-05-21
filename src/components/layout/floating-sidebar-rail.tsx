@@ -48,7 +48,7 @@ export function FloatingSidebarRail({
 
   return (
     <aside
-      className="fixed left-3 top-1/2 z-50 flex -translate-y-1/2 flex-col items-center justify-between py-3"
+      className="sticky top-1/2 z-40 flex -translate-y-1/2 flex-col items-center justify-between py-3"
       style={{ ...liquidGlassRailStyle, width: 52, minHeight: 120 }}
       aria-label={expandLabel}
     >

@@ -1273,12 +1273,16 @@ export function DashboardModule() {
     }
     void (async () => {
       try {
-        const { data, error } = await supabase.from("scheduled_posts").select("id, status");
+        let postsQuery = supabase.from("scheduled_posts").select("id, status, client_slug");
+        if (dataClientSlug) {
+          postsQuery = postsQuery.eq("client_slug", dataClientSlug);
+        }
+        const { data, error } = await postsQuery;
         if (error) {
           console.error("[dashboard] scheduled_posts KPI fetch failed:", error.message);
           setKpiPostsPublished(0);
         } else {
-          const pubRows = (data as Array<{ status?: string | null }> | null) ?? [];
+          const pubRows = (data as Array<{ status?: string | null; client_slug?: string | null }> | null) ?? [];
           const published = pubRows.filter((r) => String(r.status ?? "").toLowerCase() === "published").length;
           setKpiPostsPublished(published);
         }
@@ -1286,12 +1290,16 @@ export function DashboardModule() {
         setKpiLoading(false);
       }
     })();
-  }, [projectsByColumn, projectsLoading, clientApisEnabled]);
+  }, [projectsByColumn, projectsLoading, clientApisEnabled, dataClientSlug]);
 
   useEffect(() => {
     const evt = "rr:dashboard-posts-published-refresh";
     const refreshPostsPublishedKpi = () => {
-      void supabase.from("scheduled_posts").select("id, status").then(({ data, error }) => {
+      let postsQuery = supabase.from("scheduled_posts").select("id, status");
+      if (dataClientSlug) {
+        postsQuery = postsQuery.eq("client_slug", dataClientSlug);
+      }
+      void postsQuery.then(({ data, error }) => {
         if (error) {
           console.error("[dashboard] scheduled_posts KPI refresh failed:", error.message);
           return;
@@ -1303,7 +1311,7 @@ export function DashboardModule() {
     };
     window.addEventListener(evt, refreshPostsPublishedKpi);
     return () => window.removeEventListener(evt, refreshPostsPublishedKpi);
-  }, []);
+  }, [dataClientSlug]);
 
   const featuredSlides = useMemo(() => {
     const out: HighlightSlide[] = [];

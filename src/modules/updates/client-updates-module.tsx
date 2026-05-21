@@ -164,7 +164,7 @@ function isNexaOtusAdmin(role: string, company: string) {
 }
 
 export function ClientUpdatesModule() {
-  const { currentUser, users, dataClientSlug } = useAppContext();
+  const { currentUser, mentionOptions, dataClientSlug } = useAppContext();
   const { language } = useLanguage();
   const adminNexaOtus = isNexaOtusAdmin(currentUser.role, currentUser.company);
   const [updates, setUpdates] = useState<ClientUpdateRow[]>([]);
@@ -218,8 +218,6 @@ export function ClientUpdatesModule() {
   }, []);
 
   const pinnedList = useMemo(() => updates.filter((u) => u.is_pinned), [updates]);
-  const mentionOptions = useMemo(() => users.map((u) => u.name), [users]);
-
   const resetComposer = () => {
     setComposerContent("");
     setComposerCategory("Update");

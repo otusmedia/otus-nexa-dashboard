@@ -181,6 +181,7 @@ export interface AppUser {
   clientSlug: string | null;
   /** When set, overrides client matrix locale until session toggle. */
   localePreference: AppLanguage | null;
+  avatarUrl: string | null;
 }
 
 export interface IdeaItem {

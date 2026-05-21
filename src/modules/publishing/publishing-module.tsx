@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { useAppContext } from "@/components/providers/app-providers";
+import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { isClientCompany, rowMatchesDataClient } from "@/lib/client-utils";
@@ -149,7 +150,8 @@ const LOG_PLATFORM_PRESETS = ["Instagram", "LinkedIn", "X", "Blog"] as const;
 export function PublishingModule() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { currentUser, logTaskPublishedToActivity, dataClientSlug } = useAppContext();
+  const { currentUser, logTaskPublishedToActivity, dataClientSlug, ts } = useAppContext();
+  const { t: lt } = useLanguage();
   /** External client org users (RocketRide, Grupo Elo, etc.) — schedule-only, same as Projects client view. */
   const isRocketRideUser = isClientCompany(currentUser.company);
   const canCompose = !isRocketRideUser;
@@ -875,8 +877,8 @@ export function PublishingModule() {
         </div>
       )}
 
-      <Modal open={logPastOpen} title="Log Published Post" onClose={() => setLogPastOpen(false)} closeLabel="Close">
-        <p className="-mt-1 mb-4 text-sm text-[var(--muted)]">Record a post that was already published</p>
+      <Modal open={logPastOpen} title={lt("Log Published Post")} onClose={() => setLogPastOpen(false)} closeLabel={lt("Close")}>
+        <p className="-mt-1 mb-4 text-sm text-[var(--muted)]">{lt("Record a post that was already published")}</p>
         <div className="max-h-[min(70vh,520px)] space-y-4 overflow-y-auto pr-1">
           <label className="block">
             <span className="mb-1.5 block text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Content</span>
@@ -1007,9 +1009,9 @@ export function PublishingModule() {
 
       <Modal
         open={detailPost !== null}
-        title="Scheduled post"
+        title={lt("Scheduled post")}
         onClose={() => setDetailPost(null)}
-        closeLabel="Close"
+        closeLabel={lt("Close")}
       >
         {detailPost ? (
           <div className="space-y-3 text-sm">
@@ -1026,7 +1028,7 @@ export function PublishingModule() {
               </>
             ) : null}
             <p className="text-[var(--muted)]">Status</p>
-            <p className="capitalize">{detailPost.status}</p>
+            <p>{ts(detailPost.status)}</p>
             {detailPost.media_description ? (
               <>
                 <p className="text-[var(--muted)]">Media</p>

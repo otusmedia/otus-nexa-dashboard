@@ -20,6 +20,7 @@ export const users: AppUser[] = [
     company: "nexa",
     clientSlug: null,
     localePreference: null,
+    avatarUrl: null,
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -29,6 +30,7 @@ export const users: AppUser[] = [
     company: "otus",
     clientSlug: null,
     localePreference: null,
+    avatarUrl: null,
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -38,6 +40,7 @@ export const users: AppUser[] = [
     company: "rocketride",
     clientSlug: "rocketride",
     localePreference: null,
+    avatarUrl: null,
     modules: ["dashboard", "projects", "financial", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -47,6 +50,7 @@ export const users: AppUser[] = [
     company: "",
     clientSlug: null,
     localePreference: null,
+    avatarUrl: null,
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -56,6 +60,7 @@ export const users: AppUser[] = [
     company: "nexa",
     clientSlug: null,
     localePreference: null,
+    avatarUrl: null,
     modules: ["projects", "marketing", "files"],
   },
   {
@@ -65,6 +70,7 @@ export const users: AppUser[] = [
     company: "otus",
     clientSlug: null,
     localePreference: null,
+    avatarUrl: null,
     modules: ["projects", "marketing", "files"],
   },
 ];

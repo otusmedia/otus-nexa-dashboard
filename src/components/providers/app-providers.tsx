@@ -33,7 +33,8 @@ import { supabase } from "@/lib/supabase";
 import { useLanguage } from "@/context/language-context";
 import { normalizeAppLanguage, type AppLanguage } from "@/lib/locale-types";
 import { resolveActiveClient, resolveActiveLocale } from "@/lib/resolve-locale";
-import { dictionary, localizeDynamic, localizeStatus, type TranslationKey } from "@/services/i18n";
+import { mentionableUserNames, resolveMentionableUsers, type MentionableUser } from "@/lib/mentionable-users";
+import { dictionary, localizeDynamic, localizeStatus, translate, type TranslationKey } from "@/services/i18n";
 import type {
   ActivityLogItem,
   AppUser,
@@ -114,6 +115,8 @@ interface AppContextValue {
   availableUsers: AppUser[];
   allowedModules: ModuleKey[];
   users: AppUser[];
+  mentionableUsers: MentionableUser[];
+  mentionOptions: string[];
   /** `true` after the initial `app_users` fetch from Supabase finishes (success or error). */
   appUsersReady: boolean;
   setUserModules: (userId: string, modules: AppUser["modules"]) => void;
@@ -174,6 +177,7 @@ interface AppContextValue {
   /** When set, module data (financial, calendar, marketing, etc.) is limited to this client. */
   dataClientSlug: string | null;
   deleteUser: (id: string) => void;
+  setProfileAvatarUrl: (url: string) => Promise<void>;
   tasks: Task[];
   tasksLoading: boolean;
   setTaskStatus: (id: string, status: TaskStatus) => void;
@@ -268,6 +272,7 @@ const GUEST_USER: AppUser = {
   modules: [],
   clientSlug: null,
   localePreference: null,
+  avatarUrl: null,
 };
 
 const APP_USERS_SEED: Array<{
@@ -361,6 +366,9 @@ function appUserFromAppUsersRow(row: Record<string, unknown>): AppUser {
   const localePrefRaw = row.locale_preference;
   const localePreference =
     localePrefRaw === "pt-BR" || localePrefRaw === "en" ? localePrefRaw : null;
+  const avatarRaw = row.avatar_url;
+  const avatarUrl =
+    avatarRaw != null && String(avatarRaw).trim() !== "" ? String(avatarRaw).trim() : null;
   return {
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
@@ -370,6 +378,7 @@ function appUserFromAppUsersRow(row: Record<string, unknown>): AppUser {
     modules,
     clientSlug,
     localePreference,
+    avatarUrl,
   };
 }
 
@@ -754,9 +763,30 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const allowedModules: ModuleKey[] =
     !sessionUserId || currentUser.id === GUEST_USER.id ? [] : [...currentUser.modules];
   const unreadCount = notifications.filter((notification) => !notification.read).length;
-  const t = (key: TranslationKey) => tLine(dictionary.en[key]);
+  const t = (key: TranslationKey) => translate(language, key);
   const td = (content: string) => localizeDynamic(language, content);
   const ts = (status: string) => localizeStatus(language, status);
+
+  const mentionableUsers = useMemo(
+    () => resolveMentionableUsers(users, dataClientSlug, currentUser),
+    [users, dataClientSlug, currentUser],
+  );
+  const mentionOptions = useMemo(() => mentionableUserNames(mentionableUsers), [mentionableUsers]);
+
+  const setProfileAvatarUrl = useCallback(
+    async (url: string) => {
+      if (!sessionUserId || currentUser.id === GUEST_USER.id) return;
+      const { error } = await supabase.from("app_users").update({ avatar_url: url }).eq("id", sessionUserId);
+      if (error) {
+        console.error("[supabase] avatar_url update failed:", error.message);
+        return;
+      }
+      setUsers((prev) =>
+        prev.map((u) => (u.id === sessionUserId ? { ...u, avatarUrl: url } : u)),
+      );
+    },
+    [sessionUserId, currentUser.id],
+  );
 
   const registerActivity = (action: string) => {
     void supabase
@@ -1077,24 +1107,46 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       if (dataClientSlug) {
         projectsQuery = projectsQuery.eq("client_slug", dataClientSlug);
       }
-      let tasksQuery = supabase
-        .from("tasks")
-        .select("*, task_attachments(*)")
-        .not("project_id", "is", null)
-        .order("created_at", { ascending: false });
-      if (dataClientSlug) {
-        tasksQuery = tasksQuery.eq("client_slug", dataClientSlug);
-      }
-      const [projectsRes, tasksRes] = await Promise.all([projectsQuery, tasksQuery]);
+      const projectsRes = await projectsQuery;
       if (!mounted) return;
-      if (projectsRes.error || tasksRes.error) {
-        if (projectsRes.error) console.error("[supabase] projects fetch failed:", projectsRes.error.message);
-        if (tasksRes.error) console.error("[supabase] project tasks fetch failed:", tasksRes.error.message);
+      if (projectsRes.error) {
+        console.error("[supabase] projects fetch failed:", projectsRes.error.message);
         setAllProjectsByColumn(splitProjectsByColumn([]));
         if (mounted) setProjectsLoading(false);
         return;
       }
-      let taskRows = (tasksRes.data as DbTaskRow[] | null) ?? [];
+      const projectRows = (projectsRes.data as DbProjectRow[] | null) ?? [];
+      const projectIds = projectRows.map((p) => p.id).filter(Boolean);
+      let taskRows: DbTaskRow[] = [];
+      if (projectIds.length > 0) {
+        const { data: tasksData, error: tasksError } = await supabase
+          .from("tasks")
+          .select("*, task_attachments(*)")
+          .in("project_id", projectIds)
+          .order("created_at", { ascending: false });
+        if (!mounted) return;
+        if (tasksError) {
+          console.error("[supabase] project tasks fetch failed:", tasksError.message);
+          setAllProjectsByColumn(splitProjectsByColumn([]));
+          if (mounted) setProjectsLoading(false);
+          return;
+        }
+        taskRows = (tasksData as DbTaskRow[] | null) ?? [];
+      } else if (!dataClientSlug) {
+        const { data: tasksData, error: tasksError } = await supabase
+          .from("tasks")
+          .select("*, task_attachments(*)")
+          .not("project_id", "is", null)
+          .order("created_at", { ascending: false });
+        if (!mounted) return;
+        if (tasksError) {
+          console.error("[supabase] project tasks fetch failed:", tasksError.message);
+          setAllProjectsByColumn(splitProjectsByColumn([]));
+          if (mounted) setProjectsLoading(false);
+          return;
+        }
+        taskRows = (tasksData as DbTaskRow[] | null) ?? [];
+      }
       const needFromPublishing = taskRows.filter(
         (t) => t.status === "Published" && !String(t.published_at ?? "").trim(),
       );
@@ -1110,12 +1162,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           return { ...t, published_at: iso };
         });
       }
-      setAllProjectsByColumn(
-        mapRowsToProjectsByColumn(
-          (projectsRes.data as DbProjectRow[] | null) ?? [],
-          taskRows,
-        ),
-      );
+      setAllProjectsByColumn(mapRowsToProjectsByColumn(projectRows, taskRows));
       if (mounted) setProjectsLoading(false);
     })();
     return () => {
@@ -1313,6 +1360,8 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       availableUsers: users,
       allowedModules,
       users,
+      mentionableUsers,
+      mentionOptions,
       appUsersReady,
       setUserModules: (userId, modules) => {
         setUsers((prev) =>
@@ -1432,6 +1481,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             }
           });
       },
+      setProfileAvatarUrl,
       deleteUser: (id) => {
         setUsers((prev) => prev.filter((u) => u.id !== id));
         if (sessionUserId === id) logout();
@@ -2182,6 +2232,8 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       viewingAllClients,
       sessionUserId,
       users,
+      mentionableUsers,
+      mentionOptions,
       appUsersReady,
       allowedModules,
       logout,
@@ -2218,6 +2270,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       clientApisEnabled,
       heroImageUrl,
       dataClientSlug,
+      setProfileAvatarUrl,
+      mentionableUsers,
+      mentionOptions,
     ],
   );
 

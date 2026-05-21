@@ -1,5 +1,8 @@
 export type SidebarLayoutMode = "expanded" | "collapsed";
 
+/** Gutter width when sidebar is collapsed (rail 52px + left offset 12px + spacing). */
+export const SIDEBAR_RAIL_LAYOUT_WIDTH = 72;
+
 function storageKey(userId: string): string {
   return `sidebar-layout:${userId}`;
 }

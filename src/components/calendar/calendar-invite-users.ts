@@ -1,11 +1,13 @@
 import type { CalendarInvitableUser } from "@/types/calendar";
+import type { MentionableUser } from "@/lib/mentionable-users";
 
-/** Fallback list when no profiles table; aligns with platform mock users. */
-export const CALENDAR_INVITABLE_USERS: CalendarInvitableUser[] = [
-  { id: "u-admin-mc", name: "Matheus Canci", email: "matheus.canci@rocketride.com" },
-  { id: "u-admin-dm", name: "David Martins", email: "david.martins@rocketride.com" },
-  { id: "u-admin-mf", name: "Matheus Foletto", email: "matheus.foletto@rocketride.com" },
-  { id: "u-admin-joe", name: "Joe", email: "joe@rocketride.com" },
-  { id: "u-mgr-kk", name: "Karla Kachuba", email: "karla.kachuba@rocketride.com" },
-  { id: "u-mgr-luca", name: "Luca", email: "luca@rocketride.com" },
-];
+/** @deprecated Use mentionableUsers from AppContext instead. */
+export function mentionableToCalendarInvitable(users: MentionableUser[]): CalendarInvitableUser[] {
+  return users
+    .filter((u) => u.email?.trim())
+    .map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email!.trim(),
+    }));
+}

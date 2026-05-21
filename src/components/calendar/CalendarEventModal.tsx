@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppContext } from "@/components/providers/app-providers";
+import { useLanguage } from "@/context/language-context";
 import type { CalendarEvent, CalendarEventType } from "@/types/calendar";
-import { CALENDAR_INVITABLE_USERS } from "./calendar-invite-users";
 import { defaultColorForType, pad2, toDateInputValue } from "./calendar-utils";
 
 type UiEventKind = "meeting" | "reminder" | "event";
@@ -64,6 +65,10 @@ export function CalendarEventModal({
   const [inviteEmails, setInviteEmails] = useState<Set<string>>(new Set());
   const [externalEmails, setExternalEmails] = useState("");
   const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const { mentionableUsers } = useAppContext();
+  const { t: lt } = useLanguage();
+  const invitableUsers = mentionableUsers.filter((u) => u.email?.trim());
 
   useEffect(() => {
     if (!open) return;
@@ -133,16 +138,19 @@ export function CalendarEventModal({
     const meet_link = type === "meeting" && isUrl ? loc : "";
     const location = type === "meeting" && isUrl ? "" : loc;
 
-    const invitees = CALENDAR_INVITABLE_USERS.filter((u) => inviteEmails.has(u.email)).map((u) => ({
-      email: u.email,
-      user_id: null as string | null,
-    }));
+    const invitees: { email: string; user_id: string | null }[] = invitableUsers
+      .filter((u) => u.email && inviteEmails.has(u.email))
+      .map((u) => ({
+        email: u.email!,
+        user_id: u.id,
+      }));
     for (const raw of externalEmails.split(/[,;\n]+/)) {
       const e = raw.trim();
       if (e.includes("@")) invitees.push({ email: e, user_id: null });
     }
 
     setSaving(true);
+    setSubmitError("");
     try {
       const ok = await onSubmit({
         title: trimmed,
@@ -156,7 +164,11 @@ export function CalendarEventModal({
         color: color || defaultColorForType(type),
         invitees,
       });
-      if (ok) onClose();
+      if (ok) {
+        onClose();
+      } else {
+        setSubmitError(lt("Failed to save event. Try again."));
+      }
     } finally {
       setSaving(false);
     }
@@ -168,7 +180,7 @@ export function CalendarEventModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm transition-opacity duration-200">
       <div className="max-h-[92vh] w-full max-w-lg scale-100 overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl transition-transform duration-200 ease-out">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-          <h2 className="text-lg font-normal text-white">{mode === "edit" ? "Edit event" : "New event"}</h2>
+          <h2 className="text-lg font-normal text-white">{mode === "edit" ? lt("Edit event") : lt("New event")}</h2>
           <button
             type="button"
             onClick={onClose}
@@ -205,9 +217,9 @@ export function CalendarEventModal({
               onChange={(e) => setUiKind(e.target.value as UiEventKind)}
               className="w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white outline-none"
             >
-              <option value="meeting">Meeting</option>
-              <option value="reminder">Reminder</option>
-              <option value="event">Event</option>
+              <option value="meeting">{lt("Meeting")}</option>
+              <option value="reminder">{lt("Reminder")}</option>
+              <option value="event">{lt("Event")}</option>
             </select>
           </label>
 
@@ -264,15 +276,19 @@ export function CalendarEventModal({
           </label>
 
           <div className="space-y-2">
-            <span className="text-xs font-medium text-[var(--muted)]">Participants</span>
+            <span className="text-xs font-medium text-[var(--muted)]">{lt("Participants")}</span>
             <div className="max-h-36 space-y-1 overflow-y-auto rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] p-2">
-              {CALENDAR_INVITABLE_USERS.map((u) => {
-                const sel = inviteEmails.has(u.email);
+              {invitableUsers.length === 0 ? (
+                <p className="px-2 py-1 text-xs text-[var(--muted)]">{lt("No team members available for this client")}</p>
+              ) : null}
+              {invitableUsers.map((u) => {
+                const email = u.email!;
+                const sel = inviteEmails.has(email);
                 return (
                   <button
                     key={u.id}
                     type="button"
-                    onClick={() => toggleInvite(u.email)}
+                    onClick={() => toggleInvite(email)}
                     className={cn(
                       "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-light transition",
                       sel ? "bg-[rgba(255,69,0,0.15)] text-white" : "text-[var(--muted)] hover:bg-[rgba(255,255,255,0.04)]",
@@ -301,6 +317,12 @@ export function CalendarEventModal({
               />
             </label>
           </div>
+
+          {submitError ? (
+            <p className="text-sm text-red-400" role="alert">
+              {submitError}
+            </p>
+          ) : null}
 
           <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
             <button

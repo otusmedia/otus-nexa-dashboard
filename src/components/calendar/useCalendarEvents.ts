@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppContext } from "@/components/providers/app-providers";
-import { CALENDAR_INVITABLE_USERS } from "@/components/calendar/calendar-invite-users";
 import { supabase } from "@/lib/supabase";
 import { rowMatchesDataClient } from "@/lib/client-utils";
 import type { CalendarEvent, CalendarEventInvitee, CalendarEventType } from "@/types/calendar";
@@ -118,7 +117,7 @@ function scheduledPostToCalendarEvent(row: Record<string, unknown>): CalendarEve
 }
 
 export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
-  const { currentUser, dataClientSlug } = useAppContext();
+  const { currentUser, dataClientSlug, mentionableUsers } = useAppContext();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -130,9 +129,9 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
   const currentEmail = useMemo(() => {
     const fromProfile = currentUser.email?.trim().toLowerCase();
     if (fromProfile) return fromProfile;
-    const byName = CALENDAR_INVITABLE_USERS.find((u) => u.name === currentUser.name);
-    return byName?.email.toLowerCase() ?? "";
-  }, [currentUser.email, currentUser.name]);
+    const byName = mentionableUsers.find((u) => u.name === currentUser.name);
+    return byName?.email?.toLowerCase() ?? "";
+  }, [currentUser.email, currentUser.name, mentionableUsers]);
 
   const canSeeEvent = useCallback(
     (event: CalendarEvent): boolean => {
@@ -174,7 +173,7 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
         .lte("start_at", endIso);
       let projTasksQ = supabase
         .from("tasks")
-        .select("id, title, due_date, status, assigned_to, client_slug, projects(name, client_slug)")
+        .select("id, title, due_date, status, assigned_to, client_slug, project_id, projects(name, client_slug)")
         .not("due_date", "is", null);
       let scheduledQ = supabase
         .from("scheduled_posts")
@@ -185,7 +184,6 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
         .lte("scheduled_at", endIso);
       if (dataClientSlug) {
         calQ = calQ.eq("client_slug", dataClientSlug);
-        projTasksQ = projTasksQ.eq("client_slug", dataClientSlug);
         scheduledQ = scheduledQ.eq("client_slug", dataClientSlug);
       }
 
@@ -226,6 +224,12 @@ export function useCalendarEvents(rangeStart: Date, rangeEnd: Date) {
 
       const projRows = (projTasksRes.data as Record<string, unknown>[] | null) ?? [];
       for (const row of projRows) {
+        if (dataClientSlug) {
+          const proj = row.projects as { client_slug?: string | null } | null | undefined;
+          const rowSlug = String(proj?.client_slug ?? row.client_slug ?? "").trim();
+          if (rowSlug && rowSlug !== dataClientSlug) continue;
+          if (!rowSlug && String(row.client_slug ?? "").trim() !== dataClientSlug) continue;
+        }
         const status = String(row.status ?? "");
         if (EXCLUDED_TASK_STATUSES.has(status)) continue;
         const assignedTo = String(row.assigned_to ?? "").trim();
