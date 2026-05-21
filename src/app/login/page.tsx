@@ -6,7 +6,10 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/auth-context";
 import type { AppUser, ModuleKey, Role, UserCompany } from "@/types";
 import { ALL_MODULE_KEYS } from "@/lib/modules";
+import { LoginEntrance } from "@/components/login/login-entrance";
 import { supabase } from "@/lib/supabase";
+
+const LOGIN_BACKGROUND_SRC = "/Biotecc%20-%202026-159.jpg";
 
 type AppUserDbRow = {
   id: string;
@@ -317,25 +320,18 @@ export default function LoginPage() {
     setBusy(false);
   };
 
-  if (!isReady || !bootstrapped) {
-    return null;
-  }
-
   return (
-    <div className="relative flex h-[100vh] w-[100vw] items-center justify-center overflow-hidden p-4 text-[var(--text)]">
-      <img
-        src="/Biotecc%20-%202026-159.jpg"
-        alt=""
-        decoding="async"
-        className="pointer-events-none absolute left-0 top-0 z-0 h-[100vh] w-[100vw] object-cover object-center"
-        aria-hidden
-      />
-      <div className="relative z-10 w-full max-w-[400px] rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(0,0,0,0.6)] p-6 shadow-lg backdrop-blur-[12px]">
+    <LoginEntrance
+      isAppReady={isReady && bootstrapped}
+      isRedirecting={Boolean(isReady && sessionUserId)}
+      backgroundSrc={LOGIN_BACKGROUND_SRC}
+    >
+      <div className="w-full rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(0,0,0,0.6)] p-6 shadow-lg backdrop-blur-[12px]">
         <div className="mb-[24px] flex justify-center">
           <div className="flex h-[36.8px] items-center justify-center">
             <img
               src="/frame-1.svg"
-              alt="RocketRide logo"
+              alt="Nexa and Otus logo"
               className="h-[36.8px] w-auto max-w-[93.15px] object-contain object-left"
             />
           </div>
@@ -441,6 +437,6 @@ export default function LoginPage() {
           </div>
         )}
       </div>
-    </div>
+    </LoginEntrance>
   );
 }

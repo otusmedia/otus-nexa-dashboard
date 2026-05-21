@@ -46,7 +46,7 @@ import { MentionTextarea } from "@/components/ui/mention-textarea";
 import { LocalizedContent } from "@/components/ui/localized-content";
 import type { AppLanguage } from "@/lib/locale-types";
 import { supabase } from "@/lib/supabase";
-import { getTaskHighlightCoverUrl, parseTaskAttachmentsNested } from "@/lib/task-highlight-cover";
+import { getTaskHighlightCoverUrl } from "@/lib/task-highlight-cover";
 import { fetchPublishedAtByTaskIds } from "@/lib/task-published-at-from-scheduled-posts";
 import { OwnerAvatars } from "./owner-avatars";
 import { ProgressInline } from "./progress-inline";
@@ -613,7 +613,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
           reviewStatus: row.review_status?.trim() ? String(row.review_status) : null,
           publishedTo: Array.isArray(row.published_to) ? row.published_to.map(String) : [],
           publishedAt: row.published_at?.trim() ? String(row.published_at) : null,
-          attachments: parseTaskAttachmentsNested(row.task_attachments),
+          attachments: (Array.isArray(row.task_attachments) ? row.task_attachments : []).map((att) =>
+            taskAttachmentFromRow(att as Record<string, unknown>),
+          ),
         } satisfies LocalTask;
       });
       const needFallback = mapped.filter((t) => t.status === "Published" && !t.publishedAt);
