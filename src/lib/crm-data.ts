@@ -23,6 +23,7 @@ export const CRM_SOURCE_OPTIONS = [
   "Social Media",
   "Cold Outreach",
   "Event",
+  "Go High Level",
   "Other",
 ] as const;
 
@@ -104,13 +105,81 @@ export function formatCrmAppointmentCompletedAt(iso: string | null, lang: AppLan
   });
 }
 
+export type CrmActivityLogEntry = {
+  id: string;
+  client_slug: string | null;
+  lead_id: string | null;
+  appointment_id: string | null;
+  event_type: string;
+  actor_name: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export function mapCrmActivityLogRow(row: Record<string, unknown>): CrmActivityLogEntry {
+  const payloadRaw = row.payload;
+  const payload =
+    payloadRaw && typeof payloadRaw === "object" && !Array.isArray(payloadRaw)
+      ? (payloadRaw as Record<string, unknown>)
+      : {};
+  return {
+    id: String(row.id ?? ""),
+    client_slug: row.client_slug != null ? String(row.client_slug) : null,
+    lead_id: row.lead_id != null ? String(row.lead_id) : null,
+    appointment_id: row.appointment_id != null ? String(row.appointment_id) : null,
+    event_type: String(row.event_type ?? ""),
+    actor_name: row.actor_name != null ? String(row.actor_name) : null,
+    payload,
+    created_at: String(row.created_at ?? ""),
+  };
+}
+
+export function crmAppointmentCompletionErrorMessage(
+  error: string,
+  lang: AppLanguage,
+): string {
+  if (error === "MISSING_ACTOR") {
+    return lang === "pt-BR"
+      ? "Informe seu nome no perfil para registrar quem concluiu o compromisso."
+      : "Add your name in profile settings to record who completed this appointment.";
+  }
+  const lower = error.toLowerCase();
+  if (lower.includes("completed_at") || lower.includes("completed_by") || lower.includes("status")) {
+    return lang === "pt-BR"
+      ? "Atualize o banco (script crm-appointment-completion.sql) e tente novamente."
+      : "Run the crm-appointment-completion.sql migration in Supabase and try again.";
+  }
+  return error;
+}
+
 export async function completeCrmAppointment(
   appointmentId: string,
   completedBy: string,
   lang: AppLanguage,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; leadId: string | null } | { ok: false; error: string }> {
   const trimmedBy = completedBy.trim();
-  if (!trimmedBy) return { ok: false, error: "Missing user" };
+  if (!trimmedBy) return { ok: false, error: "MISSING_ACTOR" };
+
+  const { data: apptRow, error: fetchErr } = await supabase
+    .from("crm_appointments")
+    .select("id, lead_id, title")
+    .eq("id", appointmentId)
+    .maybeSingle();
+
+  if (fetchErr) return { ok: false, error: fetchErr.message };
+  if (!apptRow) return { ok: false, error: "Appointment not found" };
+
+  const leadId = apptRow.lead_id != null ? String(apptRow.lead_id) : null;
+  let clientSlug: string | null = null;
+
+  if (leadId) {
+    const { data: leadRow } = await supabase
+      .from("crm_leads")
+      .select("client_slug")
+      .eq("id", leadId)
+      .maybeSingle();
+    clientSlug = leadRow?.client_slug != null ? String(leadRow.client_slug) : null;
+  }
 
   const completedAt = new Date().toISOString();
   const { error } = await supabase
@@ -147,7 +216,23 @@ export async function completeCrmAppointment(
       .eq("id", String(calRow.id));
   }
 
-  return { ok: true };
+  const appointmentTitle = String(apptRow.title ?? "");
+  const { error: logErr } = await supabase.from("crm_activity_log").insert({
+    client_slug: clientSlug,
+    lead_id: leadId,
+    appointment_id: appointmentId,
+    event_type: "appointment_completed",
+    actor_name: trimmedBy,
+    payload: {
+      appointment_title: appointmentTitle,
+      completed_at: completedAt,
+    },
+  });
+  if (logErr) {
+    console.error("[crm] activity log insert failed:", logErr.message);
+  }
+
+  return { ok: true, leadId };
 }
 
 export interface CrmContact {
@@ -160,6 +245,7 @@ export interface CrmContact {
   source: string | null;
   notes: string | null;
   client_slug: string | null;
+  external_id: string | null;
   created_at: string;
 }
 
@@ -216,6 +302,7 @@ export function mapCrmContactRow(row: Record<string, unknown>): CrmContact {
     source: row.source != null ? String(row.source) : null,
     notes: row.notes != null ? String(row.notes) : null,
     client_slug: row.client_slug != null ? String(row.client_slug) : null,
+    external_id: row.external_id != null ? String(row.external_id) : null,
     created_at: String(row.created_at ?? ""),
   };
 }

@@ -3,7 +3,12 @@
 import { useState } from "react";
 import { CheckCircle } from "lucide-react";
 import { useAppContext } from "@/components/providers/app-providers";
-import { completeCrmAppointment, formatAppointmentTime } from "@/lib/crm-data";
+import {
+  completeCrmAppointment,
+  crmAppointmentCompletionErrorMessage,
+  formatAppointmentTime,
+} from "@/lib/crm-data";
+import { dispatchCrmAppointmentCompleted } from "@/lib/crm-appointment-events";
 import type { CrmAppointmentWithLead } from "@/modules/crm/use-crm-dashboard-data";
 import { CrmDashboardCard, CrmDashboardSectionTitle, CrmDashboardSkeleton } from "./crm-dashboard-card";
 
@@ -15,7 +20,7 @@ type Props = {
 };
 
 export function CrmDashboardSchedule({ appointments, loading, lt, onAppointmentCompleted }: Props) {
-  const { currentUser, language } = useAppContext();
+  const { currentUser, language, pushNotification } = useAppContext();
   const [completingId, setCompletingId] = useState<string | null>(null);
   return (
     <CrmDashboardCard>
@@ -51,11 +56,27 @@ export function CrmDashboardSchedule({ appointments, loading, lt, onAppointmentC
                 disabled={completingId === a.id || !currentUser.name?.trim()}
                 title={lt("Mark as done")}
                 onClick={() => {
-                  if (!currentUser.name?.trim()) return;
+                  const actor = currentUser.name?.trim() || currentUser.email?.trim() || "";
+                  if (!actor) {
+                    pushNotification(
+                      crmAppointmentCompletionErrorMessage("MISSING_ACTOR", language),
+                      "task",
+                    );
+                    return;
+                  }
                   setCompletingId(a.id);
-                  void completeCrmAppointment(a.id, currentUser.name, language).then((r) => {
+                  void completeCrmAppointment(a.id, actor, language).then((r) => {
                     setCompletingId(null);
-                    if (r.ok) onAppointmentCompleted?.();
+                    if (!r.ok) {
+                      pushNotification(
+                        `${lt("Could not complete appointment")}: ${crmAppointmentCompletionErrorMessage(r.error, language)}`,
+                        "task",
+                      );
+                      return;
+                    }
+                    pushNotification(lt("Appointment marked as done"), "task");
+                    dispatchCrmAppointmentCompleted(a.id, a.lead_id);
+                    onAppointmentCompleted?.();
                   });
                 }}
                 className="shrink-0 rounded-md border border-[rgba(34,197,94,0.35)] p-1.5 text-[#86efac] transition hover:bg-[rgba(34,197,94,0.12)] disabled:opacity-40"

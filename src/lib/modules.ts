@@ -43,14 +43,14 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   updates: "Updates",
   marketing: "Marketing",
   publishing: "Publishing",
-  "content-management": "Content Management",
+  "content-management": "Studio",
   calendar: "Calendar",
   crm: "CRM",
   files: "Files",
   contracts: "Contracts",
 };
 
-/** Legacy `publishing` module access maps to Content Management → Compose. */
+/** Legacy `publishing` module access maps to Studio → Compose. */
 export function hasModuleAccess(userModules: readonly ModuleKey[], module: ModuleKey): boolean {
   if (userModules.includes(module)) return true;
   if (module === "content-management" && userModules.includes("publishing")) return true;

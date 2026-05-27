@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import Link from "next/link";
 import { Bell, LogOut, PanelLeftClose, Settings, X } from "lucide-react";
 import type { Client } from "@/types";
@@ -108,6 +109,7 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
 
   const showCollapse = variant === "aside" && onCollapse;
   const showClose = variant === "drawer" && onCloseDrawer;
+  const navScrollRef = useRef<HTMLElement>(null);
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col px-4 pb-2 pt-4">
@@ -141,23 +143,29 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
         ) : null}
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto pr-1">
-        <SidebarNav
-          links={links}
-          pathname={pathname}
-          t={tNav}
-          lt={lt}
-          dragLabel={dragLabel}
-          showUpdatesUnreadDot={showUpdatesUnreadDot}
-          marketingMenuOpen={marketingMenuOpen}
-          setMarketingMenuOpen={setMarketingMenuOpen}
-          contentMenuOpen={contentMenuOpen}
-          setContentMenuOpen={setContentMenuOpen}
-          crmMenuOpen={crmMenuOpen}
-          setCrmMenuOpen={setCrmMenuOpen}
-          onReorder={onReorder}
-        />
-      </nav>
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <nav
+          ref={navScrollRef}
+          className="sidebar-nav-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain pr-1"
+        >
+          <SidebarNav
+            scrollContainerRef={navScrollRef}
+            links={links}
+            pathname={pathname}
+            t={tNav}
+            lt={lt}
+            dragLabel={dragLabel}
+            showUpdatesUnreadDot={showUpdatesUnreadDot}
+            marketingMenuOpen={marketingMenuOpen}
+            setMarketingMenuOpen={setMarketingMenuOpen}
+            contentMenuOpen={contentMenuOpen}
+            setContentMenuOpen={setContentMenuOpen}
+            crmMenuOpen={crmMenuOpen}
+            setCrmMenuOpen={setCrmMenuOpen}
+            onReorder={onReorder}
+          />
+        </nav>
+      </div>
 
       <div className="shrink-0 space-y-3 border-t border-[rgba(255,255,255,0.06)] px-3 pb-8 pt-3">
         {agencyAdmin ? (

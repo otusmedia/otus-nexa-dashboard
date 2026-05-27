@@ -9,12 +9,15 @@ import {
   CRM_KANBAN_COLUMNS,
   CRM_SOURCE_OPTIONS,
   completeCrmAppointment,
+  crmAppointmentCompletionErrorMessage,
   formatAppointmentTime,
   formatCrmAppointmentCompletedAt,
   formatLeadCreatedAt,
   isCrmAppointmentDone,
+  mapCrmActivityLogRow,
   mapCrmAppointmentRow,
   mapCrmLeadRow,
+  type CrmActivityLogEntry,
   normalizeLeadStatus,
   type CrmAppointment,
   type CrmLead,
@@ -25,6 +28,7 @@ import { resolveCrmOwnerOptions } from "@/lib/crm-team-members";
 import { formatCurrency } from "@/lib/utils";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
 import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
+import { dispatchCrmAppointmentCompleted } from "@/lib/crm-appointment-events";
 import { cn } from "@/lib/utils";
 
 function statusBadgeClass(status: CrmLeadStatus) {
@@ -67,7 +71,7 @@ export function CrmLeadDetailPanel({
   onLeadUpdated: (lead: CrmLead) => void;
   onLeadDeleted: (leadId: string) => void;
 }) {
-  const { currentUser, users, dataClientSlug } = useAppContext();
+  const { currentUser, users, dataClientSlug, pushNotification } = useAppContext();
   const { language, t: lt } = useLanguage();
   const ownerOptions = useMemo(
     () => resolveCrmOwnerOptions(users, dataClientSlug, currentUser),
@@ -100,6 +104,8 @@ export function CrmLeadDetailPanel({
   });
   const [deleteApptId, setDeleteApptId] = useState<string | null>(null);
   const [completingApptId, setCompletingApptId] = useState<string | null>(null);
+  const [activityLog, setActivityLog] = useState<CrmActivityLogEntry[]>([]);
+  const [activityLogLoading, setActivityLogLoading] = useState(true);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [deleteLeadModalOpen, setDeleteLeadModalOpen] = useState(false);
   const [deletePasskey, setDeletePasskey] = useState("");
@@ -139,8 +145,26 @@ export function CrmLeadDetailPanel({
     setApptsLoading(false);
   }, [lead.id]);
 
+  const loadActivityLog = useCallback(async () => {
+    setActivityLogLoading(true);
+    const { data, error } = await supabase
+      .from("crm_activity_log")
+      .select("*")
+      .eq("lead_id", lead.id)
+      .order("created_at", { ascending: false })
+      .limit(30);
+    if (error) {
+      console.error("[crm activity log]", error.message);
+      setActivityLog([]);
+    } else {
+      setActivityLog((data ?? []).map((row) => mapCrmActivityLogRow(row as Record<string, unknown>)));
+    }
+    setActivityLogLoading(false);
+  }, [lead.id]);
+
   useEffect(() => {
     void loadAppointments();
+    void loadActivityLog();
 
     const channel = supabase
       .channel(`crm-appointments-${lead.id}`)
@@ -153,10 +177,22 @@ export function CrmLeadDetailPanel({
       )
       .subscribe();
 
+    const logChannel = supabase
+      .channel(`crm-activity-log-${lead.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "crm_activity_log", filter: `lead_id=eq.${lead.id}` },
+        () => {
+          void loadActivityLog();
+        },
+      )
+      .subscribe();
+
     return () => {
       void supabase.removeChannel(channel);
+      void supabase.removeChannel(logChannel);
     };
-  }, [loadAppointments, lead.id]);
+  }, [loadAppointments, loadActivityLog, lead.id]);
 
   const propsDirty =
     nameDraft.trim() !== lead.name ||
@@ -354,12 +390,21 @@ export function CrmLeadDetailPanel({
     setDeleteApptId(null);
   };
 
+  const resolveActorName = () =>
+    currentUser.name?.trim() || currentUser.email?.trim() || "";
+
   const markAppointmentDone = async (apptId: string) => {
-    if (!currentUser.name?.trim()) return;
+    const actor = resolveActorName();
+    if (!actor) {
+      pushNotification(crmAppointmentCompletionErrorMessage("MISSING_ACTOR", language), "task");
+      return;
+    }
     setCompletingApptId(apptId);
-    const result = await completeCrmAppointment(apptId, currentUser.name, language);
+    const result = await completeCrmAppointment(apptId, actor, language);
     setCompletingApptId(null);
     if (!result.ok) {
+      const msg = crmAppointmentCompletionErrorMessage(result.error, language);
+      pushNotification(`${lt("Could not complete appointment")}: ${msg}`, "task");
       console.error("[crm] complete appointment", result.error);
       return;
     }
@@ -371,11 +416,14 @@ export function CrmLeadDetailPanel({
               ...a,
               status: "done",
               completed_at: completedAt,
-              completed_by: currentUser.name.trim(),
+              completed_by: actor,
             }
           : a,
       ),
     );
+    pushNotification(lt("Appointment marked as done"), "task");
+    void loadActivityLog();
+    dispatchCrmAppointmentCompleted(apptId, result.leadId ?? lead.id);
   };
 
   const canConfirmDeleteLead = deletePasskey === "DELETE";
@@ -766,6 +814,45 @@ export function CrmLeadDetailPanel({
                           </button>
                         </div>
                       </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
+          <section className="mt-8">
+            <h3 className="text-[0.65rem] font-normal uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+              {lt("Activity log")}
+            </h3>
+            {activityLogLoading ? (
+              <p className="mt-3 text-xs text-[rgba(255,255,255,0.4)]">{lt("Loading…")}</p>
+            ) : activityLog.length === 0 ? (
+              <p className="mt-3 text-xs text-[rgba(255,255,255,0.4)]">{lt("No activity logged")}</p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {activityLog.map((entry) => {
+                  const title =
+                    entry.event_type === "appointment_completed"
+                      ? String(entry.payload.appointment_title ?? lt("Appointment completed"))
+                      : entry.event_type;
+                  return (
+                    <li
+                      key={entry.id}
+                      className="rounded-lg border border-[var(--border)] bg-[#161616] px-3 py-2 text-xs text-[rgba(255,255,255,0.75)]"
+                    >
+                      <p className="font-medium text-white">
+                        {entry.event_type === "appointment_completed"
+                          ? lt("Appointment completed")
+                          : title}
+                        {entry.event_type === "appointment_completed" && title ? `: ${title}` : ""}
+                      </p>
+                      <p className="mt-1 text-[rgba(255,255,255,0.45)]">
+                        {entry.actor_name ? `${lt("Completed by")} ${entry.actor_name}` : "—"}
+                        {entry.created_at
+                          ? ` · ${formatCrmAppointmentCompletedAt(entry.created_at, language)}`
+                          : ""}
+                      </p>
                     </li>
                   );
                 })}

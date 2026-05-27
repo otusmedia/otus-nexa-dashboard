@@ -1,7 +1,16 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
-import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
+import {
+  DragDropContext,
+  Draggable,
+  Droppable,
+  type DraggableProvided,
+  type DraggableRubric,
+  type DraggableStateSnapshot,
+  type DropResult,
+} from "@hello-pangea/dnd";
 import { GripVertical } from "lucide-react";
 import type { ModuleKey } from "@/types";
 import { cn } from "@/lib/utils";
@@ -24,6 +33,7 @@ export type SidebarNavLink = {
 };
 
 type SidebarNavProps = {
+  scrollContainerRef: React.RefObject<HTMLElement | null>;
   links: SidebarNavLink[];
   pathname: string;
   t: (key: SidebarNavLink["labelKey"]) => string;
@@ -38,6 +48,52 @@ type SidebarNavProps = {
   setCrmMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
   onReorder: (order: ModuleKey[]) => void;
 };
+
+type SidebarNavItemRowProps = Omit<SidebarNavProps, "links" | "onReorder" | "scrollContainerRef"> & {
+  link: SidebarNavLink;
+  dragProvided: DraggableProvided;
+  snapshot: DraggableStateSnapshot;
+};
+
+function SidebarNavItemRow({
+  link,
+  dragProvided,
+  snapshot,
+  dragLabel,
+  ...navProps
+}: SidebarNavItemRowProps) {
+  const isStudioModule = link.key === "content-management";
+  return (
+    <div
+      ref={dragProvided.innerRef}
+      {...dragProvided.draggableProps}
+      className={cn(
+        "group/nav rounded-lg",
+        isStudioModule && "sidebar-nav-studio-row",
+        snapshot.isDragging && "bg-[var(--surface-elevated)] shadow-md ring-1 ring-[var(--border)]",
+      )}
+    >
+      <div className="flex items-start gap-0.5">
+        <button
+          type="button"
+          {...dragProvided.dragHandleProps}
+          className={cn(
+            "mt-1.5 flex h-7 w-5 shrink-0 cursor-grab items-center justify-center rounded text-[rgba(255,255,255,0.2)] transition",
+            "opacity-0 group-hover/nav:opacity-100 hover:text-[rgba(255,255,255,0.55)] active:cursor-grabbing",
+            snapshot.isDragging && "opacity-100",
+          )}
+          aria-label={dragLabel}
+          tabIndex={0}
+        >
+          <GripVertical className="h-3.5 w-3.5" strokeWidth={1.5} />
+        </button>
+        <div className={cn("min-w-0 flex-1 pr-1", isStudioModule && "min-h-[2.5rem]")}>
+          <NavItemContent link={link} {...navProps} />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function isLinkActive(link: SidebarNavLink, pathname: string): boolean {
   if (link.key === "projects") return pathname.startsWith("/projects");
@@ -61,7 +117,7 @@ function NavItemContent({
   crmMenuOpen,
   setCrmMenuOpen,
   lt,
-}: Omit<SidebarNavProps, "links" | "onReorder" | "dragLabel"> & { link: SidebarNavLink }) {
+}: Omit<SidebarNavProps, "links" | "onReorder" | "dragLabel" | "scrollContainerRef"> & { link: SidebarNavLink }) {
   const isActive = isLinkActive(link, pathname);
   const Icon = link.icon;
 
@@ -122,10 +178,8 @@ function NavItemContent({
           type="button"
           onClick={() => setContentMenuOpen((prev) => !prev)}
           className={cn(
-            "flex w-full items-center gap-3 rounded-lg border-l-2 border-transparent px-3 py-2 text-sm transition [border-image:none]",
-            isActive
-              ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
-              : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
+            "sidebar-nav-studio flex h-full min-h-[2.5rem] w-full items-center gap-3 rounded-lg px-3 py-2 text-sm [border-image:none]",
+            isActive ? "sidebar-nav-studio--active" : "text-[rgba(255,255,255,0.4)]",
           )}
         >
           <Icon className="h-4 w-4 shrink-0" strokeWidth={1.5} />
@@ -140,10 +194,10 @@ function NavItemContent({
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center rounded-lg border-l-2 border-transparent px-3 py-1.5 text-xs transition [border-image:none]",
+                    "sidebar-nav-studio-sub flex items-center rounded-lg px-3 py-1.5 text-xs [border-image:none]",
                     subActive
-                      ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
-                      : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
+                      ? "sidebar-nav-studio-sub--active"
+                      : "text-[rgba(255,255,255,0.4)]",
                   )}
                 >
                   {lt(item.labelKey)}
@@ -226,10 +280,18 @@ function NavItemContent({
   );
 }
 
-export function SidebarNav(props: SidebarNavProps) {
-  const { links, onReorder, dragLabel } = props;
+const SIDEBAR_NAV_DRAGGING_CLASS = "sidebar-nav-dragging";
 
-  const onDragEnd = (result: DropResult) => {
+export function SidebarNav(props: SidebarNavProps) {
+  const { links, onReorder, dragLabel, scrollContainerRef } = props;
+
+  useEffect(() => {
+    return () => {
+      document.documentElement.classList.remove(SIDEBAR_NAV_DRAGGING_CLASS);
+    };
+  }, []);
+
+  const applyReorder = (result: DropResult) => {
     if (!result.destination || result.destination.index === result.source.index) return;
     const next = [...links];
     const [moved] = next.splice(result.source.index, 1);
@@ -237,53 +299,57 @@ export function SidebarNav(props: SidebarNavProps) {
     onReorder(next.map((l) => l.key));
   };
 
+  const onDragStart = () => {
+    document.documentElement.classList.add(SIDEBAR_NAV_DRAGGING_CLASS);
+  };
+
+  const onDragEnd = (result: DropResult) => {
+    document.documentElement.classList.remove(SIDEBAR_NAV_DRAGGING_CLASS);
+    applyReorder(result);
+  };
+
+  const rowProps = {
+    pathname: props.pathname,
+    t: props.t,
+    lt: props.lt,
+    dragLabel,
+    showUpdatesUnreadDot: props.showUpdatesUnreadDot,
+    marketingMenuOpen: props.marketingMenuOpen,
+    setMarketingMenuOpen: props.setMarketingMenuOpen,
+    contentMenuOpen: props.contentMenuOpen,
+    setContentMenuOpen: props.setContentMenuOpen,
+    crmMenuOpen: props.crmMenuOpen,
+    setCrmMenuOpen: props.setCrmMenuOpen,
+  };
+
+  const renderClone = (
+    dragProvided: DraggableProvided,
+    snapshot: DraggableStateSnapshot,
+    rubric: DraggableRubric,
+  ) => {
+    const link = links[rubric.source.index];
+    if (!link) return null;
+    return <SidebarNavItemRow link={link} dragProvided={dragProvided} snapshot={snapshot} {...rowProps} />;
+  };
+
   return (
-    <DragDropContext onDragEnd={onDragEnd}>
-      <Droppable droppableId="sidebar-main-nav">
+    <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      <Droppable
+        droppableId="sidebar-main-nav"
+        renderClone={renderClone}
+        getContainerForClone={() => scrollContainerRef.current ?? document.body}
+      >
         {(dropProvided) => (
           <div ref={dropProvided.innerRef} {...dropProvided.droppableProps} className="space-y-1">
             {links.map((link, index) => (
               <Draggable key={link.key} draggableId={link.key} index={index}>
                 {(dragProvided, snapshot) => (
-                  <div
-                    ref={dragProvided.innerRef}
-                    {...dragProvided.draggableProps}
-                    className={cn(
-                      "group/nav rounded-lg",
-                      snapshot.isDragging && "bg-[var(--surface-elevated)] shadow-md ring-1 ring-[var(--border)]",
-                    )}
-                  >
-                    <div className="flex items-start gap-0.5">
-                      <button
-                        type="button"
-                        {...dragProvided.dragHandleProps}
-                        className={cn(
-                          "mt-1.5 flex h-7 w-5 shrink-0 cursor-grab items-center justify-center rounded text-[rgba(255,255,255,0.2)] transition",
-                          "opacity-0 group-hover/nav:opacity-100 hover:text-[rgba(255,255,255,0.55)] active:cursor-grabbing",
-                          snapshot.isDragging && "opacity-100",
-                        )}
-                        aria-label={dragLabel}
-                        tabIndex={0}
-                      >
-                        <GripVertical className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      </button>
-                      <div className="min-w-0 flex-1 pr-1">
-                        <NavItemContent
-                          link={link}
-                          pathname={props.pathname}
-                          t={props.t}
-                          lt={props.lt}
-                          showUpdatesUnreadDot={props.showUpdatesUnreadDot}
-                          marketingMenuOpen={props.marketingMenuOpen}
-                          setMarketingMenuOpen={props.setMarketingMenuOpen}
-                          contentMenuOpen={props.contentMenuOpen}
-                          setContentMenuOpen={props.setContentMenuOpen}
-                          crmMenuOpen={props.crmMenuOpen}
-                          setCrmMenuOpen={props.setCrmMenuOpen}
-                        />
-                      </div>
-                    </div>
-                  </div>
+                  <SidebarNavItemRow
+                    link={link}
+                    dragProvided={dragProvided}
+                    snapshot={snapshot}
+                    {...rowProps}
+                  />
                 )}
               </Draggable>
             ))}

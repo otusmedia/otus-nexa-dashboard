@@ -232,6 +232,7 @@ interface AppContextValue {
   markAllAsRead: () => void;
   markNotificationRead: (id: string) => void;
   dismissNotification: (id: string) => void;
+  pushNotification: (message: string, type: NotificationItem["type"], stableId?: string) => void;
   notifyProjectComment: (input: {
     commentId: string;
     authorName: string;
@@ -1860,6 +1861,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       markNotificationRead: (id) =>
         setNotifications((prev) => prev.map((item) => (item.id === id ? { ...item, read: true } : item))),
       dismissNotification: (id) => setNotifications((prev) => prev.filter((item) => item.id !== id)),
+      pushNotification,
       notifyProjectComment,
       logTaskReviewActivity,
       logTaskPublishedToActivity,

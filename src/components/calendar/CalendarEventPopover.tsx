@@ -8,10 +8,12 @@ import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import {
   completeCrmAppointment,
+  crmAppointmentCompletionErrorMessage,
   formatCrmAppointmentCompletedAt,
   isCrmAppointmentDone,
   type CrmAppointment,
 } from "@/lib/crm-data";
+import { dispatchCrmAppointmentCompleted } from "@/lib/crm-appointment-events";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent, CalendarEventType } from "@/types/calendar";
@@ -71,7 +73,7 @@ export function CalendarEventPopover({
   onDeleteScheduledPost?: (postId: string) => void;
   onCrmAppointmentCompleted?: () => void;
 }) {
-  const { currentUser, language } = useAppContext();
+  const { currentUser, language, pushNotification } = useAppContext();
   const { t: lt } = useLanguage();
   const ref = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
@@ -175,11 +177,18 @@ export function CalendarEventPopover({
   const canMarkCrmDone = crmReadOnly && Boolean(event.source_id) && !crmDone;
 
   const handleMarkCrmDone = async () => {
-    if (!event?.source_id || !currentUser.name?.trim()) return;
+    if (!event?.source_id) return;
+    const actor = currentUser.name?.trim() || currentUser.email?.trim() || "";
+    if (!actor) {
+      pushNotification(crmAppointmentCompletionErrorMessage("MISSING_ACTOR", language), "task");
+      return;
+    }
     setCrmCompleting(true);
-    const result = await completeCrmAppointment(event.source_id, currentUser.name, language);
+    const result = await completeCrmAppointment(event.source_id, actor, language);
     setCrmCompleting(false);
     if (!result.ok) {
+      const msg = crmAppointmentCompletionErrorMessage(result.error, language);
+      pushNotification(`${lt("Could not complete appointment")}: ${msg}`, "task");
       console.error("[calendar] complete crm appointment", result.error);
       return;
     }
@@ -187,8 +196,10 @@ export function CalendarEventPopover({
     setCrmAppt({
       status: "done",
       completed_at: completedAt,
-      completed_by: currentUser.name.trim(),
+      completed_by: actor,
     });
+    pushNotification(lt("Appointment marked as done"), "task");
+    dispatchCrmAppointmentCompleted(event.source_id, result.leadId ?? event.lead_id);
     onCrmAppointmentCompleted?.();
   };
 

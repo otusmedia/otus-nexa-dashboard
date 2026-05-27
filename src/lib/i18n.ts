@@ -626,7 +626,16 @@ const platformPtBR: Record<string, string> = {
   "End time": "Hora de término",
 
   // Navigation submenus
-  "Content Management": "Gestão de Conteúdo",
+  Studio: "Estúdio",
+  "Import from Go High Level": "Importar do Go High Level",
+  "Imports GHL contacts and opportunities into CRM for this client. Requires server env GHL_PRIVATE_TOKEN and GHL_LOCATION_ID.":
+    "Importa contatos e oportunidades do GHL para o CRM deste cliente. Exige GHL_PRIVATE_TOKEN e GHL_LOCATION_ID no servidor.",
+  "Import secret": "Segredo de importação",
+  "Same as GHL_IMPORT_SECRET on server": "Igual ao GHL_IMPORT_SECRET no servidor",
+  "GHL pipeline ID (optional)": "ID do pipeline GHL (opcional)",
+  "Preview import": "Pré-visualizar importação",
+  "Run import": "Executar importação",
+  "Go High Level": "Go High Level",
   "AI Studio": "Estúdio IA",
   Compose: "Compor",
   Strategy: "Estratégia",
@@ -682,6 +691,11 @@ const platformPtBR: Record<string, string> = {
   Draft: "Rascunho",
   "Mark as done": "Marcar como feito",
   "Completed by": "Concluído por",
+  "Appointment marked as done": "Compromisso marcado como concluído",
+  "Could not complete appointment": "Não foi possível concluir o compromisso",
+  "Activity log": "Registro de atividade",
+  "Appointment completed": "Compromisso concluído",
+  "No activity logged": "Nenhuma atividade registrada",
   "CRM Lead": "Lead CRM",
   "Edit this appointment from the CRM pipeline.":
     "Edite este compromisso no funil do CRM.",

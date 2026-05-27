@@ -7,6 +7,7 @@ import {
   CRM_LEAD_STATUSES,
   formatLeadValue,
   isCrmAppointmentDone,
+  mapCrmActivityLogRow,
   mapCrmAppointmentRow,
   mapCrmLeadRow,
   normalizeLeadStatus,
@@ -47,7 +48,8 @@ export type CrmAppointmentWithLead = CrmAppointment & {
 
 export type CrmActivityItem =
   | { type: "lead"; id: string; title: string; subtitle: string; at: string }
-  | { type: "appointment"; id: string; title: string; subtitle: string; at: string };
+  | { type: "appointment"; id: string; title: string; subtitle: string; at: string }
+  | { type: "completion"; id: string; title: string; subtitle: string; at: string };
 
 function sourceCountMap(leads: CrmLead[]): Record<string, number> {
   const m: Record<string, number> = {};
@@ -102,6 +104,9 @@ export function getLeadInitials(name: string): string {
 export function useCrmDashboardData(dataClientSlug: string | null, chartRange: CrmChartRange, locale: string) {
   const [leads, setLeads] = useState<CrmLead[]>([]);
   const [appointments, setAppointments] = useState<CrmAppointment[]>([]);
+  const [activityLog, setActivityLog] = useState<
+    Array<{ id: string; title: string; subtitle: string; at: string }>
+  >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,9 +114,15 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
     setLoading(true);
     setError(null);
 
-    const [leadsRes, apptRes] = await Promise.all([
+    const [leadsRes, apptRes, logRes] = await Promise.all([
       supabase.from("crm_leads").select("*").order("created_at", { ascending: false }),
       supabase.from("crm_appointments").select("*").order("date", { ascending: true }),
+      supabase
+        .from("crm_activity_log")
+        .select("*")
+        .eq("event_type", "appointment_completed")
+        .order("created_at", { ascending: false })
+        .limit(40),
     ]);
 
     if (leadsRes.error) {
@@ -141,8 +152,33 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
       console.error("[crm dashboard appointments]", apptRes.error.message);
     }
 
+    const completionItems =
+      logRes.error || !logRes.data
+        ? []
+        : (logRes.data as Record<string, unknown>[])
+            .map((row) => mapCrmActivityLogRow(row))
+            .filter((entry) => entry.lead_id && leadIds.has(entry.lead_id))
+            .filter((entry) => rowMatchesDataClient(entry.client_slug, dataClientSlug))
+            .map((entry) => {
+              const lead = entry.lead_id ? leadById.get(entry.lead_id) : undefined;
+              const apptTitle = String(entry.payload.appointment_title ?? "");
+              return {
+                id: entry.id,
+                title: apptTitle || "Appointment",
+                subtitle: entry.actor_name
+                  ? `${entry.actor_name}${lead?.name ? ` · ${lead.name}` : ""}`
+                  : (lead?.name ?? "—"),
+                at: entry.created_at,
+              };
+            });
+
+    if (logRes.error) {
+      console.error("[crm dashboard activity log]", logRes.error.message);
+    }
+
     setLeads(mappedLeads);
     setAppointments(mappedAppts);
+    setActivityLog(completionItems);
     setLoading(false);
   }, [dataClientSlug]);
 
@@ -167,11 +203,19 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
       })
       .subscribe();
 
+    const logChannel = supabase
+      .channel(`crm-activity-log-dashboard-${dataClientSlug ?? "all"}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "crm_activity_log" }, () => {
+        void load();
+      })
+      .subscribe();
+
     return () => {
       window.removeEventListener("focus", onFocus);
       window.clearInterval(poll);
       void supabase.removeChannel(leadsChannel);
       void supabase.removeChannel(apptChannel);
+      void supabase.removeChannel(logChannel);
     };
   }, [load, dataClientSlug]);
 
@@ -295,10 +339,18 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
       at: a.created_at,
     }));
 
-    return [...leadItems, ...apptItems]
+    const completionActivity: CrmActivityItem[] = activityLog.map((c) => ({
+      type: "completion",
+      id: c.id,
+      title: c.title,
+      subtitle: c.subtitle,
+      at: c.at,
+    }));
+
+    return [...leadItems, ...apptItems, ...completionActivity]
       .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
       .slice(0, 8);
-  }, [leads, appointmentsWithLead]);
+  }, [leads, appointmentsWithLead, activityLog]);
 
   const latestActivity = recentActivity[0] ?? null;
 

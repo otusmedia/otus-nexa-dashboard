@@ -191,7 +191,7 @@ export default function AIStudioPage() {
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-[var(--background)] px-4 py-6 text-[var(--text)] lg:px-8">
       <PageHeader
-        title={lt("Content Management")}
+        title={lt("Studio")}
         subtitle={lt("Generate and manage content powered by RocketRide AI")}
       />
 

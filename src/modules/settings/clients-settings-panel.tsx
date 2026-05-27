@@ -11,6 +11,7 @@ import { EMPTY_CLIENT_APIS } from "@/lib/client-apis";
 import { EMPTY_CLIENT_API_CREDENTIALS } from "@/lib/client-api-credentials";
 import { EMPTY_CLIENT_CRM_INTEGRATION } from "@/lib/client-crm-integration";
 import { ClientCrmIntegrationFields } from "@/modules/settings/client-crm-integration-fields";
+import { GhlImportPanel } from "@/modules/settings/ghl-import-panel";
 import { uploadClientHeroImage } from "@/lib/client-hero-upload";
 import { readSvgFileAsDataUrl } from "@/lib/client-logo-upload";
 import { ClientApisFields } from "@/modules/settings/client-form-fields";
@@ -501,6 +502,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
               clientSlug={editForm.slug}
               lt={lt}
             />
+            {editForm.slug.trim() ? <GhlImportPanel clientSlug={editForm.slug.trim()} /> : null}
             <div>
               <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Matrix language")}</label>
               <p className="mb-1 text-[0.7rem] text-[var(--muted)]">{lt("Default UI language for this client")}</p>

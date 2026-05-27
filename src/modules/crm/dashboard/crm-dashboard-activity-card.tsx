@@ -32,7 +32,11 @@ export function CrmDashboardActivityCard({ latest, items, loading, lt }: Props) 
         <>
           <div className="rounded-xl border border-white/[0.08] bg-[rgba(255,255,255,0.03)] p-4">
             <p className="text-[0.65rem] uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
-              {latest.type === "lead" ? lt("Lead updated") : lt("Appointment")}
+              {latest.type === "lead"
+                ? lt("Lead updated")
+                : latest.type === "completion"
+                  ? lt("Appointment completed")
+                  : lt("Appointment")}
             </p>
             <p className="mt-2 text-lg font-medium text-white">{latest.title}</p>
             <p className="mt-1 text-sm text-[rgba(255,255,255,0.45)]">{latest.subtitle}</p>
