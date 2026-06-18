@@ -17,6 +17,35 @@ export const CRM_LEAD_STATUSES = [
 
 export type CrmLeadStatus = (typeof CRM_LEAD_STATUSES)[number];
 
+export const CRM_LEAD_FUNNELS = ["sales", "resume"] as const;
+export type CrmLeadFunnel = (typeof CRM_LEAD_FUNNELS)[number];
+
+export const CRM_RESUME_STATUSES = [
+  "New Application",
+  "Screening",
+  "Interview",
+  "Offer",
+  "Hired",
+  "Archived",
+] as const;
+
+export type CrmResumeStatus = (typeof CRM_RESUME_STATUSES)[number];
+
+export const CRM_RESUME_KANBAN_COLUMNS: Array<{
+  id: CrmResumeStatus;
+  label: string;
+  dotClass: string;
+}> = [
+  { id: "New Application", label: "New Application", dotClass: "bg-blue-500" },
+  { id: "Screening", label: "Screening", dotClass: "bg-yellow-400" },
+  { id: "Interview", label: "Interview", dotClass: "bg-purple-500" },
+  { id: "Offer", label: "Offer", dotClass: "bg-orange-400" },
+  { id: "Hired", label: "Hired", dotClass: "bg-emerald-500" },
+  { id: "Archived", label: "Archived", dotClass: "bg-gray-500" },
+];
+
+export const CRM_RESUME_INITIAL_STATUS: CrmResumeStatus = "New Application";
+
 export const CRM_SOURCE_OPTIONS = [
   "Website",
   "Referral",
@@ -63,6 +92,7 @@ export interface CrmLead {
   email: string | null;
   phone: string | null;
   status: string;
+  funnel: CrmLeadFunnel;
   owner: string | null;
   source: string | null;
   value: number;
@@ -260,6 +290,7 @@ export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
     email: row.email != null ? String(row.email) : null,
     phone: row.phone != null ? String(row.phone) : null,
     status: String(row.status ?? "New Lead"),
+    funnel: normalizeLeadFunnel(row.funnel),
     owner: row.owner != null ? String(row.owner) : null,
     source: row.source != null ? String(row.source) : null,
     value: Number.isFinite(num) ? num : 0,
@@ -307,6 +338,19 @@ export function mapCrmContactRow(row: Record<string, unknown>): CrmContact {
   };
 }
 
+export function normalizeLeadFunnel(raw: unknown): CrmLeadFunnel {
+  const s = String(raw ?? "").trim().toLowerCase();
+  return s === "resume" ? "resume" : "sales";
+}
+
+export function isSalesLead(lead: Pick<CrmLead, "funnel">): boolean {
+  return lead.funnel === "sales";
+}
+
+export function isResumeLead(lead: Pick<CrmLead, "funnel">): boolean {
+  return lead.funnel === "resume";
+}
+
 export function normalizeLeadStatus(status: string | null | undefined): CrmLeadStatus {
   const s = (status ?? "").trim();
   return CRM_LEAD_STATUSES.includes(s as CrmLeadStatus) ? (s as CrmLeadStatus) : "New Lead";
@@ -318,6 +362,23 @@ export function normalizeSource(raw: string | null | undefined): CrmSourceOption
     if (opt.toLowerCase() === s) return opt;
   }
   return "Other";
+}
+
+export function normalizeResumeStatus(status: string | null | undefined): CrmResumeStatus {
+  const s = (status ?? "").trim();
+  return CRM_RESUME_STATUSES.includes(s as CrmResumeStatus) ? (s as CrmResumeStatus) : CRM_RESUME_INITIAL_STATUS;
+}
+
+export function groupResumeLeadsByStatus(leads: CrmLead[]): Record<CrmResumeStatus, CrmLead[]> {
+  const buckets = Object.fromEntries(CRM_RESUME_KANBAN_COLUMNS.map((c) => [c.id, [] as CrmLead[]])) as Record<
+    CrmResumeStatus,
+    CrmLead[]
+  >;
+  for (const lead of leads) {
+    const st = normalizeResumeStatus(lead.status);
+    buckets[st].push(lead);
+  }
+  return buckets;
 }
 
 export function groupLeadsByStatus(leads: CrmLead[]): Record<CrmLeadStatus, CrmLead[]> {
@@ -350,6 +411,11 @@ export function formatAppointmentTime(time: string | null): string {
   const am = h < 12;
   const h12 = h % 12 || 12;
   return `${h12}:${m} ${am ? "AM" : "PM"}`;
+}
+
+export function resumeStageDotClass(status: CrmResumeStatus): string {
+  const col = CRM_RESUME_KANBAN_COLUMNS.find((c) => c.id === status);
+  return col?.dotClass ?? "bg-gray-500";
 }
 
 export function pipelineStageDotClass(status: CrmLeadStatus): string {

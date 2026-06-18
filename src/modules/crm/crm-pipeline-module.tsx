@@ -1,13 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useMemo, useState, type FormEvent } from "react";
 import type { DropResult } from "@hello-pangea/dnd";
-import { DragDropContext } from "@hello-pangea/dnd";
 import { useAppContext } from "@/components/providers/app-providers";
-import { PageHeader } from "@/components/ui/page-header";
 import { useLanguage } from "@/context/language-context";
-import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
 import {
   CRM_KANBAN_COLUMNS,
@@ -20,8 +16,10 @@ import {
 } from "@/lib/crm-data";
 import { crmLeadStatusLabel, crmSourceLabel } from "@/lib/crm-i18n";
 import { resolveCrmOwnerOptions } from "@/lib/crm-team-members";
-import { CrmPipelineColumn } from "@/modules/crm/crm-pipeline-column";
+import { CrmKanbanBoard } from "@/modules/crm/crm-kanban-board";
 import { CrmLeadDetailPanel } from "@/modules/crm/crm-lead-detail-panel";
+import { CrmPipelineShell } from "@/modules/crm/crm-pipeline-shell";
+import { useCrmKanbanLeads } from "@/modules/crm/use-crm-kanban-leads";
 
 export function CrmPipelineModule() {
   const { dataClientSlug, users, currentUser } = useAppContext();
@@ -30,12 +28,18 @@ export function CrmPipelineModule() {
     () => resolveCrmOwnerOptions(users, dataClientSlug, currentUser),
     [users, dataClientSlug, currentUser],
   );
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const leadClientSlug = dataClientSlug ?? "rocketride";
-  const [leads, setLeads] = useState<CrmLead[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const {
+    leads,
+    setLeads,
+    loading,
+    setSelectedId,
+    selectedLead,
+    onLeadUpdated,
+    onLeadDeleted,
+    onLeadMovedToResume,
+  } = useCrmKanbanLeads("sales", dataClientSlug, "/crm/pipeline");
+
   const [modalOpen, setModalOpen] = useState(false);
   const [targetColumn, setTargetColumn] = useState<CrmLeadStatus>("New Lead");
   const [name, setName] = useState("");
@@ -49,60 +53,17 @@ export function CrmPipelineModule() {
   const [nameError, setNameError] = useState("");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const { data, error } = await supabase.from("crm_leads").select("*").order("created_at", { ascending: false });
-    if (error) {
-      console.error("[crm pipeline]", error.message);
-      setLeads([]);
-    } else {
-      const rows = (data ?? []) as Record<string, unknown>[];
-      const mapped = rows
-        .map((row) => mapCrmLeadRow(row))
-        .filter((lead) => rowMatchesDataClient(lead.client_slug, dataClientSlug));
-      setLeads(mapped);
-    }
-    setLoading(false);
-  }, [dataClientSlug]);
-
-  useEffect(() => {
-    void load();
-
-    const onFocus = () => void load();
-    window.addEventListener("focus", onFocus);
-
-    const poll = window.setInterval(() => void load(), 20_000);
-
-    const channel = supabase
-      .channel(`crm-leads-pipeline-${dataClientSlug ?? "all"}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "crm_leads" },
-        () => {
-          void load();
-        },
-      )
-      .subscribe();
-
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      window.clearInterval(poll);
-      void supabase.removeChannel(channel);
-    };
-  }, [load, dataClientSlug]);
-
-  useEffect(() => {
-    const leadParam = searchParams.get("lead");
-    if (!leadParam || loading) return;
-    if (leads.some((l) => l.id === leadParam)) {
-      setSelectedId(leadParam);
-    }
-    router.replace("/crm/pipeline", { scroll: false });
-  }, [searchParams, leads, loading, router]);
+  const columns = useMemo(
+    () =>
+      CRM_KANBAN_COLUMNS.map((col) => ({
+        id: col.id,
+        label: crmLeadStatusLabel(col.id, language),
+        dotClass: col.dotClass,
+      })),
+    [language],
+  );
 
   const byColumn = useMemo(() => groupLeadsByStatus(leads), [leads]);
-
-  const selectedLead = selectedId ? (leads.find((l) => l.id === selectedId) ?? null) : null;
 
   const onDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
@@ -126,8 +87,8 @@ export function CrmPipelineModule() {
     }
   };
 
-  const openAddModal = (columnId: CrmLeadStatus) => {
-    setTargetColumn(columnId);
+  const openAddModal = (columnId: string) => {
+    setTargetColumn(columnId as CrmLeadStatus);
     setName("");
     setCompany("");
     setEmail("");
@@ -165,6 +126,7 @@ export function CrmPipelineModule() {
         owner: owner.trim() || null,
         description: description.trim() || null,
         status: targetColumn,
+        funnel: "sales",
         client_slug: leadClientSlug,
       })
       .select("*")
@@ -222,61 +184,37 @@ export function CrmPipelineModule() {
     closeAddModal();
   };
 
-  const onLeadUpdated = (updated: CrmLead) => {
-    setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-  };
-
-  const onLeadDeleted = (leadId: string) => {
-    setLeads((prev) => prev.filter((l) => l.id !== leadId));
-    setSelectedId(null);
+  const handleLeadDeleted = (leadId: string) => {
+    onLeadDeleted(leadId);
     setSuccessMessage(lt("Lead deleted successfully."));
     window.setTimeout(() => setSuccessMessage(null), 2500);
   };
 
-  const leadCount = leads.length;
-
   return (
-    <div className="w-full min-w-0">
-      <PageHeader title={lt("Pipeline")} subtitle={lt("Kanban pipeline")} />
+    <CrmPipelineShell>
       {successMessage ? (
         <p className="mb-3 rounded-md border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.12)] px-3 py-2 text-sm text-[#86efac]">
           {successMessage}
         </p>
       ) : null}
-      {loading ? (
-        <p className="text-sm text-[rgba(255,255,255,0.45)]">{lt("Loading pipeline…")}</p>
-      ) : (
-        <div className="w-full min-w-0 overflow-x-auto">
-          <DragDropContext onDragEnd={onDragEnd}>
-            <div className="mb-3 px-1 text-xs font-light text-[rgba(255,255,255,0.4)]">
-              {leadCount} {lt("leads")}
-            </div>
-            <div className="h-[80vh] w-max overflow-hidden">
-              <div className="flex h-full min-h-0 w-max flex-row gap-4 px-1 pb-4">
-                {CRM_KANBAN_COLUMNS.map((col) => (
-                  <CrmPipelineColumn
-                    key={col.id}
-                    columnId={col.id}
-                    label={crmLeadStatusLabel(col.id, language)}
-                    addLeadLabel={lt("Add New Lead")}
-                    dotClass={col.dotClass}
-                    leads={byColumn[col.id]}
-                    onAddLead={openAddModal}
-                    onOpenLead={(lead) => setSelectedId(lead.id)}
-                  />
-                ))}
-              </div>
-            </div>
-          </DragDropContext>
-        </div>
-      )}
+      <CrmKanbanBoard
+        columns={columns}
+        leadsByColumn={byColumn}
+        loading={loading}
+        leadCount={leads.length}
+        onDragEnd={onDragEnd}
+        onOpenLead={(lead) => setSelectedId(lead.id)}
+        onAddLead={openAddModal}
+        addLeadLabel={lt("Add New Lead")}
+      />
 
       {selectedLead ? (
         <CrmLeadDetailPanel
           lead={selectedLead}
           onClose={() => setSelectedId(null)}
           onLeadUpdated={onLeadUpdated}
-          onLeadDeleted={onLeadDeleted}
+          onLeadDeleted={handleLeadDeleted}
+          onLeadMovedToResume={onLeadMovedToResume}
         />
       ) : null}
 
@@ -399,6 +337,6 @@ export function CrmPipelineModule() {
           </form>
         </div>
       ) : null}
-    </div>
+    </CrmPipelineShell>
   );
 }

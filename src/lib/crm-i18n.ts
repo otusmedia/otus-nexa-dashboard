@@ -9,6 +9,10 @@ export function crmLeadStatusLabel(status: string, lang: AppLanguage): string {
   return crmT(status, lang);
 }
 
+export function crmResumeStatusLabel(status: string, lang: AppLanguage): string {
+  return crmT(status, lang);
+}
+
 export function crmSourceLabel(source: string, lang: AppLanguage): string {
   return crmT(source, lang);
 }

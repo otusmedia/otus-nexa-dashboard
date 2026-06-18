@@ -4,7 +4,14 @@ import type { DropResult } from "@hello-pangea/dnd";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { DocumentHead } from "@/components/layout/document-head";
 import { AuthProvider, useAuth } from "@/context/auth-context";
-import { ALL_MODULE_KEYS, ROCKETRIDE_ALLOWED_MODULE_KEYS } from "@/lib/modules";
+import {
+  ALL_MODULE_KEYS,
+  ASSIGNABLE_MODULE_KEYS,
+  defaultAdminModulesForClientCompany,
+  isExternalClientCompany,
+  modulesAssignableByViewer,
+  ROCKETRIDE_ALLOWED_MODULE_KEYS,
+} from "@/lib/modules";
 import {
   COLUMN_TO_STATUS,
   computeProjectProgressFromTasks,
@@ -63,6 +70,8 @@ import {
   effectiveUserClientSlug,
   isAgencyAdmin,
   isAgencyCompany,
+  isClientCompany,
+  isRocketRideCompany,
   resolveDataClientSlug,
   rowMatchesDataClient,
   userHasLiveApis,
@@ -153,6 +162,7 @@ interface AppContextValue {
     apiCredentials?: Client["apiCredentials"];
     crmIntegration?: Client["crmIntegration"];
     defaultLocale?: AppLanguage;
+    enabledModules?: ModuleKey[] | null;
   }) => Promise<{ ok: boolean; error?: string }>;
   updateClient: (
     id: string,
@@ -169,6 +179,7 @@ interface AppContextValue {
         | "apiCredentials"
         | "crmIntegration"
         | "defaultLocale"
+        | "enabledModules"
       >
     >,
   ) => Promise<{ ok: boolean; error?: string }>;
@@ -387,6 +398,15 @@ function appUserFromAppUsersRow(row: Record<string, unknown>): AppUser {
   };
 }
 
+function parseClientEnabledModules(row: Record<string, unknown>): ModuleKey[] | null {
+  const raw = row.enabled_modules;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const keys = raw.filter(
+    (m): m is ModuleKey => typeof m === "string" && ASSIGNABLE_MODULE_KEYS.includes(m as ModuleKey),
+  );
+  return keys.length > 0 ? keys : null;
+}
+
 function clientFromRow(row: Record<string, unknown>): Client {
   const apis = clientApisFromRow(row);
   return {
@@ -403,6 +423,7 @@ function clientFromRow(row: Record<string, unknown>): Client {
     apis,
     apiCredentials: parseClientApiCredentials(row.api_credentials),
     crmIntegration: parseClientCrmIntegration(row.crm_integration),
+    enabledModules: parseClientEnabledModules(row),
     createdAt: String(row.created_at ?? ""),
   };
 }
@@ -1412,30 +1433,29 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           });
       },
       addUser: ({ name, email: emailInput, role, modules, company = "", clientSlug: clientSlugInput }) => {
-        const elevatedCompany = currentUser.company === "nexa" || currentUser.company === "otus";
-        const rocketRideViewer = currentUser.company === "rocketride";
+        const elevatedCompany = isAgencyCompany(currentUser.company);
+        const rocketRideViewer = isRocketRideCompany(currentUser.company);
+        const externalClientViewer = isExternalClientCompany(currentUser.company);
         const nexaOtusAdmin = elevatedCompany && currentUser.role === "admin";
         const rrAdmin = rocketRideViewer && currentUser.role === "admin";
-        const viewerScopeModuleKeys = nexaOtusAdmin
-          ? [...ALL_MODULE_KEYS]
-          : rrAdmin
-            ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
-            : elevatedCompany
-              ? [...ALL_MODULE_KEYS]
-              : rocketRideViewer
-                ? ALL_MODULE_KEYS.filter(
-                    (k) => currentUser.modules.includes(k) && ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(k),
-                  )
-                : [...ALL_MODULE_KEYS];
+        const externalClientAdmin = externalClientViewer && currentUser.role === "admin";
+        const moduleCtx = { users, clients };
+        const viewerScopeModuleKeys = modulesAssignableByViewer(currentUser, moduleCtx);
         const companyResolved: UserCompany = rocketRideViewer ? "rocketride" : company || "nexa";
         let modulesToStore: ModuleKey[];
         if (role === "admin") {
           if (nexaOtusAdmin) {
-            modulesToStore = [...ALL_MODULE_KEYS];
+            modulesToStore = isExternalClientCompany(companyResolved)
+              ? defaultAdminModulesForClientCompany(companyResolved, moduleCtx)
+              : isRocketRideCompany(companyResolved)
+                ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
+                : [...ALL_MODULE_KEYS];
           } else if (rrAdmin) {
             modulesToStore = [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
           } else if (elevatedCompany) {
             modulesToStore = [...ALL_MODULE_KEYS];
+          } else if (externalClientAdmin) {
+            modulesToStore = defaultAdminModulesForClientCompany(companyResolved, moduleCtx);
           } else {
             modulesToStore = [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
           }
@@ -1889,6 +1909,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         apiCredentials,
         crmIntegration,
         defaultLocale,
+        enabledModules,
       }) => {
         const trimmedName = name.trim();
         const trimmedSlug = slug.trim().toLowerCase();
@@ -1911,6 +1932,8 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             api_config: apiConfigToDb(apisConfig),
             api_credentials: clientApiCredentialsToDb(apiCredentials ?? { ...EMPTY_CLIENT_API_CREDENTIALS }),
             crm_integration: clientCrmIntegrationToDb(crmIntegration ?? { ...EMPTY_CLIENT_CRM_INTEGRATION }),
+            enabled_modules:
+              enabledModules && enabledModules.length > 0 ? enabledModules : null,
           })
           .select("*")
           .single();
@@ -1993,6 +2016,10 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
         if (updates.defaultLocale !== undefined) {
           dbPatch.default_locale = updates.defaultLocale;
+        }
+        if (updates.enabledModules !== undefined) {
+          dbPatch.enabled_modules =
+            updates.enabledModules && updates.enabledModules.length > 0 ? updates.enabledModules : null;
         }
         if (Object.keys(dbPatch).length === 0) return { ok: true };
         const { data, error } = await supabase.from("clients").update(dbPatch).eq("id", id).select("*").single();

@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rowMatchesDataClient } from "@/lib/client-utils";
 import {
   CRM_LEAD_SOURCE_LABELS,
   CRM_LEAD_STATUSES,
   formatLeadValue,
   isCrmAppointmentDone,
+  isSalesLead,
   mapCrmActivityLogRow,
   mapCrmAppointmentRow,
   mapCrmLeadRow,
@@ -109,10 +110,12 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
   >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const initialLoadRef = useRef(true);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    const isInitialLoad = initialLoadRef.current;
+    if (isInitialLoad) setLoading(true);
+    if (isInitialLoad) setError(null);
 
     const [leadsRes, apptRes, logRes] = await Promise.all([
       supabase.from("crm_leads").select("*").order("created_at", { ascending: false }),
@@ -127,16 +130,20 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
 
     if (leadsRes.error) {
       console.error("[crm dashboard]", leadsRes.error.message);
-      setError(leadsRes.error.message);
-      setLeads([]);
-      setAppointments([]);
+      if (isInitialLoad) {
+        setError(leadsRes.error.message);
+        setLeads([]);
+        setAppointments([]);
+      }
+      initialLoadRef.current = false;
       setLoading(false);
       return;
     }
 
     const mappedLeads = ((leadsRes.data ?? []) as Record<string, unknown>[])
       .map((row) => mapCrmLeadRow(row))
-      .filter((lead) => rowMatchesDataClient(lead.client_slug, dataClientSlug));
+      .filter((lead) => rowMatchesDataClient(lead.client_slug, dataClientSlug))
+      .filter((lead) => isSalesLead(lead));
 
     const leadIds = new Set(mappedLeads.map((l) => l.id));
     const leadById = new Map(mappedLeads.map((l) => [l.id, l]));
@@ -179,10 +186,13 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
     setLeads(mappedLeads);
     setAppointments(mappedAppts);
     setActivityLog(completionItems);
+    initialLoadRef.current = false;
     setLoading(false);
   }, [dataClientSlug]);
 
   useEffect(() => {
+    initialLoadRef.current = true;
+    setLoading(true);
     void load();
 
     const onFocus = () => void load();

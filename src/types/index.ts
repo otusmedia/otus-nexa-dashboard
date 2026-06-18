@@ -168,6 +168,8 @@ export interface Client {
   apis: ClientApisConfig;
   apiCredentials: ClientApiCredentials;
   crmIntegration: ClientCrmIntegration;
+  /** When set, client admins may assign only these modules to users in this account. */
+  enabledModules: ModuleKey[] | null;
   createdAt: string;
 }
 

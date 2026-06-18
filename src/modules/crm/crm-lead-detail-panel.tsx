@@ -7,6 +7,8 @@ import { useLanguage } from "@/context/language-context";
 import { supabase } from "@/lib/supabase";
 import {
   CRM_KANBAN_COLUMNS,
+  CRM_RESUME_INITIAL_STATUS,
+  CRM_RESUME_KANBAN_COLUMNS,
   CRM_SOURCE_OPTIONS,
   completeCrmAppointment,
   crmAppointmentCompletionErrorMessage,
@@ -14,16 +16,22 @@ import {
   formatCrmAppointmentCompletedAt,
   formatLeadCreatedAt,
   isCrmAppointmentDone,
+  isResumeLead,
+  isSalesLead,
   mapCrmActivityLogRow,
   mapCrmAppointmentRow,
   mapCrmLeadRow,
   type CrmActivityLogEntry,
   normalizeLeadStatus,
+  normalizeResumeStatus,
   type CrmAppointment,
   type CrmLead,
   type CrmLeadStatus,
+  type CrmResumeStatus,
+  pipelineStageDotClass,
+  resumeStageDotClass,
 } from "@/lib/crm-data";
-import { crmLeadStatusLabel, crmSourceLabel } from "@/lib/crm-i18n";
+import { crmLeadStatusLabel, crmResumeStatusLabel, crmSourceLabel } from "@/lib/crm-i18n";
 import { resolveCrmOwnerOptions } from "@/lib/crm-team-members";
 import { formatCurrency } from "@/lib/utils";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
@@ -31,10 +39,9 @@ import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { dispatchCrmAppointmentCompleted } from "@/lib/crm-appointment-events";
 import { cn } from "@/lib/utils";
 
-function statusBadgeClass(status: CrmLeadStatus) {
-  const col = CRM_KANBAN_COLUMNS.find((c) => c.id === status);
-  const dot = col?.dotClass ?? "bg-gray-500";
-  return dot;
+function statusBadgeClass(lead: CrmLead, status: string) {
+  if (isResumeLead(lead)) return resumeStageDotClass(status as CrmResumeStatus);
+  return pipelineStageDotClass(status as CrmLeadStatus);
 }
 
 function calendarTimesFromAppointment(dateStr: string | null, timeStr: string | null): { start_at: string; end_at: string } {
@@ -65,11 +72,13 @@ export function CrmLeadDetailPanel({
   onClose,
   onLeadUpdated,
   onLeadDeleted,
+  onLeadMovedToResume,
 }: {
   lead: CrmLead;
   onClose: () => void;
   onLeadUpdated: (lead: CrmLead) => void;
   onLeadDeleted: (leadId: string) => void;
+  onLeadMovedToResume?: (leadId: string) => void;
 }) {
   const { currentUser, users, dataClientSlug, pushNotification } = useAppContext();
   const { language, t: lt } = useLanguage();
@@ -110,6 +119,10 @@ export function CrmLeadDetailPanel({
   const [deleteLeadModalOpen, setDeleteLeadModalOpen] = useState(false);
   const [deletePasskey, setDeletePasskey] = useState("");
   const [deletingLead, setDeletingLead] = useState(false);
+  const [markResumeModalOpen, setMarkResumeModalOpen] = useState(false);
+  const [markingResume, setMarkingResume] = useState(false);
+  const [moveBackToSalesModalOpen, setMoveBackToSalesModalOpen] = useState(false);
+  const [movingBackToSales, setMovingBackToSales] = useState(false);
 
   const syncFromLead = useCallback((l: CrmLead) => {
     setNameDraft(l.name);
@@ -271,13 +284,34 @@ export function CrmLeadDetailPanel({
     if (data) onLeadUpdated(mapCrmLeadRow(data as Record<string, unknown>));
   };
 
-  const onStatusChange = async (next: CrmLeadStatus) => {
-    if (next === normalizeLeadStatus(lead.status)) return;
+  const onStatusChange = async (next: string) => {
+    if (isResumeLead(lead)) {
+      const normalized = normalizeResumeStatus(next);
+      if (normalized === normalizeResumeStatus(lead.status)) return;
+      setStatusUpdating(true);
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from("crm_leads")
+        .update({ status: normalized, updated_at: now })
+        .eq("id", lead.id)
+        .select("*")
+        .maybeSingle();
+      setStatusUpdating(false);
+      if (error) {
+        console.error("[crm] status", error.message);
+        return;
+      }
+      if (data) onLeadUpdated(mapCrmLeadRow(data as Record<string, unknown>));
+      return;
+    }
+
+    const nextStatus = next as CrmLeadStatus;
+    if (nextStatus === normalizeLeadStatus(lead.status)) return;
     setStatusUpdating(true);
     const now = new Date().toISOString();
     const { data, error } = await supabase
       .from("crm_leads")
-      .update({ status: next, updated_at: now })
+      .update({ status: nextStatus, updated_at: now })
       .eq("id", lead.id)
       .select("*")
       .maybeSingle();
@@ -286,6 +320,101 @@ export function CrmLeadDetailPanel({
       console.error("[crm] status", error.message);
       return;
     }
+    if (data) onLeadUpdated(mapCrmLeadRow(data as Record<string, unknown>));
+  };
+
+  const confirmMarkAsResume = async () => {
+    if (!isSalesLead(lead)) return;
+    setMarkingResume(true);
+    const now = new Date().toISOString();
+    const actor = currentUser.name?.trim() || currentUser.email || "User";
+    const noteLine = lt("Moved to resume funnel by {name} on {date}")
+      .replace("{name}", actor)
+      .replace("{date}", new Date().toLocaleString(language === "pt-BR" ? "pt-BR" : "en-US"));
+    const existingNotes = (lead.notes ?? "").trim();
+    const notes = existingNotes ? `${existingNotes}\n\n${noteLine}` : noteLine;
+    const clientSlug = (lead.client_slug ?? dataClientSlug ?? "").trim() || null;
+
+    const { data, error } = await supabase
+      .from("crm_leads")
+      .update({
+        funnel: "resume",
+        status: CRM_RESUME_INITIAL_STATUS,
+        notes,
+        updated_at: now,
+      })
+      .eq("id", lead.id)
+      .select("*")
+      .maybeSingle();
+
+    if (error) {
+      console.error("[crm] mark as resume", error.message);
+      setMarkingResume(false);
+      return;
+    }
+
+    const { error: logErr } = await supabase.from("crm_activity_log").insert({
+      lead_id: lead.id,
+      client_slug: clientSlug,
+      actor_name: actor,
+      event_type: "lead_moved_to_resume",
+      payload: { from_funnel: "sales", to_funnel: "resume" },
+    });
+    if (logErr) console.error("[crm] activity log", logErr.message);
+
+    setMarkingResume(false);
+    setMarkResumeModalOpen(false);
+    if (data) {
+      if (onLeadMovedToResume) {
+        onLeadMovedToResume(lead.id);
+      } else {
+        onLeadUpdated(mapCrmLeadRow(data as Record<string, unknown>));
+      }
+    }
+  };
+
+  const confirmMoveBackToSales = async () => {
+    if (!isResumeLead(lead)) return;
+    setMovingBackToSales(true);
+    const now = new Date().toISOString();
+    const actor = currentUser.name?.trim() || currentUser.email || "User";
+    const noteLine = lt("Moved back to sales funnel as Disqualified by {name} on {date}")
+      .replace("{name}", actor)
+      .replace("{date}", new Date().toLocaleString(language === "pt-BR" ? "pt-BR" : "en-US"));
+    const existingNotes = (lead.notes ?? "").trim();
+    const notes = existingNotes ? `${existingNotes}\n\n${noteLine}` : noteLine;
+    const clientSlug = (lead.client_slug ?? dataClientSlug ?? "").trim() || null;
+    const salesStatus: CrmLeadStatus = "Disqualified";
+
+    const { data, error } = await supabase
+      .from("crm_leads")
+      .update({
+        funnel: "sales",
+        status: salesStatus,
+        notes,
+        updated_at: now,
+      })
+      .eq("id", lead.id)
+      .select("*")
+      .maybeSingle();
+
+    if (error) {
+      console.error("[crm] move back to sales", error.message);
+      setMovingBackToSales(false);
+      return;
+    }
+
+    const { error: logErr } = await supabase.from("crm_activity_log").insert({
+      lead_id: lead.id,
+      client_slug: clientSlug,
+      actor_name: actor,
+      event_type: "lead_moved_to_sales",
+      payload: { from_funnel: "resume", to_funnel: "sales", status: salesStatus },
+    });
+    if (logErr) console.error("[crm] activity log", logErr.message);
+
+    setMovingBackToSales(false);
+    setMoveBackToSalesModalOpen(false);
     if (data) onLeadUpdated(mapCrmLeadRow(data as Record<string, unknown>));
   };
 
@@ -452,7 +581,8 @@ export function CrmLeadDetailPanel({
     onClose();
   };
 
-  const currentStatus = normalizeLeadStatus(lead.status);
+  const currentStatus = isResumeLead(lead) ? normalizeResumeStatus(lead.status) : normalizeLeadStatus(lead.status);
+  const statusColumns = isResumeLead(lead) ? CRM_RESUME_KANBAN_COLUMNS : CRM_KANBAN_COLUMNS;
 
   return (
     <>
@@ -482,16 +612,16 @@ export function CrmLeadDetailPanel({
                   "inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-1 text-xs text-white",
                 )}
               >
-                <span className={cn("h-1.5 w-1.5 rounded-full", statusBadgeClass(currentStatus))} aria-hidden />
+                <span className={cn("h-1.5 w-1.5 rounded-full", statusBadgeClass(lead, currentStatus))} aria-hidden />
                 <select
                   value={currentStatus}
                   disabled={statusUpdating}
-                  onChange={(e) => void onStatusChange(e.target.value as CrmLeadStatus)}
+                  onChange={(e) => void onStatusChange(e.target.value)}
                   className="border-none bg-transparent text-xs text-white outline-none"
                 >
-                  {CRM_KANBAN_COLUMNS.map((c) => (
+                  {statusColumns.map((c) => (
                     <option key={c.id} value={c.id} className="bg-[#141414]">
-                      {crmLeadStatusLabel(c.id, language)}
+                      {isResumeLead(lead) ? crmResumeStatusLabel(c.id, language) : crmLeadStatusLabel(c.id, language)}
                     </option>
                   ))}
                 </select>
@@ -568,18 +698,20 @@ export function CrmLeadDetailPanel({
                   ))}
                 </select>
               </label>
-              <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Value ($)")}</span>
-                <input
-                  value={propDraft.valueStr}
-                  onChange={(e) => setPropDraft((p) => ({ ...p, valueStr: e.target.value }))}
-                  inputMode="decimal"
-                  className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
-                />
-                <span className="text-xs text-[rgba(255,255,255,0.35)]">
-                  {lt("Preview")}: {formatCurrency(Number.parseFloat(propDraft.valueStr.replace(/,/g, "")) || 0)}
-                </span>
-              </label>
+              {isSalesLead(lead) ? (
+                <label className="block space-y-1">
+                  <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Value ($)")}</span>
+                  <input
+                    value={propDraft.valueStr}
+                    onChange={(e) => setPropDraft((p) => ({ ...p, valueStr: e.target.value }))}
+                    inputMode="decimal"
+                    className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                  />
+                  <span className="text-xs text-[rgba(255,255,255,0.35)]">
+                    {lt("Preview")}: {formatCurrency(Number.parseFloat(propDraft.valueStr.replace(/,/g, "")) || 0)}
+                  </span>
+                </label>
+              ) : null}
             </div>
             <div className="mt-3 flex justify-end gap-2">
               <button
@@ -835,7 +967,11 @@ export function CrmLeadDetailPanel({
                   const title =
                     entry.event_type === "appointment_completed"
                       ? String(entry.payload.appointment_title ?? lt("Appointment completed"))
-                      : entry.event_type;
+                      : entry.event_type === "lead_moved_to_resume"
+                        ? lt("Moved to resume funnel")
+                        : entry.event_type === "lead_moved_to_sales"
+                          ? lt("Moved back to sales funnel")
+                          : entry.event_type;
                   return (
                     <li
                       key={entry.id}
@@ -844,11 +980,17 @@ export function CrmLeadDetailPanel({
                       <p className="font-medium text-white">
                         {entry.event_type === "appointment_completed"
                           ? lt("Appointment completed")
-                          : title}
+                          : entry.event_type === "lead_moved_to_resume"
+                            ? lt("Moved to resume funnel")
+                            : entry.event_type === "lead_moved_to_sales"
+                              ? lt("Moved back to sales funnel")
+                              : title}
                         {entry.event_type === "appointment_completed" && title ? `: ${title}` : ""}
                       </p>
                       <p className="mt-1 text-[rgba(255,255,255,0.45)]">
-                        {entry.actor_name ? `${lt("Completed by")} ${entry.actor_name}` : "—"}
+                        {entry.actor_name
+                          ? `${entry.event_type === "appointment_completed" ? lt("Completed by") : lt("By")} ${entry.actor_name}`
+                          : "—"}
                         {entry.created_at
                           ? ` · ${formatCrmAppointmentCompletedAt(entry.created_at, language)}`
                           : ""}
@@ -860,7 +1002,25 @@ export function CrmLeadDetailPanel({
             )}
           </section>
 
-          <section className="mt-10">
+          <section className="mt-10 space-y-3">
+            {isSalesLead(lead) ? (
+              <button
+                type="button"
+                onClick={() => setMarkResumeModalOpen(true)}
+                className="w-full rounded-[8px] border border-[var(--border-strong)] px-3 py-2 text-sm text-[rgba(255,255,255,0.75)] transition-colors hover:bg-[rgba(255,255,255,0.04)]"
+              >
+                {lt("Mark as resume")}
+              </button>
+            ) : null}
+            {isResumeLead(lead) ? (
+              <button
+                type="button"
+                onClick={() => setMoveBackToSalesModalOpen(true)}
+                className="w-full rounded-[8px] border border-[var(--border-strong)] px-3 py-2 text-sm text-[rgba(255,255,255,0.75)] transition-colors hover:bg-[rgba(255,255,255,0.04)]"
+              >
+                {lt("Move back to sales (Disqualified)")}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setDeleteLeadModalOpen(true)}
@@ -882,6 +1042,66 @@ export function CrmLeadDetailPanel({
         onCancel={() => setDeleteApptId(null)}
         onConfirm={() => void confirmDeleteAppointment()}
       />
+
+      {markResumeModalOpen ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-[8px] border border-[var(--border)] bg-[#161616] p-5">
+            <h3 className="section-title">{lt("Mark as resume")}</h3>
+            <p className="mt-2 text-sm font-light leading-relaxed text-[rgba(255,255,255,0.55)]">
+              {lt("This lead will leave the sales pipeline and appear in the Resumes funnel as a new application.")}
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMarkResumeModalOpen(false)}
+                className="btn-ghost rounded-[8px] px-3 py-1.5 text-xs"
+                disabled={markingResume}
+              >
+                {lt("Cancel")}
+              </button>
+              <button
+                type="button"
+                disabled={markingResume}
+                onClick={() => void confirmMarkAsResume()}
+                className="btn-primary rounded-[8px] px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                {markingResume ? lt("Saving…") : lt("Confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {moveBackToSalesModalOpen ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-[8px] border border-[var(--border)] bg-[#161616] p-5">
+            <h3 className="section-title">{lt("Move back to sales (Disqualified)")}</h3>
+            <p className="mt-2 text-sm font-light leading-relaxed text-[rgba(255,255,255,0.55)]">
+              {lt(
+                "This application will leave the Resumes funnel and return to the sales pipeline as Disqualified.",
+              )}
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMoveBackToSalesModalOpen(false)}
+                className="btn-ghost rounded-[8px] px-3 py-1.5 text-xs"
+                disabled={movingBackToSales}
+              >
+                {lt("Cancel")}
+              </button>
+              <button
+                type="button"
+                disabled={movingBackToSales}
+                onClick={() => void confirmMoveBackToSales()}
+                className="btn-primary rounded-[8px] px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                {movingBackToSales ? lt("Saving…") : lt("Confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {deleteLeadModalOpen ? (
         <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/70 p-4">

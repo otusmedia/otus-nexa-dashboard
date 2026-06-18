@@ -525,6 +525,31 @@ const platformPtBR: Record<string, string> = {
   Lost: "Perdido",
   Won: "Ganho",
 
+  // CRM — resume pipeline statuses
+  "New Application": "Nova candidatura",
+  Screening: "Em triagem",
+  Interview: "Entrevista",
+  Offer: "Proposta",
+  Hired: "Contratado",
+  Archived: "Arquivado",
+
+  // CRM — pipeline tabs & resume actions
+  Sales: "Vendas",
+  Resumes: "Currículos",
+  "Mark as resume": "Marcar como currículo",
+  "Moved to resume funnel": "Movido para funil de currículos",
+  "Moved to resume funnel by {name} on {date}":
+    "Movido para funil de currículos por {name} em {date}",
+  "This lead will leave the sales pipeline and appear in the Resumes funnel as a new application.":
+    "Este lead sairá do funil de vendas e aparecerá no funil de currículos como nova candidatura.",
+  "Move back to sales (Disqualified)": "Voltar para vendas (desqualificado)",
+  "Moved back to sales funnel": "Movido de volta para funil de vendas",
+  "Moved back to sales funnel as Disqualified by {name} on {date}":
+    "Movido de volta para funil de vendas como desqualificado por {name} em {date}",
+  "This application will leave the Resumes funnel and return to the sales pipeline as Disqualified.":
+    "Esta candidatura sairá do funil de currículos e voltará para o funil de vendas como desqualificado.",
+  By: "Por",
+
   // CRM — UI
   Pipeline: "Funil",
   "Kanban pipeline": "Funil kanban",

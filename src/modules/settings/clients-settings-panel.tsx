@@ -15,7 +15,8 @@ import { GhlImportPanel } from "@/modules/settings/ghl-import-panel";
 import { uploadClientHeroImage } from "@/lib/client-hero-upload";
 import { readSvgFileAsDataUrl } from "@/lib/client-logo-upload";
 import { ClientApisFields } from "@/modules/settings/client-form-fields";
-import type { AppLanguage, Client, ClientApiCredentials, ClientApisConfig, ClientCrmIntegration } from "@/types";
+import { ClientEnabledModulesFields } from "@/modules/settings/client-enabled-modules-fields";
+import type { AppLanguage, Client, ClientApiCredentials, ClientApisConfig, ClientCrmIntegration, ModuleKey } from "@/types";
 import { cn } from "@/lib/utils";
 
 type ClientFormState = {
@@ -29,6 +30,7 @@ type ClientFormState = {
   apiCredentials: ClientApiCredentials;
   crmIntegration: ClientCrmIntegration;
   defaultLocale: AppLanguage;
+  enabledModules: ModuleKey[];
 };
 
 function emptyClientForm(): ClientFormState {
@@ -43,6 +45,7 @@ function emptyClientForm(): ClientFormState {
     apiCredentials: { ...EMPTY_CLIENT_API_CREDENTIALS },
     crmIntegration: { ...EMPTY_CLIENT_CRM_INTEGRATION },
     defaultLocale: "en",
+    enabledModules: [],
   };
 }
 
@@ -119,6 +122,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       apiCredentials: form.apiCredentials,
       crmIntegration: form.crmIntegration,
       defaultLocale: form.defaultLocale,
+      enabledModules: form.enabledModules.length > 0 ? form.enabledModules : null,
     });
     if (!result.ok) {
       setSaveError(result.error ?? lt("Could not save client."));
@@ -141,6 +145,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       apiCredentials: { ...client.apiCredentials },
       crmIntegration: { ...client.crmIntegration },
       defaultLocale: client.defaultLocale,
+      enabledModules: client.enabledModules ? [...client.enabledModules] : [],
     });
     setSaveError("");
   };
@@ -164,6 +169,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       apiCredentials: editForm.apiCredentials,
       crmIntegration: editForm.crmIntegration,
       defaultLocale: editForm.defaultLocale,
+      enabledModules: editForm.enabledModules.length > 0 ? editForm.enabledModules : null,
     });
     if (!result.ok) {
       setSaveError(result.error ?? lt("Could not save client."));
@@ -365,6 +371,10 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
               </div>
             ) : null}
           </div>
+          <ClientEnabledModulesFields
+            value={form.enabledModules}
+            onChange={(enabledModules) => setForm((prev) => ({ ...prev, enabledModules }))}
+          />
           <ClientApisFields
             value={form.apis}
             onChange={(apis) => setForm((prev) => ({ ...prev, apis }))}
@@ -487,6 +497,10 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
                 </div>
               ) : null}
             </div>
+            <ClientEnabledModulesFields
+              value={editForm.enabledModules}
+              onChange={(enabledModules) => setEditForm((prev) => (prev ? { ...prev, enabledModules } : prev))}
+            />
             <ClientApisFields
               value={editForm.apis}
               onChange={(apis) => setEditForm((prev) => (prev ? { ...prev, apis } : prev))}

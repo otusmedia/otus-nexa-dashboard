@@ -8,9 +8,13 @@ import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import {
   ALL_MODULE_KEYS,
-  ASSIGNABLE_MODULE_KEYS,
+  defaultAdminModulesForClientCompany,
+  isExternalClientCompany,
   MODULE_LABELS,
+  modulesAssignableByViewer,
+  ModuleAssignmentContext,
   ROCKETRIDE_ALLOWED_MODULE_KEYS,
+  viewerCanAssignModule,
 } from "@/lib/modules";
 import type { AppLanguage, AppUser, ModuleKey, Role, UserCompany } from "@/types";
 import { cn } from "@/lib/utils";
@@ -105,31 +109,11 @@ function isRocketRideAdmin(user: AppUser): boolean {
 }
 
 function isExternalClientAdmin(user: AppUser): boolean {
-  return isClientCompany(user.company) && user.role === "admin";
+  return isExternalClientCompany(user.company) && user.role === "admin";
 }
 
 function isNexaOtusManager(user: AppUser): boolean {
   return (user.company === "nexa" || user.company === "otus") && user.role === "manager";
-}
-
-function modulesInViewerScope(viewer: AppUser): ModuleKey[] {
-  if (isNexaOtusAdmin(viewer)) return [...ASSIGNABLE_MODULE_KEYS];
-  if (isNexaOtusManager(viewer)) return [...ASSIGNABLE_MODULE_KEYS];
-  if (isRocketRideAdmin(viewer) || isExternalClientAdmin(viewer)) return [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
-  if (isClientCompany(viewer.company) && viewer.role === "manager") {
-    return ALL_MODULE_KEYS.filter((k) => viewer.modules.includes(k) && ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(k));
-  }
-  return [...ASSIGNABLE_MODULE_KEYS];
-}
-
-function moduleKeyToggleableByViewer(viewer: AppUser, key: ModuleKey): boolean {
-  if (isNexaOtusAdmin(viewer)) return true;
-  if (isNexaOtusManager(viewer)) return true;
-  if (isRocketRideAdmin(viewer) || isExternalClientAdmin(viewer)) return ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(key);
-  if (isClientCompany(viewer.company) && viewer.role === "manager") {
-    return viewer.modules.includes(key) && ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(key);
-  }
-  return false;
 }
 
 function canEditTargetUserModules(viewer: AppUser, target: AppUser): boolean {
@@ -170,6 +154,14 @@ function canDeleteUser(viewer: AppUser, target: AppUser): boolean {
 export function SettingsModule() {
   const { users, addUser, updateUser, deleteUser, ts, currentUser, clients } = useAppContext();
   const { t: lt } = useLanguage();
+  const moduleAssignmentCtx = useMemo<ModuleAssignmentContext>(
+    () => ({ users, clients }),
+    [users, clients],
+  );
+  const viewerScopeModuleKeys = useMemo(
+    () => modulesAssignableByViewer(currentUser, moduleAssignmentCtx),
+    [currentUser, moduleAssignmentCtx],
+  );
   const showClientsTab = isAgencyAdmin(currentUser);
   const [settingsTab, setSettingsTab] = useState<"users" | "clients">("users");
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -178,8 +170,6 @@ export function SettingsModule() {
   const [editForm, setEditForm] = useState<EditFormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null);
   const [pendingModuleChanges, setPendingModuleChanges] = useState<Record<string, ModuleKey[]>>({});
-
-  const viewerScopeModuleKeys = useMemo(() => modulesInViewerScope(currentUser), [currentUser]);
 
   const companySelectOptions = useMemo(() => {
     const agency = [
@@ -265,7 +255,13 @@ export function SettingsModule() {
     let modules: ModuleKey[];
     if (form.role === "admin") {
       if (isNexaOtusAdmin(currentUser) || isNexaOtusManager(currentUser)) {
-        modules = isClientCompany(company) ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS] : [...ALL_MODULE_KEYS];
+        modules = isRocketRideCompany(company)
+          ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
+          : isExternalClientCompany(company)
+            ? defaultAdminModulesForClientCompany(company, moduleAssignmentCtx)
+            : [...ALL_MODULE_KEYS];
+      } else if (isExternalClientAdmin(currentUser)) {
+        modules = defaultAdminModulesForClientCompany(company, moduleAssignmentCtx);
       } else {
         modules = [...ROCKETRIDE_ALLOWED_MODULE_KEYS];
       }
@@ -303,7 +299,21 @@ export function SettingsModule() {
     }
     let modules: ModuleKey[];
     if (role === "admin") {
-      modules = isClientCompany(company) ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS] : [...ALL_MODULE_KEYS];
+      if (isNexaOtusAdmin(currentUser) || isNexaOtusManager(currentUser)) {
+        modules = isRocketRideCompany(company)
+          ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
+          : isExternalClientCompany(company)
+            ? defaultAdminModulesForClientCompany(company, moduleAssignmentCtx)
+            : [...ALL_MODULE_KEYS];
+      } else if (isExternalClientAdmin(currentUser)) {
+        modules = defaultAdminModulesForClientCompany(company, moduleAssignmentCtx);
+      } else {
+        modules = isRocketRideCompany(company)
+          ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
+          : isExternalClientCompany(company)
+            ? defaultAdminModulesForClientCompany(company, moduleAssignmentCtx)
+            : [...ALL_MODULE_KEYS];
+      }
     } else {
       const clientViewer =
         isRocketRideAdmin(currentUser) ||
@@ -311,7 +321,7 @@ export function SettingsModule() {
         (isClientCompany(currentUser.company) && currentUser.role === "manager");
       modules =
         isClientCompany(company) && clientViewer
-          ? editForm.modules.filter((m) => ROCKETRIDE_ALLOWED_MODULE_KEYS.includes(m))
+          ? editForm.modules.filter((m) => viewerScopeModuleKeys.includes(m))
           : [...editForm.modules];
     }
     const clientSlug = isClientCompany(company) ? company : null;
@@ -340,7 +350,7 @@ export function SettingsModule() {
 
   const toggleModuleForUser = (user: AppUser, key: ModuleKey) => {
     if (!canEditTargetUserModules(currentUser, user)) return;
-    if (!moduleKeyToggleableByViewer(currentUser, key)) return;
+    if (!viewerCanAssignModule(currentUser, key, moduleAssignmentCtx)) return;
     const source = pendingModuleChanges[user.id] ?? user.modules;
     const has = source.includes(key);
     const next = has ? source.filter((m) => m !== key) : [...source, key];
@@ -380,12 +390,16 @@ export function SettingsModule() {
   );
 
   const editModuleScopeKeys =
-    editTarget &&
-    (isRocketRideAdmin(currentUser) ||
-      isExternalClientAdmin(currentUser) ||
-      (isClientCompany(currentUser.company) && editTarget.company === currentUser.company))
+    editTarget && isRocketRideAdmin(currentUser)
       ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
-      : viewerScopeModuleKeys;
+      : editTarget &&
+          (isExternalClientAdmin(currentUser) ||
+            (isClientCompany(currentUser.company) &&
+              !isRocketRideCompany(currentUser.company) &&
+              currentUser.role === "manager")) &&
+          editTarget.company === currentUser.company
+        ? modulesAssignableByViewer(currentUser, moduleAssignmentCtx)
+        : viewerScopeModuleKeys;
 
   return (
     <>
@@ -506,7 +520,7 @@ export function SettingsModule() {
                           {viewerScopeModuleKeys.map((key) => {
                             const active = effectiveModulesForUser(user).includes(key);
                             const interactive =
-                              rowCanEditModules && moduleKeyToggleableByViewer(currentUser, key);
+                              rowCanEditModules && viewerCanAssignModule(currentUser, key, moduleAssignmentCtx);
                             const chipClass = moduleChipClass(active, interactive);
                             return interactive ? (
                               <button
@@ -738,8 +752,14 @@ export function SettingsModule() {
                       modules:
                         role === "admin"
                           ? isNexaOtusAdmin(currentUser) || isNexaOtusManager(currentUser)
-                            ? [...ALL_MODULE_KEYS]
-                            : [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
+                            ? isRocketRideCompany(editForm.company)
+                              ? [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
+                              : isExternalClientCompany(editForm.company)
+                                ? defaultAdminModulesForClientCompany(editForm.company, moduleAssignmentCtx)
+                                : [...ALL_MODULE_KEYS]
+                            : isExternalClientAdmin(currentUser)
+                              ? defaultAdminModulesForClientCompany(editForm.company, moduleAssignmentCtx)
+                              : [...ROCKETRIDE_ALLOWED_MODULE_KEYS]
                           : prev.modules.filter((m) => editModuleScopeKeys.includes(m)),
                     };
                   });

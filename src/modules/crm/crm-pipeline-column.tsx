@@ -1,7 +1,7 @@
 "use client";
 
 import { Draggable, Droppable } from "@hello-pangea/dnd";
-import type { CrmLead, CrmLeadStatus } from "@/lib/crm-data";
+import type { CrmLead } from "@/lib/crm-data";
 import { CrmPipelineCard } from "@/modules/crm/crm-pipeline-card";
 
 export function CrmPipelineColumn({
@@ -13,12 +13,12 @@ export function CrmPipelineColumn({
   onAddLead,
   onOpenLead,
 }: {
-  columnId: CrmLeadStatus;
+  columnId: string;
   label: string;
-  addLeadLabel: string;
+  addLeadLabel?: string;
   dotClass: string;
   leads: CrmLead[];
-  onAddLead: (columnId: CrmLeadStatus) => void;
+  onAddLead?: (columnId: string) => void;
   onOpenLead: (lead: CrmLead) => void;
 }) {
   return (
@@ -58,13 +58,15 @@ export function CrmPipelineColumn({
           </div>
         )}
       </Droppable>
-      <button
-        type="button"
-        onClick={() => onAddLead(columnId)}
-        className="mt-2 shrink-0 rounded-[8px] border border-dashed border-[var(--border-strong)] bg-transparent py-2.5 text-xs font-normal text-[rgba(255,255,255,0.4)] transition-colors hover:border-[var(--border)] hover:text-[var(--muted)]"
-      >
-        {addLeadLabel}
-      </button>
+      {onAddLead && addLeadLabel ? (
+        <button
+          type="button"
+          onClick={() => onAddLead(columnId)}
+          className="mt-2 shrink-0 rounded-[8px] border border-dashed border-[var(--border-strong)] bg-transparent py-2.5 text-xs font-normal text-[rgba(255,255,255,0.4)] transition-colors hover:border-[var(--border)] hover:text-[var(--muted)]"
+        >
+          {addLeadLabel}
+        </button>
+      ) : null}
     </div>
   );
 }

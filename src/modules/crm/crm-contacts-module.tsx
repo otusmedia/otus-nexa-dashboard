@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { useAppContext } from "@/components/providers/app-providers";
@@ -21,6 +21,7 @@ export function CrmContactsModule() {
   const contactClientSlug = dataClientSlug ?? "rocketride";
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [loading, setLoading] = useState(true);
+  const initialLoadRef = useRef(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -34,21 +35,25 @@ export function CrmContactsModule() {
   const [nameError, setNameError] = useState("");
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const isInitialLoad = initialLoadRef.current;
+    if (isInitialLoad) setLoading(true);
     const { data, error } = await supabase.from("crm_contacts").select("*").order("created_at", { ascending: false });
     if (error) {
       console.error("[crm contacts]", error.message);
-      setContacts([]);
+      if (isInitialLoad) setContacts([]);
     } else {
       const mapped = ((data ?? []) as Record<string, unknown>[])
         .map((row) => mapCrmContactRow(row))
         .filter((c) => rowMatchesDataClient(c.client_slug, dataClientSlug));
       setContacts(mapped);
     }
+    initialLoadRef.current = false;
     setLoading(false);
   }, [dataClientSlug]);
 
   useEffect(() => {
+    initialLoadRef.current = true;
+    setLoading(true);
     void load();
 
     const onFocus = () => void load();
@@ -167,7 +172,7 @@ export function CrmContactsModule() {
         }
       />
 
-      {loading ? (
+      {loading && contacts.length === 0 ? (
         <p className="text-sm text-[rgba(255,255,255,0.45)]">{lt("Loading contacts…")}</p>
       ) : empty ? (
         <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-xl border border-[var(--border)] bg-[#161616] px-6 py-16 text-center">
