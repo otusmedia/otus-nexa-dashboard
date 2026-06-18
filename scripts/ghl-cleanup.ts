@@ -34,7 +34,7 @@ const OPP_PREFIX = "ghl:opp:";
 const CONTACT_PREFIX = "ghl:contact:";
 
 async function purgeTable(
-  sb: ReturnType<typeof import("@supabase/supabase-js").createClient>,
+  sb: import("@supabase/supabase-js").SupabaseClient,
   table: "crm_leads" | "crm_contacts",
   clientSlug: string,
   prefix: string,
@@ -49,17 +49,18 @@ async function purgeTable(
       .like("external_id", `${prefix}%`)
       .limit(500);
     if (error) throw new Error(`${table}: ${error.message}`);
-    if (!data?.length) break;
+    const rows = data as { id: string }[] | null;
+    if (!rows?.length) break;
     if (dryRun) {
-      total += data.length;
-      if (data.length < 500) break;
+      total += rows.length;
+      if (rows.length < 500) break;
       continue;
     }
-    const ids = data.map((r) => r.id);
+    const ids = rows.map((r) => r.id);
     const { error: delErr } = await sb.from(table).delete().in("id", ids);
     if (delErr) throw new Error(`${table} delete: ${delErr.message}`);
     total += ids.length;
-    if (data.length < 500) break;
+    if (rows.length < 500) break;
   }
   return total;
 }
