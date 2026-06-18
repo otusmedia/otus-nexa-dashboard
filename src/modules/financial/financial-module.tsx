@@ -414,6 +414,8 @@ export function FinancialModule() {
     };
   }, [invoiceStatusMenu]);
 
+  const invoiceClientSlug = dataClientSlug ?? "rocketride";
+
   const loadFinancialData = useCallback(async () => {
     setLoadingData(true);
     let invQ = supabase.from("invoices").select("*").order("created_at", { ascending: false });
@@ -459,6 +461,7 @@ export function FinancialModule() {
       rowMatchesDataClient(row.client_slug != null ? String(row.client_slug) : null, dataClientSlug),
     );
     const allowedProjectIds = new Set(projRows.map((row) => String(row.id ?? "")));
+    const allowedInvoiceIds = new Set(invRows.map((row) => String(row.id ?? "")));
     const mappedProjects: DbProject[] = projRows.map((row) => ({
       id: String(row.id ?? ""),
       name: String(row.name ?? ""),
@@ -467,7 +470,9 @@ export function FinancialModule() {
       .filter((row) => {
         if (!dataClientSlug) return true;
         const pid = row.project_id != null ? String(row.project_id) : "";
-        return pid ? allowedProjectIds.has(pid) : false;
+        if (pid) return allowedProjectIds.has(pid);
+        const invId = row.invoice_id != null ? String(row.invoice_id) : "";
+        return invId ? allowedInvoiceIds.has(invId) : false;
       })
       .map((row) => {
       const invoiceRelation = row.invoice as Record<string, unknown> | Record<string, unknown>[] | null | undefined;
@@ -1544,6 +1549,7 @@ export function FinancialModule() {
                   project_ids: linkedProjectIds.length > 0 ? linkedProjectIds : null,
                   invoice_number: resolvedInvoiceNumber,
                   file_url: publicUrl,
+                  client_slug: invoiceClientSlug,
                 };
                 console.log("Inserting invoice:", invoicePayload);
 
