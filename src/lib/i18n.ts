@@ -704,7 +704,6 @@ const platformPtBR: Record<string, string> = {
   "Could not reach the RocketRide pipeline. Make sure it is running locally.":
     "Não foi possível conectar ao pipeline RocketRide. Verifique se está rodando localmente.",
   "No content drafts yet.": "Nenhum rascunho de conteúdo ainda.",
-  By: "Por",
   "Feedback (optional)": "Feedback (opcional)",
   "Add feedback for the creator...": "Adicione feedback para o criador...",
   "Link to Project (optional)": "Vincular ao projeto (opcional)",

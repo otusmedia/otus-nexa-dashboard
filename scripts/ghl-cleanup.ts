@@ -42,15 +42,17 @@ async function purgeTable(
 ): Promise<number> {
   let total = 0;
   for (let round = 0; round < 100; round++) {
-    const { data, error } = await sb
+    const { data: rows, error } = (await sb
       .from(table)
       .select("id")
       .eq("client_slug", clientSlug)
       .like("external_id", `${prefix}%`)
-      .limit(500);
-    if (error) throw new Error(`${table}: ${error.message}`);
-    const rows = data as { id: string }[] | null;
-    if (!rows?.length) break;
+      .limit(500)) as { data: { id: string }[] | null; error: unknown };
+    if (error) {
+      console.error(`${table} fetch error:`, error);
+      continue;
+    }
+    if (!rows || rows.length === 0) continue;
     if (dryRun) {
       total += rows.length;
       if (rows.length < 500) break;
