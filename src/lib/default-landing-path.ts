@@ -1,6 +1,9 @@
 import { platformNavigation } from "@/layout/navigation";
+import { isAgencyAdmin } from "@/lib/client-utils";
 import { hasModuleAccess } from "@/lib/modules";
 import type { AppUser, ModuleKey } from "@/types";
+
+export const AGENCY_HOME_PATH = "/home";
 
 /** CRM submenu order — first item is the default when CRM is the landing module. */
 export const CRM_MODULE_PATHS = [
@@ -76,10 +79,15 @@ export function resolveDefaultLandingPathForUser(
   user: AppUser,
   navOrder?: ModuleKey[] | null,
 ): string {
+  if (isAgencyAdmin(user)) return AGENCY_HOME_PATH;
   return resolveDefaultLandingPath(user.modules, {
     navOrder,
     canAccessMarketing: canAccessMarketingForUser(user),
   });
+}
+
+export function isAgencyHomePath(pathname: string): boolean {
+  return pathname === AGENCY_HOME_PATH || pathname.startsWith(`${AGENCY_HOME_PATH}/`);
 }
 
 export function moduleKeyForPathname(pathname: string): ModuleKey | null {
@@ -94,6 +102,7 @@ export function pathnameAllowedForModules(
   modules: readonly ModuleKey[],
   opts: LandingPathOptions = {},
 ): boolean {
+  if (isAgencyHomePath(pathname)) return false;
   const key = moduleKeyForPathname(pathname);
   if (!key) return true;
   const canAccessMarketing = opts.canAccessMarketing ?? true;

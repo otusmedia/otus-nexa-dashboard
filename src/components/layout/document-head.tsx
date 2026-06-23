@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import {
@@ -8,6 +9,7 @@ import {
   isAgencyAdmin,
   isAgencyCompany,
 } from "@/lib/client-utils";
+import { isAgencyHomePath } from "@/lib/default-landing-path";
 import type { AppUser, Client } from "@/types";
 
 const SYSTEM_TITLE = "NXO System";
@@ -17,7 +19,11 @@ function resolveSelectedClientName(
   clients: Client[],
   projectsClientFilter: string,
   allClientsLabel: string,
+  homeLabel: string,
+  pathname: string,
 ): string {
+  if (isAgencyHomePath(pathname)) return homeLabel;
+
   if (isAgencyAdmin(currentUser)) {
     if (projectsClientFilter === "all") return allClientsLabel;
     return clients.find((c) => c.slug === projectsClientFilter)?.name ?? projectsClientFilter;
@@ -38,9 +44,11 @@ function resolveSelectedClientName(
 }
 
 export function DocumentHead() {
+  const pathname = usePathname() ?? "";
   const { currentUser, clients, projectsClientFilter } = useAppContext();
   const { t: lt } = useLanguage();
   const allClientsLabel = lt("All clients");
+  const homeLabel = lt("Home");
 
   useEffect(() => {
     const clientName = resolveSelectedClientName(
@@ -48,9 +56,11 @@ export function DocumentHead() {
       clients,
       projectsClientFilter,
       allClientsLabel,
+      homeLabel,
+      pathname,
     );
     document.title = clientName ? `${SYSTEM_TITLE} - ${clientName}` : SYSTEM_TITLE;
-  }, [currentUser, clients, projectsClientFilter, allClientsLabel]);
+  }, [currentUser, clients, projectsClientFilter, allClientsLabel, homeLabel, pathname]);
 
   return null;
 }

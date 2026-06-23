@@ -35,9 +35,12 @@ import { readSidebarLayout, writeSidebarLayout } from "@/lib/sidebar-layout-pref
 import { effectiveUserClientSlug, isAgencyAdmin, isAgencyCompany } from "@/lib/client-utils";
 import { hasModuleAccess } from "@/lib/modules";
 import {
+  AGENCY_HOME_PATH,
   canAccessMarketingForUser,
+  isAgencyHomePath,
   pathnameAllowedForModules,
   resolveDefaultLandingPath,
+  resolveDefaultLandingPathForUser,
 } from "@/lib/default-landing-path";
 import { Modal } from "@/components/ui/modal";
 import HeroSection from "@/components/layout/hero-section";
@@ -224,12 +227,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (currentUser.id === GUEST_USER_ID || allowedModules.length === 0) return;
+
+    if (isAgencyHomePath(pathname)) {
+      if (isAgencyAdmin(currentUser)) return;
+      const fallback = resolveDefaultLandingPathForUser(currentUser, navOrder);
+      if (pathname !== fallback) router.replace(fallback);
+      return;
+    }
+
     const landingOpts = {
       navOrder,
       canAccessMarketing: canAccessMarketingForUser(currentUser),
     };
     if (pathnameAllowedForModules(pathname, allowedModules, landingOpts)) return;
-    const fallback = resolveDefaultLandingPath(allowedModules, landingOpts);
+    const fallback = isAgencyAdmin(currentUser)
+      ? AGENCY_HOME_PATH
+      : resolveDefaultLandingPath(allowedModules, landingOpts);
     if (pathname !== fallback && !pathname.startsWith(`${fallback}/`)) {
       router.replace(fallback);
     }

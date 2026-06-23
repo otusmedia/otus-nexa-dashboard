@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import Link from "next/link";
-import { Bell, LogOut, PanelLeftClose, Settings, X } from "lucide-react";
+import { Bell, Home, LogOut, PanelLeftClose, Settings, X } from "lucide-react";
 import type { Client } from "@/types";
 import type { ModuleKey } from "@/types";
 import { SidebarClientPicker } from "@/components/layout/sidebar-client-picker";
@@ -148,6 +148,25 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
           ref={navScrollRef}
           className="sidebar-nav-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain pr-1"
         >
+          {agencyAdmin ? (
+            <div className="mb-2 px-3">
+              <Link
+                href="/home"
+                onClick={() => {
+                  if (projectsClientFilter !== "all") setProjectsClientFilter("all");
+                }}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg border-l-2 border-transparent px-3 py-2 text-sm transition [border-image:none]",
+                  pathname === "/home" || pathname.startsWith("/home/")
+                    ? "border-l-[rgba(255,69,0,1)] bg-[rgba(255,69,0,0.15)] text-[#FF4500]"
+                    : "text-[rgba(255,255,255,0.4)] hover:bg-[var(--surface-elevated)] hover:text-white",
+                )}
+              >
+                <Home className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+                {lt("Home")}
+              </Link>
+            </div>
+          ) : null}
           <SidebarNav
             scrollContainerRef={navScrollRef}
             links={links}

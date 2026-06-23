@@ -779,6 +779,36 @@ const platformPtBR: Record<string, string> = {
   "CRM Lead": "Lead CRM",
   "Edit this appointment from the CRM pipeline.":
     "Edite este compromisso no funil do CRM.",
+
+  // Agency Home
+  Home: "Início",
+  "Agency portfolio overview across all clients": "Visão geral do portfólio da agência em todos os clientes",
+  "Could not load agency home data:": "Não foi possível carregar os dados do início:",
+  "Active clients": "Clientes ativos",
+  "Overdue tasks": "Tarefas em atraso",
+  "Waiting on client approval": "Aguardando aprovação do cliente",
+  "Posts published (30d)": "Posts publicados (30d)",
+  "Invoices overdue": "Faturas em atraso",
+  "CRM open leads": "Leads CRM em aberto",
+  "Needs attention": "Precisa de atenção",
+  "CRM by client": "CRM por cliente",
+  Clients: "Clientes",
+  "Open leads": "Leads em aberto",
+  "Financial overview": "Visão financeira",
+  "Pending invoices": "Faturas pendentes",
+  "Recent updates": "Atualizações recentes",
+  "View all updates": "Ver todas as atualizações",
+  "No updates yet.": "Nenhuma atualização ainda.",
+  "On track": "Em dia",
+  "Active projects": "Projetos ativos",
+  "Waiting on client": "Aguardando cliente",
+  "Posts (30d)": "Posts (30d)",
+  "Client requested changes": "Cliente pediu alterações",
+  "Agency overdue": "Atraso da agência",
+  "Due soon": "Vence em breve",
+  "No items need attention right now.": "Nenhum item precisa de atenção no momento.",
+  "No items match this filter.": "Nenhum item corresponde a este filtro.",
+  Reload: "Recarregar",
 };
 
 export const translations = {
