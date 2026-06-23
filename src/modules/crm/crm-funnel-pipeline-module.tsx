@@ -41,7 +41,7 @@ export function CrmFunnelPipelineModule({ funnel: initialFunnel }: { funnel: Crm
   const router = useRouter();
   const { dataClientSlug, users, currentUser } = useAppContext();
   const { language, t: lt } = useLanguage();
-  const { reload, canManageFunnels } = useCrmFunnels();
+  const { reload, canManageFunnels, resumesEnabled } = useCrmFunnels();
   const [funnel, setFunnel] = useState(initialFunnel);
   const pipelinePath = funnelPipelinePath(funnel.slug);
   const allowAddLead = !isResumeFunnelSlug(funnel.slug);
@@ -305,7 +305,8 @@ export function CrmFunnelPipelineModule({ funnel: initialFunnel }: { funnel: Crm
           onClose={() => setSelectedId(null)}
           onLeadUpdated={onLeadUpdated}
           onLeadDeleted={handleLeadDeleted}
-          onLeadMovedToResume={isSalesFunnelSlug(funnel.slug) ? handleLeadMovedToResume : undefined}
+          onLeadMovedToResume={isSalesFunnelSlug(funnel.slug) && resumesEnabled ? handleLeadMovedToResume : undefined}
+          resumesEnabled={resumesEnabled}
         />
       ) : null}
 

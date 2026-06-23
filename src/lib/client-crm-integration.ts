@@ -19,6 +19,7 @@ export const EMPTY_CLIENT_CRM_INTEGRATION: ClientCrmIntegration = {
   defaultFunnelSlug: "sales",
   defaultSource: "Website",
   mirrorToInternalCrm: true,
+  resumesEnabled: true,
 };
 
 export function generateIngestSecret(): string {
@@ -64,6 +65,7 @@ export function parseClientCrmIntegration(raw: unknown): ClientCrmIntegration {
     defaultFunnelSlug: String(o.defaultFunnelSlug ?? "sales").trim() || "sales",
     defaultSource: String(o.defaultSource ?? "Website").trim() || "Website",
     mirrorToInternalCrm: provider === "nexa" ? true : o.mirrorToInternalCrm === true,
+    resumesEnabled: o.resumesEnabled !== false,
   };
 }
 
@@ -85,6 +87,7 @@ export function clientCrmIntegrationToDb(integration: ClientCrmIntegration): Rec
     defaultFunnelSlug: integration.defaultFunnelSlug.trim() || "sales",
     defaultSource: integration.defaultSource.trim() || "Website",
     mirrorToInternalCrm: integration.provider === "nexa" ? true : integration.mirrorToInternalCrm,
+    resumesEnabled: integration.resumesEnabled !== false,
   };
 }
 

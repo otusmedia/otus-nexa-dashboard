@@ -20,6 +20,11 @@ import type { AppLanguage, AppUser, ModuleKey, Role, UserCompany } from "@/types
 import { cn } from "@/lib/utils";
 import { isAgencyAdmin, isAgencyCompany, isClientCompany, isRocketRideCompany } from "@/lib/client-utils";
 import { ClientsSettingsPanel } from "@/modules/settings/clients-settings-panel";
+import {
+  SettingsUsersClientFilter,
+  userMatchesClientFilter,
+  type SettingsClientFilterValue,
+} from "@/modules/settings/settings-users-client-filter";
 
 type FormState = {
   name: string;
@@ -163,7 +168,9 @@ export function SettingsModule() {
     [currentUser, moduleAssignmentCtx],
   );
   const showClientsTab = isAgencyAdmin(currentUser);
+  const showUsersClientFilter = isNexaOtusAdmin(currentUser);
   const [settingsTab, setSettingsTab] = useState<"users" | "clients">("users");
+  const [clientFilter, setClientFilter] = useState<SettingsClientFilterValue>("");
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [form, setForm] = useState<FormState>(() => emptyForm("nexa"));
   const [editTarget, setEditTarget] = useState<AppUser | null>(null);
@@ -193,7 +200,10 @@ export function SettingsModule() {
 
   const tableUsers = useMemo(() => {
     let list = [...users].sort((a, b) => a.name.localeCompare(b.name));
-    if (isNexaOtusAdmin(currentUser)) return list;
+    if (isNexaOtusAdmin(currentUser)) {
+      if (clientFilter) list = list.filter((u) => userMatchesClientFilter(u, clientFilter));
+      return list;
+    }
     if (currentUser.company === "nexa" || currentUser.company === "otus") {
       return list.filter((u) => u.company === currentUser.company);
     }
@@ -201,7 +211,7 @@ export function SettingsModule() {
       return list.filter((u) => u.company === currentUser.company);
     }
     return list;
-  }, [users, currentUser]);
+  }, [users, currentUser, clientFilter]);
 
   const canAddUsers =
     isNexaOtusAdmin(currentUser) ||
@@ -224,6 +234,15 @@ export function SettingsModule() {
   const useStaticBadges = isClientCompany(currentUser.company);
 
   const openAdd = (prefillClientSlug?: string) => {
+    const filterCompany =
+      !prefillClientSlug && clientFilter
+        ? clientFilter === "nexa" || clientFilter === "otus"
+          ? clientFilter
+          : isClientCompany(clientFilter as UserCompany)
+            ? (clientFilter as UserCompany)
+            : null
+        : null;
+
     const defaultCompany: UserCompany =
       isRocketRideAdmin(currentUser) || isExternalClientAdmin(currentUser)
         ? currentUser.company
@@ -233,7 +252,9 @@ export function SettingsModule() {
             ? currentUser.company
             : prefillClientSlug
               ? prefillClientSlug
-              : "nexa";
+              : filterCompany
+                ? filterCompany
+                : "nexa";
     const defaultSlug = isClientCompany(defaultCompany) ? defaultCompany : prefillClientSlug ?? "";
     setForm(emptyForm(defaultCompany, defaultSlug));
     setSettingsTab("users");
@@ -459,6 +480,15 @@ export function SettingsModule() {
           </div>
         </div>
 
+        {showUsersClientFilter ? (
+          <SettingsUsersClientFilter
+            value={clientFilter}
+            clients={clients}
+            onChange={setClientFilter}
+            lt={lt}
+          />
+        ) : null}
+
         <div className="overflow-x-auto">
           <table className="w-full min-w-[800px] text-left text-sm">
             <thead>
@@ -470,6 +500,13 @@ export function SettingsModule() {
               </tr>
             </thead>
             <tbody>
+              {tableUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-8 text-center text-sm text-[rgba(255,255,255,0.45)]">
+                    {clientFilter ? lt("No users for this client.") : lt("No users found.")}
+                  </td>
+                </tr>
+              ) : null}
               {tableUsers.map((user) => {
                 const rowCanEditModules = canEditTargetUserModules(currentUser, user);
                 const showEdit = canEditUser(currentUser, user);

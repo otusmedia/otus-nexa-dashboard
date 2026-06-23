@@ -10,6 +10,7 @@ import { slugFromClientName } from "@/lib/client-utils";
 import { EMPTY_CLIENT_APIS } from "@/lib/client-apis";
 import { EMPTY_CLIENT_API_CREDENTIALS } from "@/lib/client-api-credentials";
 import { EMPTY_CLIENT_CRM_INTEGRATION } from "@/lib/client-crm-integration";
+import { ClientCrmFeaturesFields } from "@/modules/settings/client-crm-features-fields";
 import { ClientCrmIntegrationFields } from "@/modules/settings/client-crm-integration-fields";
 import { GhlImportPanel } from "@/modules/settings/ghl-import-panel";
 import { uploadClientHeroImage } from "@/lib/client-hero-upload";
@@ -375,6 +376,11 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
             value={form.enabledModules}
             onChange={(enabledModules) => setForm((prev) => ({ ...prev, enabledModules }))}
           />
+          <ClientCrmFeaturesFields
+            value={form.crmIntegration}
+            onChange={(crmIntegration) => setForm((prev) => ({ ...prev, crmIntegration }))}
+            lt={lt}
+          />
           <ClientApisFields
             value={form.apis}
             onChange={(apis) => setForm((prev) => ({ ...prev, apis }))}
@@ -500,6 +506,11 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
             <ClientEnabledModulesFields
               value={editForm.enabledModules}
               onChange={(enabledModules) => setEditForm((prev) => (prev ? { ...prev, enabledModules } : prev))}
+            />
+            <ClientCrmFeaturesFields
+              value={editForm.crmIntegration}
+              onChange={(crmIntegration) => setEditForm((prev) => (prev ? { ...prev, crmIntegration } : prev))}
+              lt={lt}
             />
             <ClientApisFields
               value={editForm.apis}

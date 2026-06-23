@@ -112,11 +112,12 @@ export function useCrmDashboardData(
   chartRange: CrmChartRange,
   locale: string,
   currentUser: AppUser,
+  ownerFilter = "",
 ) {
   const [leads, setLeads] = useState<CrmLead[]>([]);
   const [appointments, setAppointments] = useState<CrmAppointment[]>([]);
   const [activityLog, setActivityLog] = useState<
-    Array<{ id: string; title: string; subtitle: string; at: string }>
+    Array<{ id: string; leadId: string; title: string; subtitle: string; at: string }>
   >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +185,7 @@ export function useCrmDashboardData(
               const apptTitle = String(entry.payload.appointment_title ?? "");
               return {
                 id: entry.id,
+                leadId: entry.lead_id ?? "",
                 title: apptTitle || "Appointment",
                 subtitle: entry.actor_name
                   ? `${entry.actor_name}${lead?.name ? ` · ${lead.name}` : ""}`
@@ -242,15 +244,41 @@ export function useCrmDashboardData(
     };
   }, [load, dataClientSlug]);
 
-  const leadById = useMemo(() => new Map(leads.map((l) => [l.id, l])), [leads]);
+  const ownerOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const lead of leads) {
+      const owner = (lead.owner ?? "").trim();
+      if (owner) names.add(owner);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [leads]);
 
-  const total = leads.length;
-  const wonCount = leads.filter((l) => normalizeLeadStatus(l.status) === "Won").length;
+  const filteredLeads = useMemo(() => {
+    const owner = ownerFilter.trim();
+    if (!owner) return leads;
+    return leads.filter((lead) => (lead.owner ?? "").trim() === owner);
+  }, [leads, ownerFilter]);
+
+  const leadById = useMemo(() => new Map(filteredLeads.map((l) => [l.id, l])), [filteredLeads]);
+  const filteredLeadIds = useMemo(() => new Set(filteredLeads.map((l) => l.id)), [filteredLeads]);
+
+  const filteredAppointments = useMemo(
+    () => appointments.filter((a) => filteredLeadIds.has(a.lead_id)),
+    [appointments, filteredLeadIds],
+  );
+
+  const filteredActivityLog = useMemo(
+    () => activityLog.filter((entry) => filteredLeadIds.has(entry.leadId)),
+    [activityLog, filteredLeadIds],
+  );
+
+  const total = filteredLeads.length;
+  const wonCount = filteredLeads.filter((l) => normalizeLeadStatus(l.status) === "Won").length;
   const conversionPct = total === 0 ? 0 : Math.round((wonCount / total) * 1000) / 10;
-  const totalSalesValue = leads
+  const totalSalesValue = filteredLeads
     .filter((l) => normalizeLeadStatus(l.status) === "Won")
     .reduce((a, l) => a + (leadClosedValue(l) > 0 ? leadClosedValue(l) : leadProposalValue(l)), 0);
-  const openProposalLeads = leads.filter((l) => normalizeLeadStatus(l.status) === "Proposal Sent");
+  const openProposalLeads = filteredLeads.filter((l) => normalizeLeadStatus(l.status) === "Proposal Sent");
   const openProposalsCount = openProposalLeads.length;
   const openProposalsValue = openProposalLeads.reduce((a, l) => a + leadProposalValue(l), 0);
 
@@ -290,7 +318,7 @@ export function useCrmDashboardData(
       });
     }
 
-    for (const lead of leads) {
+    for (const lead of filteredLeads) {
       const key = toDateKey(lead.created_at);
       const bucket = buckets.find((b) => b.dateKey === key);
       if (bucket) bucket.count += 1;
@@ -301,19 +329,19 @@ export function useCrmDashboardData(
       ...b,
       heightPct: Math.max(8, Math.round((b.count / max) * 100)),
     }));
-  }, [leads, chartRange, locale]);
+  }, [filteredLeads, chartRange, locale]);
 
   const priorityLeads = useMemo(() => {
-    return [...leads]
+    return [...filteredLeads]
       .sort((a, b) => {
         if (leadProposalValue(b) !== leadProposalValue(a)) return leadProposalValue(b) - leadProposalValue(a);
         return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
       })
       .slice(0, 5);
-  }, [leads]);
+  }, [filteredLeads]);
 
   const appointmentsWithLead = useMemo((): CrmAppointmentWithLead[] => {
-    return appointments
+    return filteredAppointments
       .map((a) => {
         const lead = leadById.get(a.lead_id);
         if (!lead) return null;
@@ -324,7 +352,7 @@ export function useCrmDashboardData(
         };
       })
       .filter((a): a is CrmAppointmentWithLead => a != null);
-  }, [appointments, leadById]);
+  }, [filteredAppointments, leadById]);
 
   const today = todayKey();
 
@@ -346,7 +374,7 @@ export function useCrmDashboardData(
   }, [appointmentsWithLead, today]);
 
   const recentActivity = useMemo((): CrmActivityItem[] => {
-    const leadItems: CrmActivityItem[] = leads.map((l) => ({
+    const leadItems: CrmActivityItem[] = filteredLeads.map((l) => ({
       type: "lead",
       id: l.id,
       title: l.name,
@@ -362,7 +390,7 @@ export function useCrmDashboardData(
       at: a.created_at,
     }));
 
-    const completionActivity: CrmActivityItem[] = activityLog.map((c) => ({
+    const completionActivity: CrmActivityItem[] = filteredActivityLog.map((c) => ({
       type: "completion",
       id: c.id,
       title: c.title,
@@ -373,11 +401,11 @@ export function useCrmDashboardData(
     return [...leadItems, ...apptItems, ...completionActivity]
       .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
       .slice(0, 8);
-  }, [leads, appointmentsWithLead, activityLog]);
+  }, [filteredLeads, appointmentsWithLead, filteredActivityLog]);
 
   const latestActivity = recentActivity[0] ?? null;
 
-  const sourceMap = useMemo(() => sourceCountMap(leads, dataClientSlug), [leads, dataClientSlug]);
+  const sourceMap = useMemo(() => sourceCountMap(filteredLeads, dataClientSlug), [filteredLeads, dataClientSlug]);
   const sourceLabels = useMemo(() => {
     const base = [...getCrmLeadSourceLabels(dataClientSlug)];
     for (const key of Object.keys(sourceMap)) {
@@ -385,18 +413,18 @@ export function useCrmDashboardData(
     }
     return base;
   }, [dataClientSlug, sourceMap]);
-  const sourceTotal = leads.length || 1;
+  const sourceTotal = filteredLeads.length || 1;
 
   const pipelineRows = useMemo(() => {
     return CRM_LEAD_STATUSES.map((stage) => {
-      const inStage = leads.filter((l) => normalizeLeadStatus(l.status) === stage);
+      const inStage = filteredLeads.filter((l) => normalizeLeadStatus(l.status) === stage);
       return {
         stage: stage as CrmLeadStatus,
         count: inStage.length,
         valueSum: inStage.reduce((a, l) => a + leadStageValueSum(l), 0),
       };
     });
-  }, [leads]);
+  }, [filteredLeads]);
 
   const upcomingDateSlots = useMemo(() => {
     const slots: { dateKey: string; label: string; count: number; isToday: boolean; isNext: boolean }[] = [];
@@ -436,7 +464,9 @@ export function useCrmDashboardData(
   }, [upcomingAppointments, today, locale]);
 
   return {
-    leads,
+    leads: filteredLeads,
+    allLeadsCount: leads.length,
+    ownerOptions,
     loading,
     error,
     total,

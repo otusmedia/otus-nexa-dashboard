@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAppContext } from "@/components/providers/app-providers";
 import { PageHeader } from "@/components/ui/page-header";
 import { useLanguage } from "@/context/language-context";
 import { isAgencyAdmin } from "@/lib/client-utils";
+import { canViewAllCrmLeads } from "@/lib/crm-lead-visibility";
+import { resolveCrmOwnerFilterItems } from "@/lib/crm-team-members";
 import { CrmDashboardActivityCard } from "@/modules/crm/dashboard/crm-dashboard-activity-card";
 import { CrmDashboardAppointmentsGrid } from "@/modules/crm/dashboard/crm-dashboard-appointments-grid";
 import { CrmDashboardHero } from "@/modules/crm/dashboard/crm-dashboard-hero";
 import { CrmDashboardLeadList } from "@/modules/crm/dashboard/crm-dashboard-lead-list";
+import { CrmDashboardOwnerFilter } from "@/modules/crm/dashboard/crm-dashboard-owner-filter";
 import { CrmDashboardPipeline } from "@/modules/crm/dashboard/crm-dashboard-pipeline";
 import { CrmDashboardSchedule } from "@/modules/crm/dashboard/crm-dashboard-schedule";
 import { CrmDashboardSources } from "@/modules/crm/dashboard/crm-dashboard-sources";
@@ -17,16 +20,19 @@ import { CrmDashboardTrendChart } from "@/modules/crm/dashboard/crm-dashboard-tr
 import { useCrmDashboardData, type CrmChartRange } from "@/modules/crm/use-crm-dashboard-data";
 
 export function CrmDashboardModule() {
-  const { dataClientSlug, currentUser, clients, projectsClientFilter } = useAppContext();
+  const { dataClientSlug, currentUser, clients, projectsClientFilter, users } = useAppContext();
   const { language, t: lt } = useLanguage();
   const [chartRange, setChartRange] = useState<CrmChartRange>("7d");
+  const [ownerFilter, setOwnerFilter] = useState("");
 
   const activeClient = dataClientSlug ? clients.find((c) => c.slug === dataClientSlug) : undefined;
   const viewingAllClients = isAgencyAdmin(currentUser) && projectsClientFilter === "all";
+  const canFilterByOwner = canViewAllCrmLeads(currentUser);
 
   const {
     loading,
     error,
+    allLeadsCount,
     total,
     heroMetric,
     compactKpis,
@@ -41,14 +47,20 @@ export function CrmDashboardModule() {
     sourceTotal,
     pipelineRows,
     upcomingDateSlots,
+    ownerOptions,
     reload,
-  } = useCrmDashboardData(dataClientSlug, chartRange, language, currentUser);
+  } = useCrmDashboardData(dataClientSlug, chartRange, language, currentUser, ownerFilter);
+
+  const dashboardOwnerItems = useMemo(
+    () => resolveCrmOwnerFilterItems(users, dataClientSlug, currentUser, ownerOptions),
+    [ownerOptions, users, dataClientSlug, currentUser],
+  );
 
   const accentColor = activeClient?.primaryColor ?? "#FF4500";
   const showSelectClientHint =
-    isAgencyAdmin(currentUser) && viewingAllClients && !loading && total > 0;
+    isAgencyAdmin(currentUser) && viewingAllClients && !loading && allLeadsCount > 0;
 
-  if (!loading && total === 0 && !error) {
+  if (!loading && allLeadsCount === 0 && !error) {
     return (
       <>
         <PageHeader title={lt("CRM")} subtitle={lt("Sales performance and pipeline overview")} />
@@ -82,6 +94,21 @@ export function CrmDashboardModule() {
         <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/90">
           {lt("Showing aggregated data for all clients. Select a client for scoped appointments and charts.")}
         </p>
+      ) : null}
+
+      {canFilterByOwner && dashboardOwnerItems.length > 0 ? (
+        <CrmDashboardOwnerFilter
+          value={ownerFilter}
+          owners={dashboardOwnerItems}
+          onChange={setOwnerFilter}
+          lt={lt}
+          accentColor={accentColor}
+          className="mb-4"
+        />
+      ) : null}
+
+      {ownerFilter && !loading && total === 0 && allLeadsCount > 0 ? (
+        <p className="mb-4 text-xs text-[rgba(255,255,255,0.45)]">{lt("No leads for this owner.")}</p>
       ) : null}
 
       <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-12">

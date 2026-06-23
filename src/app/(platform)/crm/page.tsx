@@ -1,5 +1,15 @@
-import { redirect } from "next/navigation";
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { resolveDefaultCrmPath } from "@/lib/default-landing-path";
 
 export default function CrmIndexPage() {
-  redirect("/crm/dashboard");
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace(resolveDefaultCrmPath());
+  }, [router]);
+
+  return null;
 }

@@ -34,6 +34,11 @@ import { orderSidebarLinks, readSidebarNavOrder, writeSidebarNavOrder } from "@/
 import { readSidebarLayout, writeSidebarLayout } from "@/lib/sidebar-layout-preference";
 import { effectiveUserClientSlug, isAgencyAdmin, isAgencyCompany } from "@/lib/client-utils";
 import { hasModuleAccess } from "@/lib/modules";
+import {
+  canAccessMarketingForUser,
+  pathnameAllowedForModules,
+  resolveDefaultLandingPath,
+} from "@/lib/default-landing-path";
 import { Modal } from "@/components/ui/modal";
 import HeroSection from "@/components/layout/hero-section";
 
@@ -216,6 +221,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     () => orderSidebarLinks(filteredLinks, navOrder),
     [filteredLinks, navOrder],
   );
+
+  useEffect(() => {
+    if (currentUser.id === GUEST_USER_ID || allowedModules.length === 0) return;
+    const landingOpts = {
+      navOrder,
+      canAccessMarketing: canAccessMarketingForUser(currentUser),
+    };
+    if (pathnameAllowedForModules(pathname, allowedModules, landingOpts)) return;
+    const fallback = resolveDefaultLandingPath(allowedModules, landingOpts);
+    if (pathname !== fallback && !pathname.startsWith(`${fallback}/`)) {
+      router.replace(fallback);
+    }
+  }, [allowedModules, currentUser, navOrder, pathname, router]);
 
   const handleNavReorder = useCallback(
     (order: ModuleKey[]) => {

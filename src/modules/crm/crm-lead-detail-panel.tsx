@@ -34,6 +34,7 @@ import {
   pipelineStageDotClass,
   resumeStageDotClass,
 } from "@/lib/crm-data";
+import { clientCrmResumesEnabledForSlug } from "@/lib/client-crm-features";
 import { crmLeadStatusLabel, crmResumeStatusLabel, crmSourceLabel } from "@/lib/crm-i18n";
 import { findCrmOwnerUser, resolveCrmOwnerOptions } from "@/lib/crm-team-members";
 import { formatCurrency, cn } from "@/lib/utils";
@@ -88,6 +89,7 @@ export function CrmLeadDetailPanel({
   onLeadUpdated,
   onLeadDeleted,
   onLeadMovedToResume,
+  resumesEnabled,
 }: {
   lead: CrmLead;
   funnelConfig?: CrmFunnelDef;
@@ -95,8 +97,9 @@ export function CrmLeadDetailPanel({
   onLeadUpdated: (lead: CrmLead) => void;
   onLeadDeleted: (leadId: string) => void;
   onLeadMovedToResume?: (leadId: string) => void;
+  resumesEnabled?: boolean;
 }) {
-  const { currentUser, users, dataClientSlug, pushNotification } = useAppContext();
+  const { currentUser, users, dataClientSlug, clients, pushNotification } = useAppContext();
   const { language, t: lt } = useLanguage();
   const ownerOptions = useMemo(
     () => resolveCrmOwnerOptions(users, dataClientSlug, currentUser),
@@ -104,6 +107,8 @@ export function CrmLeadDetailPanel({
   );
   const eventClientSlug = (lead.client_slug ?? dataClientSlug ?? "").trim() || null;
   const crmClientSlug = eventClientSlug ?? dataClientSlug;
+  const resumesFeatureEnabled =
+    resumesEnabled ?? clientCrmResumesEnabledForSlug(clients, crmClientSlug);
   const { sourceOptions, rememberSource } = useCrmSourceOptions(crmClientSlug);
   const [nameDraft, setNameDraft] = useState(lead.name);
   const [propDraft, setPropDraft] = useState({
@@ -1120,7 +1125,7 @@ export function CrmLeadDetailPanel({
           </section>
 
           <section className="mt-10 space-y-3">
-            {isSales ? (
+            {isSales && resumesFeatureEnabled ? (
               <button
                 type="button"
                 onClick={() => setMarkResumeModalOpen(true)}
@@ -1129,7 +1134,7 @@ export function CrmLeadDetailPanel({
                 {lt("Mark as resume")}
               </button>
             ) : null}
-            {isResume ? (
+            {isResume && resumesFeatureEnabled ? (
               <button
                 type="button"
                 onClick={() => setMoveBackToSalesModalOpen(true)}

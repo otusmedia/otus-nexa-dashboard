@@ -5,6 +5,7 @@ export type CrmOwnerOption = {
   id: string;
   name: string;
   email: string | null;
+  avatarUrl: string | null;
 };
 
 export function findCrmOwnerUser(users: AppUser[], ownerName: string): AppUser | null {
@@ -41,8 +42,37 @@ export function resolveCrmOwnerOptions(
       id: user.id,
       name,
       email: user.email ?? null,
+      avatarUrl: user.avatarUrl ?? null,
     });
   }
 
   return options.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export type CrmOwnerFilterItem = {
+  name: string;
+  avatarUrl: string | null;
+};
+
+/** CRM dashboard owner filter — team members plus any owner names found on leads. */
+export function resolveCrmOwnerFilterItems(
+  users: AppUser[],
+  dataClientSlug: string | null,
+  currentUser: AppUser,
+  ownerNamesFromLeads: string[],
+): CrmOwnerFilterItem[] {
+  const map = new Map<string, CrmOwnerFilterItem>();
+
+  for (const option of resolveCrmOwnerOptions(users, dataClientSlug, currentUser)) {
+    map.set(option.name, { name: option.name, avatarUrl: option.avatarUrl });
+  }
+
+  for (const rawName of ownerNamesFromLeads) {
+    const name = rawName.trim();
+    if (!name || map.has(name)) continue;
+    const user = findCrmOwnerUser(users, name);
+    map.set(name, { name, avatarUrl: user?.avatarUrl ?? null });
+  }
+
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
 }

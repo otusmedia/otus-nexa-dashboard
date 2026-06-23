@@ -4,7 +4,12 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { ModuleKey } from "@/types";
 import { useAppContext } from "@/components/providers/app-providers";
+import {
+  canAccessMarketingForUser,
+  resolveDefaultLandingPath,
+} from "@/lib/default-landing-path";
 import { hasModuleAccess } from "@/lib/modules";
+import { readSidebarNavOrder } from "@/lib/sidebar-nav-order";
 
 type ModuleGuardProps =
   | { module: ModuleKey; children: React.ReactNode }
@@ -24,11 +29,14 @@ export function ModuleGuard(props: ModuleGuardProps) {
 
   useEffect(() => {
     if (allowed) return;
-    if (pathname === "/projects" || pathname.startsWith("/projects/")) {
-      return;
+    const fallback = resolveDefaultLandingPath(allowedModules, {
+      navOrder: readSidebarNavOrder(currentUser.id),
+      canAccessMarketing: canAccessMarketingForUser(currentUser),
+    });
+    if (pathname !== fallback && !pathname.startsWith(`${fallback}/`)) {
+      router.replace(fallback);
     }
-    router.replace("/projects");
-  }, [allowed, router, pathname]);
+  }, [allowed, allowedModules, currentUser, pathname, router]);
 
   if (!allowed) {
     return null;

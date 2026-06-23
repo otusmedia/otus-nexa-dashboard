@@ -153,6 +153,8 @@ export type ClientCrmIntegration = {
   defaultSource: string;
   /** When true, also insert a row in crm_leads for agency audit. */
   mirrorToInternalCrm: boolean;
+  /** When false, hides the Resumes funnel and "mark as resume" for this client. */
+  resumesEnabled: boolean;
 };
 
 export type AppLanguage = "en" | "pt-BR";

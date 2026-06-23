@@ -196,9 +196,12 @@ function mergeBuiltinFunnel(defaultFunnel: CrmFunnelDef, dbFunnel: CrmFunnelDef 
 export async function fetchCrmFunnelsForClient(
   clientSlug: string | null | undefined,
   user: AppUser,
+  options?: { resumesEnabled?: boolean },
 ): Promise<CrmFunnelDef[]> {
   const slug = (clientSlug ?? "").trim().toLowerCase();
   if (!slug) return [];
+
+  const resumesEnabled = options?.resumesEnabled !== false;
 
   const salesDefault = builtinSalesFunnel(slug);
   const resumeDefault = builtinResumeFunnel(slug);
@@ -211,11 +214,13 @@ export async function fetchCrmFunnelsForClient(
 
   if (funnelErr) {
     console.error("[crm] fetch funnels", funnelErr.message);
-    return [salesDefault, resumeDefault].filter((f) => funnelAccessibleToUser(f, user));
+    const builtIns = resumesEnabled ? [salesDefault, resumeDefault] : [salesDefault];
+    return builtIns.filter((f) => funnelAccessibleToUser(f, user));
   }
 
   if (!funnelRows?.length) {
-    return [salesDefault, resumeDefault].filter((f) => funnelAccessibleToUser(f, user));
+    const builtIns = resumesEnabled ? [salesDefault, resumeDefault] : [salesDefault];
+    return builtIns.filter((f) => funnelAccessibleToUser(f, user));
   }
 
   const funnelIds = funnelRows.map((r) => String(r.id));
@@ -259,15 +264,17 @@ export async function fetchCrmFunnelsForClient(
   const resume = mergeBuiltinFunnel(resumeDefault, dbBySlug.get(BUILTIN_RESUME_SLUG));
   const custom = dbFunnels.filter((f) => !isBuiltinFunnelSlug(f.slug));
 
-  return [sales, resume, ...custom].filter((f) => funnelAccessibleToUser(f, user));
+  const result = resumesEnabled ? [sales, resume, ...custom] : [sales, ...custom];
+  return result.filter((f) => funnelAccessibleToUser(f, user));
 }
 
 export async function fetchCrmFunnelBySlug(
   clientSlug: string | null | undefined,
   funnelSlug: string,
   user: AppUser,
+  options?: { resumesEnabled?: boolean },
 ): Promise<CrmFunnelDef | null> {
-  const funnels = await fetchCrmFunnelsForClient(clientSlug, user);
+  const funnels = await fetchCrmFunnelsForClient(clientSlug, user, options);
   const normalized = funnelSlug.trim().toLowerCase();
   return funnels.find((f) => f.slug === normalized) ?? null;
 }

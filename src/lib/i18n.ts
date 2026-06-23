@@ -601,6 +601,9 @@ const platformPtBR: Record<string, string> = {
     "Funis padrão (Vendas e Currículos) permanecem disponíveis; apenas funis customizados podem ser excluídos.",
   "Leave user access empty to allow all client users.":
     "Deixe o acesso vazio para permitir todos os usuários do cliente.",
+  "Enable resumes funnel": "Habilitar funil de currículos",
+  "Enable resumes funnel hint":
+    "Quando desabilitado, a aba Currículos some e a opção de marcar lead como currículo fica oculta no detalhe do lead.",
   "Default funnel slug": "Slug do funil padrão",
   "Default source": "Origem padrão",
   "Website forms land in this funnel with this source when the snippet does not override them.":
@@ -629,6 +632,14 @@ const platformPtBR: Record<string, string> = {
   "Conversion Rate": "Taxa de conversão",
   "Closed Sales": "Vendas fechadas",
   "Total Sales Value": "Valor total de vendas",
+  "Filter by owner": "Filtrar por proprietário",
+  "All owners": "Todos os proprietários",
+  "No leads for this owner.": "Nenhum lead para este proprietário.",
+  "Filter by client": "Filtrar por cliente",
+  "All clients": "Todos os clientes",
+  All: "Todos",
+  "No users for this client.": "Nenhum usuário neste cliente.",
+  "No users found.": "Nenhum usuário encontrado.",
   "Open Proposals": "Propostas em aberto",
   "Open Proposals Value": "Valor em propostas abertas",
   "Leads by Stage": "Leads por etapa",

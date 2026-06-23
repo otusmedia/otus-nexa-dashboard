@@ -6,6 +6,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/auth-context";
 import type { AppUser, ModuleKey, Role, UserCompany } from "@/types";
 import { ALL_MODULE_KEYS } from "@/lib/modules";
+import { resolveDefaultLandingPathForUser } from "@/lib/default-landing-path";
 import { LoginEntrance } from "@/components/login/login-entrance";
 import { supabase } from "@/lib/supabase";
 
@@ -200,7 +201,7 @@ export default function LoginPage() {
       }
       const appUser = rowToAppUser(mapRecordToRow(data as Record<string, unknown>));
       login(appUser);
-      const path = appUser.role === "admin" ? "/dashboard" : "/projects";
+      const path = resolveDefaultLandingPathForUser(appUser);
       setTimeout(() => router.push(path), 100);
     })();
     return () => {
@@ -210,9 +211,8 @@ export default function LoginPage() {
 
   const finishLogin = (user: AppUser) => {
     console.log("Login success, setting user:", user);
-    console.log("Redirecting to:", user.company === "rocketride" ? "/projects" : "/dashboard");
-    const path = user.role === "admin" ? "/dashboard" : "/projects";
-    console.log("Actual path (role):", path);
+    const path = resolveDefaultLandingPathForUser(user);
+    console.log("Redirecting to:", path);
     login(user);
     setTimeout(() => router.push(path), 100);
   };

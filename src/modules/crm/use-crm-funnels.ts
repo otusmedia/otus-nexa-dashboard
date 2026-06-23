@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAppContext } from "@/components/providers/app-providers";
+import { clientCrmResumesEnabledForSlug } from "@/lib/client-crm-features";
 import { canManageCrmFunnels } from "@/lib/crm-lead-visibility";
 import {
   createCrmFunnel,
@@ -20,16 +21,17 @@ export function notifyCrmFunnelsReload() {
 }
 
 export function useCrmFunnels() {
-  const { dataClientSlug, currentUser } = useAppContext();
+  const { dataClientSlug, currentUser, clients } = useAppContext();
   const [funnels, setFunnels] = useState<CrmFunnelDef[]>([]);
   const [loading, setLoading] = useState(true);
+  const resumesEnabled = clientCrmResumesEnabledForSlug(clients, dataClientSlug);
 
   const reload = useCallback(async () => {
     setLoading(true);
-    const rows = await fetchCrmFunnelsForClient(dataClientSlug, currentUser);
+    const rows = await fetchCrmFunnelsForClient(dataClientSlug, currentUser, { resumesEnabled });
     setFunnels(rows);
     setLoading(false);
-  }, [dataClientSlug, currentUser]);
+  }, [dataClientSlug, currentUser, resumesEnabled]);
 
   useEffect(() => {
     void reload();
@@ -43,7 +45,7 @@ export function useCrmFunnels() {
 
   const canManageFunnels = canManageCrmFunnels(currentUser, dataClientSlug);
 
-  return { funnels, loading, reload, canManageFunnels };
+  return { funnels, loading, reload, canManageFunnels, resumesEnabled };
 }
 
 export { createCrmFunnel, deleteCrmFunnel, updateCrmFunnelDef };

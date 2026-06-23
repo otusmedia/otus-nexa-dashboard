@@ -4,6 +4,12 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/auth-context";
 import { useAppContext } from "@/components/providers/app-providers";
+import {
+  canAccessMarketingForUser,
+  resolveDefaultLandingPath,
+  resolveDefaultLandingPathForUser,
+} from "@/lib/default-landing-path";
+import { readSidebarNavOrder } from "@/lib/sidebar-nav-order";
 import type { AppUser } from "@/types";
 
 export default function HomePage() {
@@ -27,15 +33,22 @@ export default function HomePage() {
       return;
     }
 
+    const navOrder = readSidebarNavOrder(sessionUserId);
+
     if (saved && saved.id === sessionUserId) {
-      router.replace(saved.role === "admin" ? "/dashboard" : "/projects");
+      router.replace(resolveDefaultLandingPathForUser(saved, navOrder));
       return;
     }
 
     const u =
       users.find((x) => x.id === sessionUserId) ?? (persistedUser?.id === sessionUserId ? persistedUser : undefined);
     if (u) {
-      router.replace(u.role === "admin" ? "/dashboard" : "/projects");
+      router.replace(
+        resolveDefaultLandingPath(u.modules, {
+          navOrder,
+          canAccessMarketing: canAccessMarketingForUser(u),
+        }),
+      );
       return;
     }
 
