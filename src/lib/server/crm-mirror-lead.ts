@@ -1,5 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import type { NormalizedLeadPayload } from "@/lib/server/crm-forwarders/types";
+import { resolveFormLeadTarget } from "@/lib/server/crm-form-lead-target";
+import type { ClientCrmIntegration } from "@/types";
 
 function buildDescription(payload: NormalizedLeadPayload): string {
   return [payload.message, Object.keys(payload.custom).length ? JSON.stringify(payload.custom) : ""]
@@ -58,10 +60,18 @@ export async function mirrorLeadToInternalCrm(opts: {
   clientSlug: string;
   payload: NormalizedLeadPayload;
   externalId?: string;
+  integration?: ClientCrmIntegration;
 }): Promise<{ ok: boolean; leadId?: string; error?: string }> {
-  const { clientSlug, payload, externalId } = opts;
+  const { clientSlug, payload, externalId, integration } = opts;
   const supabase = getSupabaseAdmin();
   const description = buildDescription(payload);
+  const target = integration
+    ? await resolveFormLeadTarget(clientSlug, integration, payload)
+    : {
+        funnel: payload.funnel?.trim() || "sales",
+        status: "New Lead",
+        source: payload.source || "Website",
+      };
 
   const { data, error } = await supabase
     .from("crm_leads")
@@ -70,13 +80,16 @@ export async function mirrorLeadToInternalCrm(opts: {
       company: payload.company || null,
       email: payload.email,
       phone: payload.phone || null,
-      source: payload.source || "Website",
-      status: "New Lead",
+      source: target.source,
+      status: target.status,
+      funnel: target.funnel,
       value: 0,
+      proposal_value: 0,
+      closed_value: 0,
       description: description || null,
       client_slug: clientSlug,
       external_id: externalId ?? null,
-      form_payload: { ...payload },
+      form_payload: { ...payload, funnel: target.funnel },
     })
     .select("id")
     .maybeSingle();

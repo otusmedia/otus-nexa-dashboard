@@ -1,12 +1,13 @@
 "use client";
 
 import { ModuleGuard } from "@/components/layout/module-guard";
-import { CrmResumePipelineModule } from "@/modules/crm/crm-resume-pipeline-module";
+import { BUILTIN_RESUME_SLUG } from "@/lib/crm-funnels";
+import { CrmFunnelPage } from "@/modules/crm/crm-funnel-page";
 
 export default function CrmResumePipelinePage() {
   return (
     <ModuleGuard module="crm">
-      <CrmResumePipelineModule />
+      <CrmFunnelPage funnelSlug={BUILTIN_RESUME_SLUG} />
     </ModuleGuard>
   );
 }

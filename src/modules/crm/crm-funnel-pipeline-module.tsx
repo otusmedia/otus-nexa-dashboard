@@ -1,34 +1,62 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { Settings2 } from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { DropResult } from "@hello-pangea/dnd";
+import { useRouter } from "next/navigation";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
-import { supabase } from "@/lib/supabase";
 import {
-  CRM_KANBAN_COLUMNS,
-  CRM_SOURCE_OPTIONS,
-  groupLeadsByStatus,
-  mapCrmLeadRow,
-  normalizeLeadStatus,
-  type CrmLead,
-  type CrmLeadStatus,
-} from "@/lib/crm-data";
-import { crmLeadStatusLabel, crmSourceLabel } from "@/lib/crm-i18n";
-import { resolveCrmOwnerOptions } from "@/lib/crm-team-members";
+  funnelInitialStage,
+  funnelPipelinePath,
+  groupLeadsByFunnelStages,
+  isResumeFunnelSlug,
+  isSalesFunnelSlug,
+  normalizeFunnelStageStatus,
+  SALES_FUNNEL_TRANSFER_STATUS,
+  shouldTransferLeadToSalesFunnel,
+  type CrmFunnelDef,
+} from "@/lib/crm-funnels";
+import { mapCrmLeadRow, type CrmLead } from "@/lib/crm-data";
+import { crmLeadStatusLabel, crmResumeStatusLabel } from "@/lib/crm-i18n";
+import type { AppLanguage } from "@/lib/locale-types";
+import { findCrmOwnerUser, resolveCrmOwnerOptions } from "@/lib/crm-team-members";
+import { supabase } from "@/lib/supabase";
+import { CrmEditFunnelModal } from "@/modules/crm/crm-edit-funnel-modal";
 import { CrmKanbanBoard } from "@/modules/crm/crm-kanban-board";
 import { CrmLeadDetailPanel } from "@/modules/crm/crm-lead-detail-panel";
 import { CrmPipelineShell } from "@/modules/crm/crm-pipeline-shell";
+import { CrmSourceField } from "@/modules/crm/crm-source-field";
+import { deleteCrmFunnel, notifyCrmFunnelsReload, updateCrmFunnelDef, useCrmFunnels } from "@/modules/crm/use-crm-funnels";
 import { useCrmKanbanLeads } from "@/modules/crm/use-crm-kanban-leads";
+import { useCrmSourceOptions } from "@/modules/crm/use-crm-source-options";
 
-export function CrmPipelineModule() {
+function stageLabel(funnel: CrmFunnelDef, stageName: string, language: AppLanguage): string {
+  if (isResumeFunnelSlug(funnel.slug)) return crmResumeStatusLabel(stageName, language);
+  if (isSalesFunnelSlug(funnel.slug)) return crmLeadStatusLabel(stageName, language);
+  return stageName;
+}
+
+export function CrmFunnelPipelineModule({ funnel: initialFunnel }: { funnel: CrmFunnelDef }) {
+  const router = useRouter();
   const { dataClientSlug, users, currentUser } = useAppContext();
   const { language, t: lt } = useLanguage();
+  const { reload, canManageFunnels } = useCrmFunnels();
+  const [funnel, setFunnel] = useState(initialFunnel);
+  const pipelinePath = funnelPipelinePath(funnel.slug);
+  const allowAddLead = !isResumeFunnelSlug(funnel.slug);
+  const canEditFunnel = canManageFunnels;
+
+  useEffect(() => {
+    setFunnel(initialFunnel);
+  }, [initialFunnel]);
+
   const ownerOptions = useMemo(
     () => resolveCrmOwnerOptions(users, dataClientSlug, currentUser),
     [users, dataClientSlug, currentUser],
   );
   const leadClientSlug = dataClientSlug ?? "rocketride";
+
   const {
     leads,
     setLeads,
@@ -38,16 +66,22 @@ export function CrmPipelineModule() {
     onLeadUpdated,
     onLeadDeleted,
     onLeadMovedToResume,
-  } = useCrmKanbanLeads("sales", dataClientSlug, "/crm/pipeline");
+  } = useCrmKanbanLeads(funnel.slug, dataClientSlug, pipelinePath, currentUser);
+
+  const { sourceOptions, rememberSource } = useCrmSourceOptions(dataClientSlug);
+  const defaultSource = sourceOptions[0] ?? "WhatsApp";
+  const initialStage = funnelInitialStage(funnel);
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [targetColumn, setTargetColumn] = useState<CrmLeadStatus>("New Lead");
+  const [editOpen, setEditOpen] = useState(false);
+  const [targetColumn, setTargetColumn] = useState(initialStage);
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [source, setSource] = useState<string>(CRM_SOURCE_OPTIONS[0]);
-  const [valueStr, setValueStr] = useState("0");
+  const [source, setSource] = useState<string>(defaultSource);
+  const [proposalValueStr, setProposalValueStr] = useState("0");
+  const [closedValueStr, setClosedValueStr] = useState("0");
   const [owner, setOwner] = useState("");
   const [description, setDescription] = useState("");
   const [nameError, setNameError] = useState("");
@@ -55,22 +89,22 @@ export function CrmPipelineModule() {
 
   const columns = useMemo(
     () =>
-      CRM_KANBAN_COLUMNS.map((col) => ({
-        id: col.id,
-        label: crmLeadStatusLabel(col.id, language),
+      funnel.stages.map((col) => ({
+        id: col.name,
+        label: stageLabel(funnel, col.name, language),
         dotClass: col.dotClass,
       })),
-    [language],
+    [funnel, language],
   );
 
-  const byColumn = useMemo(() => groupLeadsByStatus(leads), [leads]);
+  const byColumn = useMemo(() => groupLeadsByFunnelStages(leads, funnel.stages), [leads, funnel.stages]);
 
   const onDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
     const id = result.draggableId;
-    const newStatus = result.destination.droppableId as CrmLeadStatus;
+    const newStatus = result.destination.droppableId;
     const lead = leads.find((l) => l.id === id);
-    if (!lead || normalizeLeadStatus(lead.status) === newStatus) return;
+    if (!lead || normalizeFunnelStageStatus(lead.status, funnel.stages) === newStatus) return;
 
     const prev = leads;
     const now = new Date().toISOString();
@@ -88,13 +122,14 @@ export function CrmPipelineModule() {
   };
 
   const openAddModal = (columnId: string) => {
-    setTargetColumn(columnId as CrmLeadStatus);
+    setTargetColumn(columnId);
     setName("");
     setCompany("");
     setEmail("");
     setPhone("");
-    setSource(CRM_SOURCE_OPTIONS[0]);
-    setValueStr("0");
+    setSource(defaultSource);
+    setProposalValueStr("0");
+    setClosedValueStr("0");
     setOwner("");
     setDescription("");
     setNameError("");
@@ -113,7 +148,14 @@ export function CrmPipelineModule() {
       setNameError(lt("Name is required."));
       return;
     }
-    const valueNum = Number.parseFloat(valueStr.replace(/,/g, "")) || 0;
+    const proposalNum = Number.parseFloat(proposalValueStr.replace(/,/g, "")) || 0;
+    const closedNum = Number.parseFloat(closedValueStr.replace(/,/g, "")) || 0;
+    const sourceTrimmed = source.trim();
+    const ownerName = owner.trim();
+    const ownerUser = findCrmOwnerUser(users, ownerName);
+    const transferToSales = shouldTransferLeadToSalesFunnel(funnel, ownerUser);
+    const leadFunnel = transferToSales ? "sales" : funnel.slug;
+    const leadStatus = transferToSales ? SALES_FUNNEL_TRANSFER_STATUS : targetColumn;
     const { data, error } = await supabase
       .from("crm_leads")
       .insert({
@@ -121,12 +163,14 @@ export function CrmPipelineModule() {
         company: company.trim() || null,
         email: email.trim() || null,
         phone: phone.trim() || null,
-        source: source || null,
-        value: valueNum,
-        owner: owner.trim() || null,
+        source: sourceTrimmed || null,
+        value: proposalNum,
+        proposal_value: proposalNum,
+        closed_value: closedNum,
+        owner: ownerName || null,
         description: description.trim() || null,
-        status: targetColumn,
-        funnel: "sales",
+        status: leadStatus,
+        funnel: leadFunnel,
         client_slug: leadClientSlug,
       })
       .select("*")
@@ -135,9 +179,15 @@ export function CrmPipelineModule() {
       console.error("[crm] add lead", error.message);
       return;
     }
+    if (sourceTrimmed) await rememberSource(sourceTrimmed);
     if (data) {
       const createdLead = mapCrmLeadRow(data as Record<string, unknown>);
-      setLeads((prev) => [createdLead, ...prev]);
+      if (!transferToSales) {
+        setLeads((prev) => [createdLead, ...prev]);
+      } else {
+        setSuccessMessage(lt("Lead transferred to Sales pipeline"));
+        window.setTimeout(() => setSuccessMessage(null), 2500);
+      }
       const leadEmail = (createdLead.email ?? "").trim();
       if (leadEmail) {
         const { data: existing, error: existingErr } = await supabase
@@ -145,12 +195,8 @@ export function CrmPipelineModule() {
           .select("id")
           .eq("email", leadEmail)
           .maybeSingle();
-        if (existingErr) {
-          console.error("[crm] check existing contact", existingErr.message);
-        }
-        if (existing?.id) {
-          console.log("Contact already exists");
-        } else {
+        if (existingErr) console.error("[crm] check existing contact", existingErr.message);
+        if (!existing?.id) {
           const { error: contactErr } = await supabase.from("crm_contacts").insert([
             {
               name: createdLead.name,
@@ -190,8 +236,52 @@ export function CrmPipelineModule() {
     window.setTimeout(() => setSuccessMessage(null), 2500);
   };
 
+  const handleLeadMovedToResume = (leadId: string) => {
+    onLeadMovedToResume(leadId);
+    router.push("/crm/pipeline/resumes");
+  };
+
+  const handleFunnelUpdated = async (input: {
+    name: string;
+    stages: Array<{ name: string; dotClass: string }>;
+    accessUserIds: string[];
+  }) => {
+    if (!dataClientSlug) return null;
+    const updated = await updateCrmFunnelDef(funnel, dataClientSlug, input);
+    if (updated) {
+      setFunnel(updated);
+      await reload();
+      notifyCrmFunnelsReload();
+    }
+    return updated;
+  };
+
+  const handleFunnelDeleted = async () => {
+    if (!funnel.id || !dataClientSlug || funnel.isBuiltin) return false;
+    const result = await deleteCrmFunnel(funnel.id, dataClientSlug);
+    if (result.ok) {
+      await reload();
+      notifyCrmFunnelsReload();
+      router.push("/crm/pipeline");
+      return true;
+    }
+    return false;
+  };
+
   return (
     <CrmPipelineShell>
+      {canEditFunnel ? (
+        <div className="mb-3 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-[8px] border border-[var(--border)] px-3 py-1.5 text-xs text-[rgba(255,255,255,0.65)] transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-white"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            {lt("Edit funnel")}
+          </button>
+        </div>
+      ) : null}
       {successMessage ? (
         <p className="mb-3 rounded-md border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.12)] px-3 py-2 text-sm text-[#86efac]">
           {successMessage}
@@ -199,26 +289,27 @@ export function CrmPipelineModule() {
       ) : null}
       <CrmKanbanBoard
         columns={columns}
-        leadsByColumn={byColumn}
+        leadsByColumn={byColumn as Record<string, CrmLead[]>}
         loading={loading}
         leadCount={leads.length}
         onDragEnd={onDragEnd}
         onOpenLead={(lead) => setSelectedId(lead.id)}
-        onAddLead={openAddModal}
-        addLeadLabel={lt("Add New Lead")}
+        onAddLead={allowAddLead ? openAddModal : undefined}
+        addLeadLabel={allowAddLead ? lt("Add New Lead") : undefined}
       />
 
       {selectedLead ? (
         <CrmLeadDetailPanel
           lead={selectedLead}
+          funnelConfig={funnel}
           onClose={() => setSelectedId(null)}
           onLeadUpdated={onLeadUpdated}
           onLeadDeleted={handleLeadDeleted}
-          onLeadMovedToResume={onLeadMovedToResume}
+          onLeadMovedToResume={isSalesFunnelSlug(funnel.slug) ? handleLeadMovedToResume : undefined}
         />
       ) : null}
 
-      {modalOpen ? (
+      {modalOpen && allowAddLead ? (
         <div className="fixed inset-0 z-[125] flex items-center justify-center bg-black/70 p-4">
           <form
             onSubmit={handleAddSubmit}
@@ -235,7 +326,7 @@ export function CrmPipelineModule() {
               </button>
             </div>
             <p className="mt-2 text-xs text-[rgba(255,255,255,0.45)]">
-              {lt("Status")}: {crmLeadStatusLabel(targetColumn, language)}
+              {lt("Status")}: {stageLabel(funnel, targetColumn, language)}
             </p>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <label className="block space-y-1 md:col-span-2">
@@ -276,25 +367,31 @@ export function CrmPipelineModule() {
                   className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 />
               </label>
-              <label className="block space-y-1">
+              <div className="block space-y-1">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Source")}</span>
-                <select
+                <CrmSourceField
                   value={source}
-                  onChange={(e) => setSource(e.target.value)}
-                  className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
-                >
-                  {CRM_SOURCE_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {crmSourceLabel(s, language)}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSource}
+                  sourceOptions={sourceOptions}
+                  language={language}
+                  hint={lt("Select or type a new source")}
+                  onCreateOption={rememberSource}
+                />
+              </div>
+              <label className="block space-y-1">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Proposal value")}</span>
+                <input
+                  value={proposalValueStr}
+                  onChange={(e) => setProposalValueStr(e.target.value)}
+                  inputMode="decimal"
+                  className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                />
               </label>
               <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Value")}</span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Closed value")}</span>
                 <input
-                  value={valueStr}
-                  onChange={(e) => setValueStr(e.target.value)}
+                  value={closedValueStr}
+                  onChange={(e) => setClosedValueStr(e.target.value)}
                   inputMode="decimal"
                   className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 />
@@ -315,9 +412,7 @@ export function CrmPipelineModule() {
                 </select>
               </label>
               <label className="block space-y-1 md:col-span-2">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-                  {lt("Description")}
-                </span>
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Description")}</span>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -336,6 +431,17 @@ export function CrmPipelineModule() {
             </div>
           </form>
         </div>
+      ) : null}
+
+      {canEditFunnel ? (
+        <CrmEditFunnelModal
+          open={editOpen}
+          funnel={funnel}
+          allowDelete={!funnel.isBuiltin}
+          onClose={() => setEditOpen(false)}
+          onUpdated={handleFunnelUpdated}
+          onDeleted={handleFunnelDeleted}
+        />
       ) : null}
     </CrmPipelineShell>
   );

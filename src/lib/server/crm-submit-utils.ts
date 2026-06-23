@@ -81,6 +81,8 @@ export function parseLeadBody(raw: unknown): { payload: NormalizedLeadPayload | 
     custom = o.custom as Record<string, unknown>;
   }
 
+  const funnelRaw = clip(String(o.funnel ?? "").trim(), MAX_FIELD);
+
   return {
     payload: {
       name,
@@ -89,6 +91,7 @@ export function parseLeadBody(raw: unknown): { payload: NormalizedLeadPayload | 
       company: clip(String(o.company ?? "").trim(), MAX_FIELD),
       message: clip(String(o.message ?? "").trim(), MAX_MESSAGE),
       source: clip(String(o.source ?? "Website").trim(), MAX_FIELD) || "Website",
+      funnel: funnelRaw || undefined,
       custom,
     },
   };

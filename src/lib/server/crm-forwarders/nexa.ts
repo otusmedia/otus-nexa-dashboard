@@ -6,6 +6,7 @@ export const forwardToNexa: CrmForwarder = async (payload, ctx) => {
   const result = await mirrorLeadToInternalCrm({
     clientSlug: ctx.clientSlug,
     payload,
+    integration: ctx.integration,
   });
 
   if (!result.ok) {

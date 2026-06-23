@@ -18,7 +18,7 @@ export const CRM_LEAD_STATUSES = [
 export type CrmLeadStatus = (typeof CRM_LEAD_STATUSES)[number];
 
 export const CRM_LEAD_FUNNELS = ["sales", "resume"] as const;
-export type CrmLeadFunnel = (typeof CRM_LEAD_FUNNELS)[number];
+export type CrmLeadFunnel = string;
 
 export const CRM_RESUME_STATUSES = [
   "New Application",
@@ -47,16 +47,48 @@ export const CRM_RESUME_KANBAN_COLUMNS: Array<{
 export const CRM_RESUME_INITIAL_STATUS: CrmResumeStatus = "New Application";
 
 export const CRM_SOURCE_OPTIONS = [
-  "Website",
-  "Referral",
-  "Social Media",
-  "Cold Outreach",
-  "Event",
-  "Go High Level",
-  "Other",
+  "WhatsApp",
+  "Site",
+  "E-mail",
+  "Recorrência",
+  "Reativação",
 ] as const;
 
 export type CrmSourceOption = (typeof CRM_SOURCE_OPTIONS)[number];
+
+export const BIOTECC_CLIENT_SLUG = "biotecc";
+
+/** @deprecated Use CRM_SOURCE_OPTIONS — same defaults for all clients. */
+export const BIOTECC_CRM_SOURCE_OPTIONS = CRM_SOURCE_OPTIONS;
+
+export type BioteccCrmSourceOption = CrmSourceOption;
+
+export function isBioteccClient(clientSlug: string | null | undefined): boolean {
+  return (clientSlug ?? "").trim().toLowerCase() === BIOTECC_CLIENT_SLUG;
+}
+
+/** Source dropdown options scoped to the active CRM client. */
+export function getCrmSourceOptions(_clientSlug?: string | null | undefined): readonly string[] {
+  return CRM_SOURCE_OPTIONS;
+}
+
+export function getCrmLeadSourceLabels(clientSlug: string | null | undefined): readonly string[] {
+  return getCrmSourceOptions(clientSlug);
+}
+
+export function mergeCrmSourceOptions(base: readonly string[], extra: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of [...base, ...extra]) {
+    const label = raw.trim();
+    if (!label) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(label);
+  }
+  return out;
+}
 
 export const CRM_TEAM_MEMBERS = [
   "Matheus Canci",
@@ -92,10 +124,13 @@ export interface CrmLead {
   email: string | null;
   phone: string | null;
   status: string;
-  funnel: CrmLeadFunnel;
+  funnel: string;
   owner: string | null;
   source: string | null;
+  /** @deprecated Use proposal_value — kept for backward compatibility */
   value: number;
+  proposal_value: number;
+  closed_value: number;
   description: string | null;
   notes: string | null;
   client_slug: string | null;
@@ -279,10 +314,36 @@ export interface CrmContact {
   created_at: string;
 }
 
+export function parseCrmMoney(raw: unknown): number {
+  if (raw == null || raw === "") return 0;
+  const n = typeof raw === "number" ? raw : Number.parseFloat(String(raw));
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function leadProposalValue(lead: Pick<CrmLead, "proposal_value">): number {
+  return lead.proposal_value ?? 0;
+}
+
+export function crmMoneyInputValue(amount: number): string {
+  return Number.isFinite(amount) ? String(amount) : "0";
+}
+
+export function leadClosedValue(lead: Pick<CrmLead, "closed_value">): number {
+  return lead.closed_value ?? 0;
+}
+
+export function leadStageValueSum(lead: Pick<CrmLead, "proposal_value" | "closed_value" | "value" | "status">): number {
+  const status = normalizeLeadStatus(lead.status);
+  if (status === "Won") {
+    const closed = leadClosedValue(lead);
+    return closed > 0 ? closed : leadProposalValue(lead);
+  }
+  return leadProposalValue(lead);
+}
+
 export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
-  const v = row.value;
-  const num =
-    v == null || v === "" ? 0 : typeof v === "number" ? v : Number.parseFloat(String(v));
+  const proposal = parseCrmMoney(row.proposal_value);
+  const closed = parseCrmMoney(row.closed_value);
   return {
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
@@ -293,7 +354,9 @@ export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
     funnel: normalizeLeadFunnel(row.funnel),
     owner: row.owner != null ? String(row.owner) : null,
     source: row.source != null ? String(row.source) : null,
-    value: Number.isFinite(num) ? num : 0,
+    value: proposal,
+    proposal_value: proposal,
+    closed_value: closed,
     description: row.description != null ? String(row.description) : null,
     notes: row.notes != null ? String(row.notes) : null,
     client_slug: row.client_slug != null ? String(row.client_slug) : null,
@@ -338,9 +401,9 @@ export function mapCrmContactRow(row: Record<string, unknown>): CrmContact {
   };
 }
 
-export function normalizeLeadFunnel(raw: unknown): CrmLeadFunnel {
-  const s = String(raw ?? "").trim().toLowerCase();
-  return s === "resume" ? "resume" : "sales";
+export function normalizeLeadFunnel(raw: unknown): string {
+  const s = String(raw ?? "sales").trim().toLowerCase();
+  return s || "sales";
 }
 
 export function isSalesLead(lead: Pick<CrmLead, "funnel">): boolean {
@@ -356,12 +419,22 @@ export function normalizeLeadStatus(status: string | null | undefined): CrmLeadS
   return CRM_LEAD_STATUSES.includes(s as CrmLeadStatus) ? (s as CrmLeadStatus) : "New Lead";
 }
 
-export function normalizeSource(raw: string | null | undefined): CrmSourceOption {
-  const s = (raw ?? "").trim().toLowerCase();
-  for (const opt of CRM_SOURCE_OPTIONS) {
-    if (opt.toLowerCase() === s) return opt;
+export function normalizeSource(raw: string | null | undefined, clientSlug?: string | null): string {
+  const options = getCrmSourceOptions(clientSlug);
+  const s = (raw ?? "").trim();
+  const lower = s.toLowerCase();
+  for (const opt of options) {
+    if (opt.toLowerCase() === lower) return opt;
   }
-  return "Other";
+  if (s) return s;
+  return options[0] ?? "WhatsApp";
+}
+
+export function normalizeCrmSourceSelect(raw: string | null | undefined, clientSlug: string | null | undefined): string {
+  const s = (raw ?? "").trim();
+  if (s) return s;
+  const options = getCrmSourceOptions(clientSlug);
+  return options[0] ?? "WhatsApp";
 }
 
 export function normalizeResumeStatus(status: string | null | undefined): CrmResumeStatus {

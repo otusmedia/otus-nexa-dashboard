@@ -7,8 +7,10 @@ import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
-import { CRM_SOURCE_OPTIONS, mapCrmContactRow, type CrmContact } from "@/lib/crm-data";
+import { mapCrmContactRow, normalizeCrmSourceSelect, type CrmContact } from "@/lib/crm-data";
 import { crmSourceLabel } from "@/lib/crm-i18n";
+import { CrmSourceField } from "@/modules/crm/crm-source-field";
+import { useCrmSourceOptions } from "@/modules/crm/use-crm-source-options";
 import { formatDisplayDate } from "@/app/(platform)/projects/data";
 
 function formatCreated(iso: string) {
@@ -22,6 +24,9 @@ export function CrmContactsModule() {
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [loading, setLoading] = useState(true);
   const initialLoadRef = useRef(true);
+  const { sourceOptions, rememberSource } = useCrmSourceOptions(dataClientSlug);
+  const defaultSource = sourceOptions[0] ?? "Other";
+
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -30,7 +35,7 @@ export function CrmContactsModule() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState("");
-  const [source, setSource] = useState<string>(CRM_SOURCE_OPTIONS[0]);
+  const [source, setSource] = useState<string>(defaultSource);
   const [notes, setNotes] = useState("");
   const [nameError, setNameError] = useState("");
 
@@ -80,7 +85,7 @@ export function CrmContactsModule() {
     setEmail("");
     setPhone("");
     setRole("");
-    setSource(CRM_SOURCE_OPTIONS[0]);
+    setSource(defaultSource);
     setNotes("");
     setNameError("");
     setModalOpen(true);
@@ -93,7 +98,7 @@ export function CrmContactsModule() {
     setEmail(c.email ?? "");
     setPhone(c.phone ?? "");
     setRole(c.role ?? "");
-    setSource(normalizeContactSource(c.source));
+    setSource(normalizeCrmSourceSelect(c.source, dataClientSlug));
     setNotes(c.notes ?? "");
     setNameError("");
     setModalOpen(true);
@@ -112,13 +117,14 @@ export function CrmContactsModule() {
       setNameError("Name is required.");
       return;
     }
+    const sourceTrimmed = source.trim();
     const payload = {
       name: trimmed,
       company: company.trim() || null,
       email: email.trim() || null,
       phone: phone.trim() || null,
       role: role.trim() || null,
-      source: source || null,
+      source: sourceTrimmed || null,
       notes: notes.trim() || null,
       client_slug: contactClientSlug,
     };
@@ -147,6 +153,7 @@ export function CrmContactsModule() {
         setContacts((prev) => [mapCrmContactRow(data as Record<string, unknown>), ...prev]);
       }
     }
+    if (sourceTrimmed) await rememberSource(sourceTrimmed);
     closeModal();
   };
 
@@ -293,20 +300,17 @@ export function CrmContactsModule() {
                   className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 />
               </label>
-              <label className="block space-y-1">
+              <div className="block space-y-1">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Source")}</span>
-                <select
+                <CrmSourceField
                   value={source}
-                  onChange={(e) => setSource(e.target.value)}
-                  className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
-                >
-                  {CRM_SOURCE_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {crmSourceLabel(s, language)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  onChange={setSource}
+                  sourceOptions={sourceOptions}
+                  language={language}
+                  hint={lt("Select or type a new source")}
+                  onCreateOption={rememberSource}
+                />
+              </div>
               <label className="block space-y-1 md:col-span-2">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Notes")}</span>
                 <textarea
@@ -340,10 +344,4 @@ export function CrmContactsModule() {
       />
     </div>
   );
-}
-
-function normalizeContactSource(raw: string | null | undefined): string {
-  const s = (raw ?? "").trim();
-  if (CRM_SOURCE_OPTIONS.includes(s as (typeof CRM_SOURCE_OPTIONS)[number])) return s;
-  return "Other";
 }

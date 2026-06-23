@@ -120,6 +120,7 @@ export async function POST(request: Request) {
       clientSlug,
       payload: parsed.payload,
       externalId: result.externalId,
+      integration,
     });
   }
 

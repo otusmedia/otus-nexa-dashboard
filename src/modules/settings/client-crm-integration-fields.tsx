@@ -81,8 +81,9 @@ export function ClientCrmIntegrationFields({ value, onChange, clientSlug, lt }: 
         endpoint,
         clientSlug: clientSlug.trim() || "your-client-slug",
         ingestSecret: value.ingestSecret.trim() || "GENERATE_SECRET_IN_PANEL",
+        defaultSource: value.defaultSource.trim() || "Website",
       }),
-    [endpoint, clientSlug, value.ingestSecret],
+    [endpoint, clientSlug, value.ingestSecret, value.defaultSource],
   );
 
   const copySnippet = async () => {
@@ -173,6 +174,25 @@ export function ClientCrmIntegrationFields({ value, onChange, clientSlug, lt }: 
           {lt("Show secret")}
         </label>
       </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field
+          label={lt("Default funnel slug")}
+          value={value.defaultFunnelSlug}
+          onChange={(defaultFunnelSlug) => patch({ defaultFunnelSlug })}
+          placeholder="site"
+          mono
+        />
+        <Field
+          label={lt("Default source")}
+          value={value.defaultSource}
+          onChange={(defaultSource) => patch({ defaultSource })}
+          placeholder="Site"
+        />
+      </div>
+      <p className="text-[11px] font-light text-[var(--muted)]">
+        {lt("Website forms land in this funnel with this source when the snippet does not override them.")}
+      </p>
 
       <div>
         <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Allowed origins (one per line)")}</label>

@@ -109,6 +109,12 @@ export function loadGhlImportConfigFromEnv(overrides?: Partial<GhlImportConfig>)
     overrides?.importContacts ??
     (importContactsEnv === "false" || importContactsEnv === "0" ? false : true);
 
+  const pipelineIdsFromEnv = process.env.GHL_PIPELINE_IDS?.split(",").map((s) => s.trim()).filter(Boolean);
+  const pipelineIds =
+    overrides?.pipelineIds?.map((s) => s.trim()).filter(Boolean) ??
+    pipelineIdsFromEnv ??
+    undefined;
+
   return {
     token,
     locationId,
@@ -117,6 +123,7 @@ export function loadGhlImportConfigFromEnv(overrides?: Partial<GhlImportConfig>)
       overrides?.pipelineId?.trim() ||
       process.env.GHL_PIPELINE_ID?.trim() ||
       undefined,
+    pipelineIds,
     stageMap: overrides?.stageMap,
     dryRun: overrides?.dryRun ?? false,
     importContacts,
@@ -129,6 +136,7 @@ export async function runGhlImport(config: GhlImportConfig): Promise<GhlImportRe
     clientSlug: config.clientSlug,
     dryRun: config.dryRun === true,
     pipelines: 0,
+    importedPipelineNames: [],
     contactsFetched: 0,
     contactsInserted: 0,
     contactsUpdated: 0,
@@ -163,13 +171,38 @@ export async function runGhlImport(config: GhlImportConfig): Promise<GhlImportRe
     ...(config.stageMap ?? {}),
   };
 
-  logProgress("Carregando oportunidades (leads do pipeline)…");
-  const opportunities = await fetchGhlOpportunities(
-    config.token,
-    config.locationId,
-    config.pipelineId,
-    logProgress,
+  const pipelineIdsToImport =
+    config.pipelineIds && config.pipelineIds.length > 0
+      ? config.pipelineIds
+      : config.pipelineId
+        ? [config.pipelineId]
+        : pipelines.map((p) => p.id);
+
+  const pipelineNameById = new Map(pipelines.map((p) => [p.id, p.name]));
+  result.importedPipelineNames = pipelineIdsToImport.map((id) => pipelineNameById.get(id) ?? id);
+
+  logProgress(
+    `Importando oportunidades de ${pipelineIdsToImport.length} pipeline(s): ${result.importedPipelineNames.join(", ")}…`,
   );
+
+  const opportunities: Awaited<ReturnType<typeof fetchGhlOpportunities>> = [];
+  const seenOppIds = new Set<string>();
+  for (const pipelineId of pipelineIdsToImport) {
+    const label = pipelineNameById.get(pipelineId) ?? pipelineId;
+    logProgress(`Pipeline "${label}"…`);
+    const batch = await fetchGhlOpportunities(
+      config.token,
+      config.locationId,
+      pipelineId,
+      logProgress,
+    );
+    for (const opp of batch) {
+      if (!seenOppIds.has(opp.id)) {
+        seenOppIds.add(opp.id);
+        opportunities.push(opp);
+      }
+    }
+  }
   result.opportunitiesFetched = opportunities.length;
 
   let contacts: Awaited<ReturnType<typeof fetchGhlContacts>> = [];

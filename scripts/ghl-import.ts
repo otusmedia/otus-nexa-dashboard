@@ -41,12 +41,20 @@ async function main() {
   const dryRun = args.includes("--dry-run");
   const clientArg = args.find((a) => a.startsWith("--client-slug="));
   const pipelineArg = args.find((a) => a.startsWith("--pipeline-id="));
+  const pipelineIdsArg = args.find((a) => a.startsWith("--pipeline-ids="));
   const locationArg = args.find((a) => a.startsWith("--location-id="));
+
+  const pipelineIds = pipelineIdsArg
+    ?.split("=")[1]
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   const config = loadGhlImportConfigFromEnv({
     dryRun,
     clientSlug: clientArg?.split("=")[1],
     pipelineId: pipelineArg?.split("=")[1],
+    pipelineIds,
     locationId: locationArg?.split("=")[1],
   });
 

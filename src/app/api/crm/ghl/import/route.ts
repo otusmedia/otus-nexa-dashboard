@@ -4,6 +4,7 @@ import { loadGhlImportConfigFromEnv, runGhlImport } from "@/lib/server/ghl/ghl-i
 type ImportBody = {
   clientSlug?: string;
   pipelineId?: string;
+  pipelineIds?: string[];
   locationId?: string;
   dryRun?: boolean;
 };
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
   const config = loadGhlImportConfigFromEnv({
     clientSlug: body.clientSlug,
     pipelineId: body.pipelineId,
+    pipelineIds: body.pipelineIds,
     locationId: body.locationId,
     dryRun: body.dryRun === true,
   });

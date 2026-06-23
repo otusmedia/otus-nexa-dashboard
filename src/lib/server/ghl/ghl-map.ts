@@ -184,6 +184,8 @@ export function buildCrmLeadFromGhlOpportunity(
     owner: null,
     source: leadSource,
     value: opp.monetaryValue ?? 0,
+    proposal_value: opp.monetaryValue ?? 0,
+    closed_value: 0,
     description,
     notes: notes || null,
     client_slug: clientSlug,

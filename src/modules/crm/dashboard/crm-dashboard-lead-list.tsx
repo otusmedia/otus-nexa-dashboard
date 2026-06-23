@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { formatLeadValue, type CrmLead } from "@/lib/crm-data";
+import { formatLeadValue, leadProposalValue, type CrmLead } from "@/lib/crm-data";
 import { getLeadInitials } from "@/modules/crm/use-crm-dashboard-data";
 import { cn } from "@/lib/utils";
 import { CrmDashboardCard, CrmDashboardSectionTitle, CrmDashboardSkeleton } from "./crm-dashboard-card";
@@ -66,7 +66,7 @@ export function CrmDashboardLeadList({ leads, loading, lt }: Props) {
                   </span>
                 </span>
                 <span className="mono-num shrink-0 text-sm text-[rgba(255,255,255,0.55)]">
-                  {formatLeadValue(lead.value)}
+                  {formatLeadValue(leadProposalValue(lead))}
                 </span>
               </button>
             </li>

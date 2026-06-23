@@ -37,11 +37,12 @@ export function CrmDashboardModule() {
     recentActivity,
     latestActivity,
     sourceMap,
+    sourceLabels,
     sourceTotal,
     pipelineRows,
     upcomingDateSlots,
     reload,
-  } = useCrmDashboardData(dataClientSlug, chartRange, language);
+  } = useCrmDashboardData(dataClientSlug, chartRange, language, currentUser);
 
   const accentColor = activeClient?.primaryColor ?? "#FF4500";
   const showSelectClientHint =
@@ -129,6 +130,7 @@ export function CrmDashboardModule() {
         <div className="h-full xl:col-span-6">
           <CrmDashboardSources
             sourceMap={sourceMap}
+            sourceLabels={sourceLabels}
             sourceTotal={sourceTotal}
             loading={loading}
             language={language}

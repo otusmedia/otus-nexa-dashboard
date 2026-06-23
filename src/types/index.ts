@@ -147,6 +147,10 @@ export type ClientCrmIntegration = {
   pipedriveStageId: string;
   rdStationToken: string;
   rdStationConversionIdentifier: string;
+  /** CRM funnel slug for website form leads (e.g. site, sales). */
+  defaultFunnelSlug: string;
+  /** Default lead source when the form does not send one (e.g. Site, Website). */
+  defaultSource: string;
   /** When true, also insert a row in crm_leads for agency audit. */
   mirrorToInternalCrm: boolean;
 };

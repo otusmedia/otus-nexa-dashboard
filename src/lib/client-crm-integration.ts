@@ -16,6 +16,8 @@ export const EMPTY_CLIENT_CRM_INTEGRATION: ClientCrmIntegration = {
   pipedriveStageId: "",
   rdStationToken: "",
   rdStationConversionIdentifier: "",
+  defaultFunnelSlug: "sales",
+  defaultSource: "Website",
   mirrorToInternalCrm: true,
 };
 
@@ -59,6 +61,8 @@ export function parseClientCrmIntegration(raw: unknown): ClientCrmIntegration {
     rdStationToken: o.rdStationToken != null ? String(o.rdStationToken) : "",
     rdStationConversionIdentifier:
       o.rdStationConversionIdentifier != null ? String(o.rdStationConversionIdentifier) : "",
+    defaultFunnelSlug: String(o.defaultFunnelSlug ?? "sales").trim() || "sales",
+    defaultSource: String(o.defaultSource ?? "Website").trim() || "Website",
     mirrorToInternalCrm: provider === "nexa" ? true : o.mirrorToInternalCrm === true,
   };
 }
@@ -78,6 +82,8 @@ export function clientCrmIntegrationToDb(integration: ClientCrmIntegration): Rec
     pipedriveStageId: integration.pipedriveStageId.trim(),
     rdStationToken: integration.rdStationToken.trim(),
     rdStationConversionIdentifier: integration.rdStationConversionIdentifier.trim(),
+    defaultFunnelSlug: integration.defaultFunnelSlug.trim() || "sales",
+    defaultSource: integration.defaultSource.trim() || "Website",
     mirrorToInternalCrm: integration.provider === "nexa" ? true : integration.mirrorToInternalCrm,
   };
 }
@@ -97,8 +103,9 @@ export function buildCrmFormSnippet(opts: {
   endpoint: string;
   clientSlug: string;
   ingestSecret: string;
+  defaultSource?: string;
 }): string {
-  const { endpoint, clientSlug, ingestSecret } = opts;
+  const { endpoint, clientSlug, ingestSecret, defaultSource = "Website" } = opts;
   return `<!-- Nexa CRM — Webflow: Project Settings → Custom Code → Footer -->
 <script>
 (function () {
@@ -146,7 +153,7 @@ export function buildCrmFormSnippet(opts: {
       phone: pickField(fd, form, ["phone", "Phone", "telefone", "Telefone", "tel"], null),
       company: pickField(fd, form, ["company", "Company", "empresa", "Empresa"], null),
       message: message,
-      source: "Website",
+      source: ${JSON.stringify(defaultSource)},
       website: pickField(fd, form, ["website", "Website"], null) || "",
       custom: custom,
     };

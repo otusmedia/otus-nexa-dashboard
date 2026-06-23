@@ -9,9 +9,12 @@ import {
   CRM_KANBAN_COLUMNS,
   CRM_RESUME_INITIAL_STATUS,
   CRM_RESUME_KANBAN_COLUMNS,
-  CRM_SOURCE_OPTIONS,
+  leadClosedValue,
+  leadProposalValue,
+  normalizeCrmSourceSelect,
   completeCrmAppointment,
   crmAppointmentCompletionErrorMessage,
+  crmMoneyInputValue,
   formatAppointmentTime,
   formatCrmAppointmentCompletedAt,
   formatLeadCreatedAt,
@@ -32,14 +35,25 @@ import {
   resumeStageDotClass,
 } from "@/lib/crm-data";
 import { crmLeadStatusLabel, crmResumeStatusLabel, crmSourceLabel } from "@/lib/crm-i18n";
-import { resolveCrmOwnerOptions } from "@/lib/crm-team-members";
-import { formatCurrency } from "@/lib/utils";
+import { findCrmOwnerUser, resolveCrmOwnerOptions } from "@/lib/crm-team-members";
+import { formatCurrency, cn } from "@/lib/utils";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
 import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { dispatchCrmAppointmentCompleted } from "@/lib/crm-appointment-events";
-import { cn } from "@/lib/utils";
+import { CrmSourceField } from "@/modules/crm/crm-source-field";
+import { useCrmSourceOptions } from "@/modules/crm/use-crm-source-options";
+import {
+  funnelStageDotClass,
+  isResumeFunnelSlug,
+  isSalesFunnelSlug,
+  normalizeFunnelStageStatus,
+  SALES_FUNNEL_TRANSFER_STATUS,
+  shouldTransferLeadToSalesFunnel,
+  type CrmFunnelDef,
+} from "@/lib/crm-funnels";
 
-function statusBadgeClass(lead: CrmLead, status: string) {
+function statusBadgeClass(lead: CrmLead, status: string, funnelConfig?: CrmFunnelDef) {
+  if (funnelConfig) return funnelStageDotClass(funnelConfig, status);
   if (isResumeLead(lead)) return resumeStageDotClass(status as CrmResumeStatus);
   return pipelineStageDotClass(status as CrmLeadStatus);
 }
@@ -69,12 +83,14 @@ function normalizeYmd(dateStr: string | null): string {
 
 export function CrmLeadDetailPanel({
   lead,
+  funnelConfig,
   onClose,
   onLeadUpdated,
   onLeadDeleted,
   onLeadMovedToResume,
 }: {
   lead: CrmLead;
+  funnelConfig?: CrmFunnelDef;
   onClose: () => void;
   onLeadUpdated: (lead: CrmLead) => void;
   onLeadDeleted: (leadId: string) => void;
@@ -87,14 +103,17 @@ export function CrmLeadDetailPanel({
     [users, dataClientSlug, currentUser],
   );
   const eventClientSlug = (lead.client_slug ?? dataClientSlug ?? "").trim() || null;
+  const crmClientSlug = eventClientSlug ?? dataClientSlug;
+  const { sourceOptions, rememberSource } = useCrmSourceOptions(crmClientSlug);
   const [nameDraft, setNameDraft] = useState(lead.name);
   const [propDraft, setPropDraft] = useState({
     owner: lead.owner ?? "",
     company: lead.company ?? "",
     email: lead.email ?? "",
     phone: lead.phone ?? "",
-    source: normalizeLeadSourceSelect(lead.source),
-    valueStr: String(lead.value ?? 0),
+    source: normalizeCrmSourceSelect(lead.source, crmClientSlug),
+    proposalValueStr: crmMoneyInputValue(leadProposalValue(lead)),
+    closedValueStr: crmMoneyInputValue(leadClosedValue(lead)),
   });
   const [descDraft, setDescDraft] = useState(lead.description ?? "");
   const [notesDraft, setNotesDraft] = useState(lead.notes ?? "");
@@ -131,12 +150,13 @@ export function CrmLeadDetailPanel({
       company: l.company ?? "",
       email: l.email ?? "",
       phone: l.phone ?? "",
-      source: normalizeLeadSourceSelect(l.source),
-      valueStr: String(l.value ?? 0),
+      source: normalizeCrmSourceSelect(l.source, l.client_slug ?? dataClientSlug),
+      proposalValueStr: crmMoneyInputValue(leadProposalValue(l)),
+      closedValueStr: crmMoneyInputValue(leadClosedValue(l)),
     });
     setDescDraft(l.description ?? "");
     setNotesDraft(l.notes ?? "");
-  }, []);
+  }, [dataClientSlug]);
 
   useEffect(() => {
     syncFromLead(lead);
@@ -213,28 +233,51 @@ export function CrmLeadDetailPanel({
     (propDraft.company || "") !== (lead.company ?? "") ||
     (propDraft.email || "") !== (lead.email ?? "") ||
     (propDraft.phone || "") !== (lead.phone ?? "") ||
-    propDraft.source !== normalizeLeadSourceSelect(lead.source) ||
-    Number.parseFloat(propDraft.valueStr || "0") !== lead.value;
+    propDraft.source.trim() !== (lead.source ?? "").trim() ||
+    Number.parseFloat(propDraft.proposalValueStr || "0") !== leadProposalValue(lead) ||
+    Number.parseFloat(propDraft.closedValueStr || "0") !== leadClosedValue(lead);
 
   const descDirty = descDraft !== (lead.description ?? "");
   const notesDirty = notesDraft !== (lead.notes ?? "");
 
+  const ownerTransferPending = useMemo(() => {
+    if (!funnelConfig || funnelConfig.isBuiltin) return false;
+    const ownerName = propDraft.owner.trim();
+    if (!ownerName) return false;
+    const ownerUser = findCrmOwnerUser(users, ownerName);
+    return shouldTransferLeadToSalesFunnel(funnelConfig, ownerUser);
+  }, [funnelConfig, propDraft.owner, users]);
+
   const saveProperties = async () => {
-    const valueNum = Number.parseFloat(propDraft.valueStr.replace(/,/g, "")) || 0;
+    const proposalNum = Number.parseFloat(propDraft.proposalValueStr.replace(/,/g, "")) || 0;
+    const closedNum = Number.parseFloat(propDraft.closedValueStr.replace(/,/g, "")) || 0;
+    const source = propDraft.source.trim();
+    const ownerName = propDraft.owner.trim();
+    const ownerUser = findCrmOwnerUser(users, ownerName);
+    const transferToSales = shouldTransferLeadToSalesFunnel(funnelConfig, ownerUser);
     setPropsSaving(true);
     const now = new Date().toISOString();
+    const actor = currentUser.name?.trim() || currentUser.email || "User";
+    const clientSlug = (lead.client_slug ?? dataClientSlug ?? "").trim() || null;
+    const updatePayload: Record<string, unknown> = {
+      name: nameDraft.trim() || lead.name,
+      owner: ownerName || null,
+      company: propDraft.company.trim() || null,
+      email: propDraft.email.trim() || null,
+      phone: propDraft.phone.trim() || null,
+      source: source || null,
+      value: proposalNum,
+      proposal_value: proposalNum,
+      closed_value: closedNum,
+      updated_at: now,
+    };
+    if (transferToSales) {
+      updatePayload.funnel = "sales";
+      updatePayload.status = SALES_FUNNEL_TRANSFER_STATUS;
+    }
     const { data, error } = await supabase
       .from("crm_leads")
-      .update({
-        name: nameDraft.trim() || lead.name,
-        owner: propDraft.owner.trim() || null,
-        company: propDraft.company.trim() || null,
-        email: propDraft.email.trim() || null,
-        phone: propDraft.phone.trim() || null,
-        source: propDraft.source,
-        value: valueNum,
-        updated_at: now,
-      })
+      .update(updatePayload)
       .eq("id", lead.id)
       .select("*")
       .maybeSingle();
@@ -242,6 +285,22 @@ export function CrmLeadDetailPanel({
     if (error) {
       console.error("[crm] save properties", error.message);
       return;
+    }
+    if (source) await rememberSource(source);
+    if (transferToSales && funnelConfig) {
+      const { error: logErr } = await supabase.from("crm_activity_log").insert({
+        lead_id: lead.id,
+        client_slug: clientSlug,
+        actor_name: actor,
+        event_type: "lead_transferred_to_sales",
+        payload: {
+          from_funnel: funnelConfig.slug,
+          to_funnel: "sales",
+          owner: ownerName,
+        },
+      });
+      if (logErr) console.error("[crm] activity log", logErr.message);
+      pushNotification(lt("Lead transferred to Sales pipeline"), "task");
     }
     if (data) onLeadUpdated(mapCrmLeadRow(data as Record<string, unknown>));
   };
@@ -285,6 +344,26 @@ export function CrmLeadDetailPanel({
   };
 
   const onStatusChange = async (next: string) => {
+    if (funnelConfig && !isSalesFunnelSlug(funnelConfig.slug) && !isResumeFunnelSlug(funnelConfig.slug)) {
+      const normalized = normalizeFunnelStageStatus(next, funnelConfig.stages);
+      if (normalized === normalizeFunnelStageStatus(lead.status, funnelConfig.stages)) return;
+      setStatusUpdating(true);
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from("crm_leads")
+        .update({ status: normalized, updated_at: now })
+        .eq("id", lead.id)
+        .select("*")
+        .maybeSingle();
+      setStatusUpdating(false);
+      if (error) {
+        console.error("[crm] status", error.message);
+        return;
+      }
+      if (data) onLeadUpdated(mapCrmLeadRow(data as Record<string, unknown>));
+      return;
+    }
+
     if (isResumeLead(lead)) {
       const normalized = normalizeResumeStatus(next);
       if (normalized === normalizeResumeStatus(lead.status)) return;
@@ -581,8 +660,22 @@ export function CrmLeadDetailPanel({
     onClose();
   };
 
-  const currentStatus = isResumeLead(lead) ? normalizeResumeStatus(lead.status) : normalizeLeadStatus(lead.status);
-  const statusColumns = isResumeLead(lead) ? CRM_RESUME_KANBAN_COLUMNS : CRM_KANBAN_COLUMNS;
+  const isResume = funnelConfig ? isResumeFunnelSlug(funnelConfig.slug) : isResumeLead(lead);
+  const isSales = funnelConfig ? isSalesFunnelSlug(funnelConfig.slug) : isSalesLead(lead);
+  const currentStatus = funnelConfig
+    ? normalizeFunnelStageStatus(lead.status, funnelConfig.stages)
+    : isResumeLead(lead)
+      ? normalizeResumeStatus(lead.status)
+      : normalizeLeadStatus(lead.status);
+  const statusColumns = funnelConfig
+    ? funnelConfig.stages.map((stage) => ({
+        id: stage.name,
+        label: stage.name,
+        dotClass: stage.dotClass,
+      }))
+    : isResumeLead(lead)
+      ? CRM_RESUME_KANBAN_COLUMNS
+      : CRM_KANBAN_COLUMNS;
 
   return (
     <>
@@ -612,7 +705,7 @@ export function CrmLeadDetailPanel({
                   "inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-1 text-xs text-white",
                 )}
               >
-                <span className={cn("h-1.5 w-1.5 rounded-full", statusBadgeClass(lead, currentStatus))} aria-hidden />
+                <span className={cn("h-1.5 w-1.5 rounded-full", statusBadgeClass(lead, currentStatus, funnelConfig))} aria-hidden />
                 <select
                   value={currentStatus}
                   disabled={statusUpdating}
@@ -621,7 +714,11 @@ export function CrmLeadDetailPanel({
                 >
                   {statusColumns.map((c) => (
                     <option key={c.id} value={c.id} className="bg-[#141414]">
-                      {isResumeLead(lead) ? crmResumeStatusLabel(c.id, language) : crmLeadStatusLabel(c.id, language)}
+                      {funnelConfig && !isSales && !isResume
+                        ? c.id
+                        : isResume
+                          ? crmResumeStatusLabel(c.id, language)
+                          : crmLeadStatusLabel(c.id, language)}
                     </option>
                   ))}
                 </select>
@@ -658,6 +755,11 @@ export function CrmLeadDetailPanel({
                     </option>
                   ))}
                 </select>
+                {ownerTransferPending ? (
+                  <p className="text-xs text-[rgba(255,255,255,0.45)]">
+                    {lt("Owner outside funnel transfer hint")}
+                  </p>
+                ) : null}
               </label>
               <label className="block space-y-1">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Company")}</span>
@@ -684,33 +786,48 @@ export function CrmLeadDetailPanel({
                   className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 />
               </label>
-              <label className="block space-y-1">
+              <div className="block space-y-1">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Source")}</span>
-                <select
+                <CrmSourceField
                   value={propDraft.source}
-                  onChange={(e) => setPropDraft((p) => ({ ...p, source: e.target.value }))}
-                  className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
-                >
-                  {CRM_SOURCE_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {crmSourceLabel(s, language)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {isSalesLead(lead) ? (
-                <label className="block space-y-1">
-                  <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Value ($)")}</span>
-                  <input
-                    value={propDraft.valueStr}
-                    onChange={(e) => setPropDraft((p) => ({ ...p, valueStr: e.target.value }))}
-                    inputMode="decimal"
-                    className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
-                  />
-                  <span className="text-xs text-[rgba(255,255,255,0.35)]">
-                    {lt("Preview")}: {formatCurrency(Number.parseFloat(propDraft.valueStr.replace(/,/g, "")) || 0)}
-                  </span>
-                </label>
+                  onChange={(next) => setPropDraft((p) => ({ ...p, source: next }))}
+                  sourceOptions={sourceOptions}
+                  language={language}
+                  hint={lt("Select or type a new source")}
+                  onCreateOption={rememberSource}
+                />
+              </div>
+              {isSales ? (
+                <>
+                  <label className="block space-y-1">
+                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                      {lt("Proposal value")}
+                    </span>
+                    <input
+                      value={propDraft.proposalValueStr}
+                      onChange={(e) => setPropDraft((p) => ({ ...p, proposalValueStr: e.target.value }))}
+                      inputMode="decimal"
+                      className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                    />
+                    <span className="text-xs text-[rgba(255,255,255,0.35)]">
+                      {lt("Preview")}: {formatCurrency(Number.parseFloat(propDraft.proposalValueStr.replace(/,/g, "")) || 0)}
+                    </span>
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                      {lt("Closed value")}
+                    </span>
+                    <input
+                      value={propDraft.closedValueStr}
+                      onChange={(e) => setPropDraft((p) => ({ ...p, closedValueStr: e.target.value }))}
+                      inputMode="decimal"
+                      className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                    />
+                    <span className="text-xs text-[rgba(255,255,255,0.35)]">
+                      {lt("Preview")}: {formatCurrency(Number.parseFloat(propDraft.closedValueStr.replace(/,/g, "")) || 0)}
+                    </span>
+                  </label>
+                </>
               ) : null}
             </div>
             <div className="mt-3 flex justify-end gap-2">
@@ -1003,7 +1120,7 @@ export function CrmLeadDetailPanel({
           </section>
 
           <section className="mt-10 space-y-3">
-            {isSalesLead(lead) ? (
+            {isSales ? (
               <button
                 type="button"
                 onClick={() => setMarkResumeModalOpen(true)}
@@ -1012,7 +1129,7 @@ export function CrmLeadDetailPanel({
                 {lt("Mark as resume")}
               </button>
             ) : null}
-            {isResumeLead(lead) ? (
+            {isResume ? (
               <button
                 type="button"
                 onClick={() => setMoveBackToSalesModalOpen(true)}
@@ -1146,12 +1263,6 @@ export function CrmLeadDetailPanel({
       ) : null}
     </>
   );
-}
-
-function normalizeLeadSourceSelect(raw: string | null | undefined): string {
-  const s = (raw ?? "").trim();
-  if (CRM_SOURCE_OPTIONS.includes(s as (typeof CRM_SOURCE_OPTIONS)[number])) return s;
-  return "Other";
 }
 
 function toPgTime(htmlTime: string): string | null {

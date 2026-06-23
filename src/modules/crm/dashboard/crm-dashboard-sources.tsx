@@ -1,19 +1,19 @@
 "use client";
 
-import { CRM_LEAD_SOURCE_LABELS } from "@/lib/crm-data";
 import { crmSourceLabel } from "@/lib/crm-i18n";
 import type { AppLanguage } from "@/lib/locale-types";
 import { CrmDashboardCard, CrmDashboardSectionTitle, CrmDashboardSkeleton } from "./crm-dashboard-card";
 
 type Props = {
   sourceMap: Record<string, number>;
+  sourceLabels: readonly string[];
   sourceTotal: number;
   loading: boolean;
   language: AppLanguage;
   lt: (key: string) => string;
 };
 
-export function CrmDashboardSources({ sourceMap, sourceTotal, loading, language, lt }: Props) {
+export function CrmDashboardSources({ sourceMap, sourceLabels, sourceTotal, loading, language, lt }: Props) {
   return (
     <CrmDashboardCard>
       <CrmDashboardSectionTitle>{lt("LEAD SOURCES")}</CrmDashboardSectionTitle>
@@ -27,7 +27,7 @@ export function CrmDashboardSources({ sourceMap, sourceTotal, loading, language,
         </div>
       ) : (
         <ul className="space-y-4">
-          {CRM_LEAD_SOURCE_LABELS.map((label) => {
+          {sourceLabels.map((label) => {
             const count = sourceMap[label] ?? 0;
             const pct = Math.round((count / sourceTotal) * 1000) / 10;
             return (

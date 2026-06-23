@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { rowMatchesDataClient } from "@/lib/client-utils";
+import { filterCrmLeadsForUser } from "@/lib/crm-lead-visibility";
 import {
-  CRM_LEAD_SOURCE_LABELS,
   CRM_LEAD_STATUSES,
   formatLeadValue,
+  getCrmLeadSourceLabels,
   isCrmAppointmentDone,
   isSalesLead,
+  leadClosedValue,
+  leadProposalValue,
+  leadStageValueSum,
   mapCrmActivityLogRow,
   mapCrmAppointmentRow,
   mapCrmLeadRow,
@@ -17,7 +20,9 @@ import {
   type CrmLead,
   type CrmLeadStatus,
 } from "@/lib/crm-data";
+import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
+import type { AppUser } from "@/types";
 
 export type CrmChartRange = "7d" | "30d";
 
@@ -52,11 +57,11 @@ export type CrmActivityItem =
   | { type: "appointment"; id: string; title: string; subtitle: string; at: string }
   | { type: "completion"; id: string; title: string; subtitle: string; at: string };
 
-function sourceCountMap(leads: CrmLead[]): Record<string, number> {
+function sourceCountMap(leads: CrmLead[], dataClientSlug: string | null): Record<string, number> {
   const m: Record<string, number> = {};
-  for (const label of CRM_LEAD_SOURCE_LABELS) m[label] = 0;
+  for (const label of getCrmLeadSourceLabels(dataClientSlug)) m[label] = 0;
   for (const lead of leads) {
-    const key = normalizeSource(lead.source);
+    const key = normalizeSource(lead.source, dataClientSlug);
     m[key] = (m[key] ?? 0) + 1;
   }
   return m;
@@ -102,7 +107,12 @@ export function getLeadInitials(name: string): string {
   return leadInitials(name);
 }
 
-export function useCrmDashboardData(dataClientSlug: string | null, chartRange: CrmChartRange, locale: string) {
+export function useCrmDashboardData(
+  dataClientSlug: string | null,
+  chartRange: CrmChartRange,
+  locale: string,
+  currentUser: AppUser,
+) {
   const [leads, setLeads] = useState<CrmLead[]>([]);
   const [appointments, setAppointments] = useState<CrmAppointment[]>([]);
   const [activityLog, setActivityLog] = useState<
@@ -140,10 +150,13 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
       return;
     }
 
-    const mappedLeads = ((leadsRes.data ?? []) as Record<string, unknown>[])
-      .map((row) => mapCrmLeadRow(row))
-      .filter((lead) => rowMatchesDataClient(lead.client_slug, dataClientSlug))
-      .filter((lead) => isSalesLead(lead));
+    const mappedLeads = filterCrmLeadsForUser(
+      ((leadsRes.data ?? []) as Record<string, unknown>[])
+        .map((row) => mapCrmLeadRow(row))
+        .filter((lead) => rowMatchesDataClient(lead.client_slug, dataClientSlug))
+        .filter((lead) => isSalesLead(lead)),
+      currentUser,
+    );
 
     const leadIds = new Set(mappedLeads.map((l) => l.id));
     const leadById = new Map(mappedLeads.map((l) => [l.id, l]));
@@ -188,7 +201,7 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
     setActivityLog(completionItems);
     initialLoadRef.current = false;
     setLoading(false);
-  }, [dataClientSlug]);
+  }, [dataClientSlug, currentUser]);
 
   useEffect(() => {
     initialLoadRef.current = true;
@@ -236,10 +249,10 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
   const conversionPct = total === 0 ? 0 : Math.round((wonCount / total) * 1000) / 10;
   const totalSalesValue = leads
     .filter((l) => normalizeLeadStatus(l.status) === "Won")
-    .reduce((a, l) => a + l.value, 0);
+    .reduce((a, l) => a + (leadClosedValue(l) > 0 ? leadClosedValue(l) : leadProposalValue(l)), 0);
   const openProposalLeads = leads.filter((l) => normalizeLeadStatus(l.status) === "Proposal Sent");
   const openProposalsCount = openProposalLeads.length;
-  const openProposalsValue = openProposalLeads.reduce((a, l) => a + l.value, 0);
+  const openProposalsValue = openProposalLeads.reduce((a, l) => a + leadProposalValue(l), 0);
 
   const heroMetric = useMemo((): CrmHeroMetric => {
     return {
@@ -293,7 +306,7 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
   const priorityLeads = useMemo(() => {
     return [...leads]
       .sort((a, b) => {
-        if (b.value !== a.value) return b.value - a.value;
+        if (leadProposalValue(b) !== leadProposalValue(a)) return leadProposalValue(b) - leadProposalValue(a);
         return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
       })
       .slice(0, 5);
@@ -364,7 +377,14 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
 
   const latestActivity = recentActivity[0] ?? null;
 
-  const sourceMap = useMemo(() => sourceCountMap(leads), [leads]);
+  const sourceMap = useMemo(() => sourceCountMap(leads, dataClientSlug), [leads, dataClientSlug]);
+  const sourceLabels = useMemo(() => {
+    const base = [...getCrmLeadSourceLabels(dataClientSlug)];
+    for (const key of Object.keys(sourceMap)) {
+      if ((sourceMap[key] ?? 0) > 0 && !base.includes(key)) base.push(key);
+    }
+    return base;
+  }, [dataClientSlug, sourceMap]);
   const sourceTotal = leads.length || 1;
 
   const pipelineRows = useMemo(() => {
@@ -373,7 +393,7 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
       return {
         stage: stage as CrmLeadStatus,
         count: inStage.length,
-        valueSum: inStage.reduce((a, l) => a + l.value, 0),
+        valueSum: inStage.reduce((a, l) => a + leadStageValueSum(l), 0),
       };
     });
   }, [leads]);
@@ -432,6 +452,7 @@ export function useCrmDashboardData(dataClientSlug: string | null, chartRange: C
     recentActivity,
     latestActivity,
     sourceMap,
+    sourceLabels,
     sourceTotal,
     pipelineRows,
     upcomingDateSlots,

@@ -3,10 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { rowMatchesDataClient } from "@/lib/client-utils";
+import { filterCrmLeadsForUser } from "@/lib/crm-lead-visibility";
+import { mapCrmLeadRow, type CrmLead } from "@/lib/crm-data";
 import { supabase } from "@/lib/supabase";
-import { mapCrmLeadRow, type CrmLead, type CrmLeadFunnel } from "@/lib/crm-data";
+import type { AppUser } from "@/types";
 
-export function useCrmKanbanLeads(funnel: CrmLeadFunnel, dataClientSlug: string | null, pipelinePath: string) {
+export function useCrmKanbanLeads(
+  funnel: string,
+  dataClientSlug: string | null,
+  pipelinePath: string,
+  currentUser: AppUser,
+) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [leads, setLeads] = useState<CrmLead[]>([]);
@@ -18,8 +25,11 @@ export function useCrmKanbanLeads(funnel: CrmLeadFunnel, dataClientSlug: string 
     const isInitialLoad = initialLoadRef.current;
     if (isInitialLoad) setLoading(true);
 
-    let query = supabase.from("crm_leads").select("*").order("created_at", { ascending: false });
-    const { data, error } = await query.eq("funnel", funnel);
+    const { data, error } = await supabase
+      .from("crm_leads")
+      .select("*")
+      .eq("funnel", funnel)
+      .order("created_at", { ascending: false });
 
     if (error) {
       console.error("[crm pipeline]", error.message);
@@ -29,26 +39,32 @@ export function useCrmKanbanLeads(funnel: CrmLeadFunnel, dataClientSlug: string 
         if (isInitialLoad) setLeads([]);
       } else {
         const rows = (fallback.data ?? []) as Record<string, unknown>[];
-        const mapped = rows
-          .map((row) => mapCrmLeadRow(row))
-          .filter(
-            (lead) =>
-              rowMatchesDataClient(lead.client_slug, dataClientSlug) &&
-              (lead.funnel === funnel || (funnel === "sales" && lead.funnel === "sales")),
-          );
+        const mapped = filterCrmLeadsForUser(
+          rows
+            .map((row) => mapCrmLeadRow(row))
+            .filter(
+              (lead) =>
+                rowMatchesDataClient(lead.client_slug, dataClientSlug) &&
+                lead.funnel === funnel,
+            ),
+          currentUser,
+        );
         setLeads(mapped);
       }
     } else {
       const rows = (data ?? []) as Record<string, unknown>[];
-      const mapped = rows
-        .map((row) => mapCrmLeadRow(row))
-        .filter((lead) => rowMatchesDataClient(lead.client_slug, dataClientSlug));
+      const mapped = filterCrmLeadsForUser(
+        rows
+          .map((row) => mapCrmLeadRow(row))
+          .filter((lead) => rowMatchesDataClient(lead.client_slug, dataClientSlug)),
+        currentUser,
+      );
       setLeads(mapped);
     }
 
     initialLoadRef.current = false;
     setLoading(false);
-  }, [dataClientSlug, funnel]);
+  }, [dataClientSlug, funnel, currentUser]);
 
   useEffect(() => {
     initialLoadRef.current = true;
@@ -83,14 +99,23 @@ export function useCrmKanbanLeads(funnel: CrmLeadFunnel, dataClientSlug: string 
     router.replace(pipelinePath, { scroll: false });
   }, [searchParams, leads, loading, router, pipelinePath]);
 
-  const onLeadUpdated = useCallback((updated: CrmLead) => {
-    if (updated.funnel !== funnel) {
-      setLeads((prev) => prev.filter((l) => l.id !== updated.id));
-      setSelectedId(null);
-      return;
-    }
-    setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-  }, [funnel]);
+  const onLeadUpdated = useCallback(
+    (updated: CrmLead) => {
+      if (updated.funnel !== funnel) {
+        setLeads((prev) => prev.filter((l) => l.id !== updated.id));
+        setSelectedId(null);
+        return;
+      }
+      const visible = filterCrmLeadsForUser([updated], currentUser);
+      if (!visible.length) {
+        setLeads((prev) => prev.filter((l) => l.id !== updated.id));
+        setSelectedId(null);
+        return;
+      }
+      setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+    },
+    [funnel, currentUser],
+  );
 
   const onLeadDeleted = useCallback((leadId: string) => {
     setLeads((prev) => prev.filter((l) => l.id !== leadId));

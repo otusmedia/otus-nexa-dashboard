@@ -1,14 +1,16 @@
 "use client";
 
 import { useLanguage } from "@/context/language-context";
-import { cn } from "@/lib/utils";
 import {
   formatLeadCreatedAt,
   formatLeadValue,
+  leadClosedValue,
+  leadProposalValue,
   normalizeSource,
   type CrmLead,
 } from "@/lib/crm-data";
 import { crmSourceLabel } from "@/lib/crm-i18n";
+import { cn } from "@/lib/utils";
 import { OwnerAvatars } from "@/app/(platform)/projects/_components/owner-avatars";
 
 export function CrmPipelineCard({
@@ -20,10 +22,10 @@ export function CrmPipelineCard({
   isDragging?: boolean;
   onOpen: (lead: CrmLead) => void;
 }) {
-  const { language } = useLanguage();
+  const { language, t: lt } = useLanguage();
   const owner = lead.owner?.trim() || "";
   const owners = owner ? [owner] : [];
-  const sourceKey = normalizeSource(lead.source);
+  const sourceKey = normalizeSource(lead.source, lead.client_slug);
 
   return (
     <div
@@ -48,7 +50,12 @@ export function CrmPipelineCard({
       <div className="mt-2">
         <OwnerAvatars names={owners} />
       </div>
-      <p className="mono-num mt-2 text-xs font-medium text-[#ff4500]">{formatLeadValue(lead.value)}</p>
+      <p className="mono-num mt-2 text-xs font-medium text-[#ff4500]">{formatLeadValue(leadProposalValue(lead))}</p>
+      {leadClosedValue(lead) > 0 ? (
+        <p className="mono-num text-[0.65rem] text-[rgba(255,255,255,0.45)]">
+          {formatLeadValue(leadClosedValue(lead))} {lt("closed")}
+        </p>
+      ) : null}
       <p className="mt-1 text-xs font-light text-[rgba(255,255,255,0.4)]">
         {formatLeadCreatedAt(lead.created_at)}
       </p>

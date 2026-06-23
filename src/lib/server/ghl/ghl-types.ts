@@ -49,6 +49,8 @@ export type GhlImportConfig = {
   locationId: string;
   clientSlug: string;
   pipelineId?: string;
+  /** When set, import opportunities from these pipelines only (merged, deduped). */
+  pipelineIds?: string[];
   /** GHL stage id → Nexa CRM lead status */
   stageMap?: Record<string, string>;
   dryRun?: boolean;
@@ -61,6 +63,7 @@ export type GhlImportResult = {
   clientSlug: string;
   dryRun: boolean;
   pipelines: number;
+  importedPipelineNames: string[];
   contactsFetched: number;
   contactsInserted: number;
   contactsUpdated: number;

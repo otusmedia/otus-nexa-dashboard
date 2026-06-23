@@ -7,6 +7,7 @@ export type NormalizedLeadPayload = {
   company: string;
   message: string;
   source: string;
+  funnel?: string;
   custom: Record<string, unknown>;
 };
 
