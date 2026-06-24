@@ -48,7 +48,7 @@ export function FloatingSidebarRail({
 
   return (
     <aside
-      className="sticky top-1/2 z-40 flex -translate-y-1/2 flex-col items-center justify-between py-3"
+      className="sticky top-1/2 z-40 flex -translate-y-1/2 flex-col items-center justify-between overflow-visible py-3"
       style={{ ...liquidGlassRailStyle, width: 52, minHeight: 120 }}
       aria-label={expandLabel}
     >
@@ -62,12 +62,12 @@ export function FloatingSidebarRail({
         <Menu className="h-5 w-5" strokeWidth={1.5} />
       </button>
 
-      <div className="relative" ref={profileRef}>
+      <div className="relative overflow-visible" ref={profileRef}>
         <button
           type="button"
           onClick={() => setProfileOpen((o) => !o)}
           className={cn(
-            "relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/5 transition hover:border-white/25 hover:bg-white/10",
+            "flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/5 transition hover:border-white/25 hover:bg-white/10",
           )}
           aria-label={profileMenuLabel}
           aria-expanded={profileOpen}
@@ -78,12 +78,15 @@ export function FloatingSidebarRail({
           ) : (
             <span className="text-xs font-medium text-white">{avatarInitial}</span>
           )}
-          {unreadCount > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--primary)] px-0.5 text-[8px] font-medium text-white">
-              {unreadCount > 9 ? "9+" : unreadCount}
-            </span>
-          ) : null}
         </button>
+        {unreadCount > 0 ? (
+          <span
+            className="pointer-events-none absolute -right-1 -top-1 z-10 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-[rgba(18,18,18,0.9)] bg-[var(--primary)] px-0.5 text-[8px] font-medium leading-none text-white"
+            aria-hidden
+          >
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        ) : null}
 
         {profileOpen ? (
           <div
