@@ -684,12 +684,17 @@ export function CrmLeadDetailPanel({
 
   return (
     <>
-      <div className="fixed inset-0 z-[130] bg-black/60" aria-hidden onClick={onClose} />
-      <aside
-        className="fixed right-0 top-0 z-[131] flex h-full w-full max-w-md flex-col border-l border-[var(--border)] bg-[#141414] shadow-2xl"
-        role="dialog"
-        aria-labelledby="crm-lead-panel-title"
+      <div
+        className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 p-4"
+        role="presentation"
+        onClick={onClose}
       >
+        <div
+          className="flex max-h-[min(92vh,900px)] w-full max-w-4xl flex-col overflow-hidden rounded-[8px] border border-[var(--border)] bg-[#141414] shadow-2xl"
+          role="dialog"
+          aria-labelledby="crm-lead-panel-title"
+          onClick={(e) => e.stopPropagation()}
+        >
         <div className="flex shrink-0 items-start gap-2 border-b border-[var(--border)] p-4">
           <div className="min-w-0 flex-1">
             <label className="sr-only" htmlFor="crm-lead-panel-title">
@@ -802,7 +807,7 @@ export function CrmLeadDetailPanel({
                   onCreateOption={rememberSource}
                 />
               </div>
-              {isSales ? (
+              {isSales || (funnelConfig && !isResumeFunnelSlug(funnelConfig.slug)) ? (
                 <>
                   <label className="block space-y-1">
                     <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
@@ -1153,7 +1158,8 @@ export function CrmLeadDetailPanel({
             </button>
           </section>
         </div>
-      </aside>
+        </div>
+      </div>
 
       <DeleteConfirmModal
         open={deleteApptId != null}

@@ -120,7 +120,7 @@ async function main() {
   for (const line of issues) console.log(`✗ ${line}`);
 
   if (!submit) {
-    console.log("\nRun with --submit to POST a test lead (requires dev server on :3000 and ingest enabled + secret).");
+    console.log("\nRun with --submit to POST a test lead to production (or set CRM_SUBMIT_BASE_URL).");
     process.exit(issues.length ? 1 : 0);
   }
 
@@ -129,7 +129,7 @@ async function main() {
     process.exit(1);
   }
 
-  const baseUrl = process.env.CRM_SUBMIT_BASE_URL?.trim() || "http://localhost:3000";
+  const baseUrl = process.env.CRM_SUBMIT_BASE_URL?.trim() || "https://otus-nexa-dashboard.vercel.app";
   const testEmail = `webflow-test+${Date.now()}@example.com`;
   const origin = allowedOrigins[0] ?? "http://localhost:3000";
 

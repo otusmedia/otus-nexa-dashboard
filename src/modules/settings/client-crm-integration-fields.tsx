@@ -5,7 +5,9 @@ import {
   buildCrmFormSnippet,
   CRM_PROVIDERS,
   generateIngestSecret,
+  isLocalhostCrmEndpoint,
   originsToText,
+  resolveCrmSubmitEndpoint,
   textToOrigins,
 } from "@/lib/client-crm-integration";
 import type { ClientCrmIntegration, CrmIntegrationProvider } from "@/types";
@@ -68,12 +70,8 @@ export function ClientCrmIntegrationFields({ value, onChange, clientSlug, lt }: 
 
   const patch = (partial: Partial<ClientCrmIntegration>) => onChange({ ...value, ...partial });
 
-  const endpoint = useMemo(() => {
-    if (typeof window !== "undefined") {
-      return `${window.location.origin}/api/crm/submit`;
-    }
-    return "/api/crm/submit";
-  }, []);
+  const endpoint = useMemo(() => resolveCrmSubmitEndpoint(), []);
+  const endpointIsLocal = isLocalhostCrmEndpoint(endpoint);
 
   const snippet = useMemo(
     () =>
@@ -297,6 +295,15 @@ export function ClientCrmIntegrationFields({ value, onChange, clientSlug, lt }: 
       <div className="rounded-lg border border-[var(--border)] bg-[rgba(0,0,0,0.2)] p-2">
         <p className="mb-1 text-[11px] text-[var(--muted)]">{lt("Endpoint")}</p>
         <code className="block break-all text-[11px] text-[var(--text)]">{endpoint}</code>
+        {endpointIsLocal ? (
+          <p className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200/90">
+            {lt("CRM snippet must use the production URL above — never localhost on a live website.")}
+          </p>
+        ) : (
+          <p className="mt-2 text-[11px] font-light text-[var(--muted)]">
+            {lt("Paste this snippet in the client site footer (Webflow Custom Code). Always use this production endpoint.")}
+          </p>
+        )}
         <button type="button" onClick={() => void copySnippet()} className="btn-ghost mt-2 rounded px-2 py-1 text-xs">
           {snippetCopied ? lt("Copied!") : lt("Copy HTML snippet")}
         </button>

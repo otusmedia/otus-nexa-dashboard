@@ -184,9 +184,12 @@ export function CrmFunnelPipelineModule({ funnel: initialFunnel }: { funnel: Crm
       const createdLead = mapCrmLeadRow(data as Record<string, unknown>);
       if (!transferToSales) {
         setLeads((prev) => [createdLead, ...prev]);
+        closeAddModal();
+        setSelectedId(createdLead.id);
       } else {
         setSuccessMessage(lt("Lead transferred to Sales pipeline"));
         window.setTimeout(() => setSuccessMessage(null), 2500);
+        closeAddModal();
       }
       const leadEmail = (createdLead.email ?? "").trim();
       if (leadEmail) {
@@ -227,7 +230,6 @@ export function CrmFunnelPipelineModule({ funnel: initialFunnel }: { funnel: Crm
         if (contactErr) console.error("[crm] auto-create contact", contactErr.message);
       }
     }
-    closeAddModal();
   };
 
   const handleLeadDeleted = (leadId: string) => {

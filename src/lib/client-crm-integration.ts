@@ -1,5 +1,18 @@
 import type { ClientCrmIntegration, CrmIntegrationProvider } from "@/types";
 
+/** Production dashboard URL — used in Webflow snippets (never localhost). */
+export const DEFAULT_CRM_SUBMIT_APP_URL = "https://otus-nexa-dashboard.vercel.app";
+
+export function resolveCrmSubmitEndpoint(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "");
+  const base = fromEnv || DEFAULT_CRM_SUBMIT_APP_URL;
+  return `${base}/api/crm/submit`;
+}
+
+export function isLocalhostCrmEndpoint(endpoint: string): boolean {
+  return /localhost|127\.0\.0\.1/i.test(endpoint);
+}
+
 export const CRM_PROVIDERS: CrmIntegrationProvider[] = ["nexa", "webhook", "hubspot", "pipedrive", "rdstation"];
 
 export const EMPTY_CLIENT_CRM_INTEGRATION: ClientCrmIntegration = {
@@ -98,7 +111,15 @@ export function originsToText(origins: string[]): string {
 export function textToOrigins(text: string): string[] {
   return text
     .split(/[\n,]+/)
-    .map((line) => line.trim())
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return "";
+      try {
+        return new URL(trimmed).origin;
+      } catch {
+        return trimmed.replace(/\/$/, "");
+      }
+    })
     .filter(Boolean);
 }
 

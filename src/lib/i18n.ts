@@ -809,6 +809,12 @@ const platformPtBR: Record<string, string> = {
   "No items need attention right now.": "Nenhum item precisa de atenção no momento.",
   "No items match this filter.": "Nenhum item corresponde a este filtro.",
   Reload: "Recarregar",
+
+  // CRM Webflow snippet
+  "CRM snippet must use the production URL above — never localhost on a live website.":
+    "O snippet do CRM deve usar a URL de produção acima — nunca localhost em um site publicado.",
+  "Paste this snippet in the client site footer (Webflow Custom Code). Always use this production endpoint.":
+    "Cole este snippet no rodapé do site do cliente (Webflow → Custom Code). Sempre use este endpoint de produção.",
 };
 
 export const translations = {

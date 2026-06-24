@@ -414,9 +414,55 @@ export function isResumeLead(lead: Pick<CrmLead, "funnel">): boolean {
   return lead.funnel === "resume";
 }
 
+/** Maps localized/custom stage labels to canonical CRM kanban statuses. */
+const LEAD_STATUS_ALIASES: Record<string, CrmLeadStatus> = {
+  "new lead": "New Lead",
+  "novo lead": "New Lead",
+  new: "New Lead",
+  novo: "New Lead",
+  lead: "New Lead",
+  "in contact": "In Contact",
+  contact: "In Contact",
+  contato: "In Contact",
+  "em contato": "In Contact",
+  contacted: "In Contact",
+  "proposal sent": "Proposal Sent",
+  "proposta enviada": "Proposal Sent",
+  proposal: "Proposal Sent",
+  proposta: "Proposal Sent",
+  "em negociação": "In Contact",
+  "em negociacao": "In Contact",
+  negociação: "In Contact",
+  negociacao: "In Contact",
+  qualified: "Qualified",
+  qualificado: "Qualified",
+  disqualified: "Disqualified",
+  desqualificado: "Disqualified",
+  finalizado: "Won",
+  lost: "Lost",
+  perdido: "Lost",
+  won: "Won",
+  ganho: "Won",
+  closed: "Won",
+  "closed won": "Won",
+  "closed lost": "Lost",
+};
+
+function resolveLeadStatusAlias(raw: string): CrmLeadStatus | null {
+  const key = raw.trim().toLowerCase();
+  if (!key) return null;
+  const exact = LEAD_STATUS_ALIASES[key];
+  if (exact) return exact;
+  for (const [pattern, canonical] of Object.entries(LEAD_STATUS_ALIASES)) {
+    if (key.includes(pattern)) return canonical;
+  }
+  return null;
+}
+
 export function normalizeLeadStatus(status: string | null | undefined): CrmLeadStatus {
   const s = (status ?? "").trim();
-  return CRM_LEAD_STATUSES.includes(s as CrmLeadStatus) ? (s as CrmLeadStatus) : "New Lead";
+  if (CRM_LEAD_STATUSES.includes(s as CrmLeadStatus)) return s as CrmLeadStatus;
+  return resolveLeadStatusAlias(s) ?? "New Lead";
 }
 
 export function normalizeSource(raw: string | null | undefined, clientSlug?: string | null): string {
