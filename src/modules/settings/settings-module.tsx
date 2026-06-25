@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import {
@@ -858,13 +859,14 @@ export function SettingsModule() {
             </div>
             <div>
               <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Password")}</label>
-              <input
-                type="password"
+              <PasswordInput
                 autoComplete="new-password"
                 value={editForm.password}
                 onChange={(e) => setEditForm((prev) => (prev ? { ...prev, password: e.target.value } : prev))}
                 placeholder={lt("Leave empty to keep current password")}
                 className="w-full rounded-lg px-3 py-2 text-sm"
+                showLabel={lt("Show password")}
+                hideLabel={lt("Hide password")}
               />
             </div>
             <button type="button" onClick={saveEdit} className="btn-primary w-full rounded-lg px-3 py-2 text-sm">

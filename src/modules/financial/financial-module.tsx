@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronUp, Pencil, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil, Upload, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { DataTooltip } from "@/components/ui/data-tooltip";
 import { PageHeader } from "@/components/ui/page-header";
@@ -19,6 +19,7 @@ const DEMO_PDF_URL =
   "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
 
 const INVOICE_COLLAPSED_KEY = "invoice-generator-collapsed";
+type InvoicePanelMode = "none" | "generate" | "upload";
 
 type DbInvoice = {
   id: string;
@@ -321,6 +322,21 @@ type InvoicePreviewModalState = {
   loadingPreview: boolean;
 };
 
+function buildLineItemsInsertPayload(lineItems: LineItem[], invoiceId: string) {
+  return lineItems.map((item) => ({
+    invoice_id: invoiceId,
+    description: item.description,
+    unit_cost: item.unitCost,
+    qty: item.qty,
+    amount: item.amount,
+    project_id: item.projectId || null,
+    project_name: item.projectName || null,
+    is_installment: item.isInstallment,
+    installment_current: item.installmentCurrent,
+    installment_total: item.installmentTotal,
+  }));
+}
+
 function normalizeInvoiceProjectIds(row: Record<string, unknown>): string[] {
   const raw = row.project_ids;
   if (Array.isArray(raw)) {
@@ -343,7 +359,9 @@ export function FinancialModule() {
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savingGenerated, setSavingGenerated] = useState(false);
-  const [generatorCollapsed, setGeneratorCollapsed] = useState(true);
+  const [savingUploaded, setSavingUploaded] = useState(false);
+  const [activePanel, setActivePanel] = useState<InvoicePanelMode>("none");
+  const [uploadPdfFile, setUploadPdfFile] = useState<File | null>(null);
   const [deleteInvoice, setDeleteInvoice] = useState<DbInvoice | null>(null);
   const [invoiceStatusMenu, setInvoiceStatusMenu] = useState<{ invoiceId: string; top: number; left: number } | null>(
     null,
@@ -382,19 +400,19 @@ export function FinancialModule() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(INVOICE_COLLAPSED_KEY);
-      setGeneratorCollapsed(raw !== "false");
+      if (raw === "false") setActivePanel("generate");
     } catch {
-      setGeneratorCollapsed(true);
+      setActivePanel("none");
     }
   }, []);
 
   useEffect(() => {
     try {
-      localStorage.setItem(INVOICE_COLLAPSED_KEY, generatorCollapsed ? "true" : "false");
+      localStorage.setItem(INVOICE_COLLAPSED_KEY, activePanel === "generate" ? "false" : "true");
     } catch {
       /* ignore */
     }
-  }, [generatorCollapsed]);
+  }, [activePanel]);
 
   useEffect(() => {
     if (!invoiceStatusMenu) return;
@@ -836,6 +854,151 @@ export function FinancialModule() {
     }
   };
 
+  const persistInvoiceRecord = useCallback(
+    async (opts: { fileName: string; publicUrl: string; resolvedInvoiceNumber: string }) => {
+      const invoicePayload = {
+        filename: opts.fileName,
+        amount: invoiceTotal,
+        status: "pending" as const,
+        issue_date: issueDate,
+        due_date: dueDateGen || null,
+        project_name: billedTo.trim() || null,
+        project_id: linkedProjectIds[0] ?? null,
+        project_ids: linkedProjectIds.length > 0 ? linkedProjectIds : null,
+        invoice_number: opts.resolvedInvoiceNumber,
+        file_url: opts.publicUrl,
+        client_slug: invoiceClientSlug,
+      };
+
+      const { data: insertData, error: insertError } = await supabase
+        .from("invoices")
+        .insert([invoicePayload])
+        .select("id")
+        .single();
+
+      if (insertError) {
+        throw new Error(insertError.message || String(insertError));
+      }
+
+      const invoiceId = String(insertData?.id ?? "");
+      if (!invoiceId) {
+        throw new Error("Could not save invoice line items: missing invoice ID.");
+      }
+
+      const lineItemsPayload = buildLineItemsInsertPayload(lineItems, invoiceId);
+      const { error: lineItemsInsertError } = await supabase.from("invoice_line_items").insert(lineItemsPayload);
+      if (lineItemsInsertError) {
+        throw new Error(lineItemsInsertError.message || String(lineItemsInsertError));
+      }
+
+      return invoiceId;
+    },
+    [billedTo, dueDateGen, invoiceClientSlug, invoiceTotal, issueDate, lineItems, linkedProjectIds],
+  );
+
+  const saveGeneratedInvoice = async () => {
+    setSaveError(null);
+    setSaveSuccess(null);
+    setSavingGenerated(true);
+
+    try {
+      const trimmedInvoiceNumber = invoiceNumber.trim();
+      const resolvedInvoiceNumber = trimmedInvoiceNumber || `INV-${Date.now()}`;
+      if (!trimmedInvoiceNumber) {
+        setInvoiceNumber(resolvedInvoiceNumber);
+      }
+
+      const formForHtml: InvoiceHtmlFormData = {
+        ...getInvoiceHtmlFormData(),
+        invoiceNumber: resolvedInvoiceNumber,
+      };
+      const invoiceHtml = buildInvoiceHtmlString(formForHtml, { previewChrome: false });
+      const blob = new Blob([invoiceHtml], { type: "text/html;charset=utf-8" });
+      const storageBucket = "invoices";
+      const fileName = `invoice-${resolvedInvoiceNumber.replace(/[^\w.-]+/g, "_")}-${Date.now()}.html`;
+
+      const { error: uploadError } = await supabase.storage.from(storageBucket).upload(fileName, blob, {
+        contentType: "text/html; charset=utf-8",
+        upsert: false,
+      });
+      if (uploadError) {
+        throw new Error(uploadError.message || String(uploadError));
+      }
+
+      const pub = supabase.storage.from(storageBucket).getPublicUrl(fileName);
+      await persistInvoiceRecord({
+        fileName,
+        publicUrl: pub.data.publicUrl,
+        resolvedInvoiceNumber,
+      });
+
+      setActivePanel("none");
+      setSaveSuccess("Invoice saved successfully");
+      window.setTimeout(() => setSaveSuccess(null), 3000);
+      await loadFinancialData();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSaveError(`Could not save invoice: ${msg}`);
+    } finally {
+      setSavingGenerated(false);
+    }
+  };
+
+  const saveUploadedInvoice = async () => {
+    setSaveError(null);
+    setSaveSuccess(null);
+
+    if (!uploadPdfFile) {
+      setSaveError(lt("Select a PDF tax invoice file"));
+      return;
+    }
+    const isPdf =
+      uploadPdfFile.type === "application/pdf" || uploadPdfFile.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) {
+      setSaveError(lt("Only PDF files are supported for uploaded invoices"));
+      return;
+    }
+
+    setSavingUploaded(true);
+    try {
+      const trimmedInvoiceNumber = invoiceNumber.trim();
+      const resolvedInvoiceNumber = trimmedInvoiceNumber || `NF-${Date.now()}`;
+      if (!trimmedInvoiceNumber) {
+        setInvoiceNumber(resolvedInvoiceNumber);
+      }
+
+      const storageBucket = "invoices";
+      const safeBase = uploadPdfFile.name.replace(/[^\w.-]+/g, "_").replace(/\.pdf$/i, "") || "nota-fiscal";
+      const fileName = `nf-${resolvedInvoiceNumber.replace(/[^\w.-]+/g, "_")}-${safeBase}-${Date.now()}.pdf`;
+
+      const { error: uploadError } = await supabase.storage.from(storageBucket).upload(fileName, uploadPdfFile, {
+        contentType: "application/pdf",
+        upsert: false,
+      });
+      if (uploadError) {
+        throw new Error(uploadError.message || String(uploadError));
+      }
+
+      const pub = supabase.storage.from(storageBucket).getPublicUrl(fileName);
+      await persistInvoiceRecord({
+        fileName,
+        publicUrl: pub.data.publicUrl,
+        resolvedInvoiceNumber,
+      });
+
+      setUploadPdfFile(null);
+      setActivePanel("none");
+      setSaveSuccess(lt("Uploaded invoice saved successfully"));
+      window.setTimeout(() => setSaveSuccess(null), 3000);
+      await loadFinancialData();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSaveError(`Could not save uploaded invoice: ${msg}`);
+    } finally {
+      setSavingUploaded(false);
+    }
+  };
+
   const inputClass =
     "w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white outline-none";
 
@@ -1086,7 +1249,16 @@ export function FinancialModule() {
               ) : null}
               {invoices.map((invoice, i) => (
                 <tr key={invoice.id} className={cn("border-b border-[var(--border)]", i % 2 === 1 ? "bg-[rgba(255,255,255,0.02)]" : "")}>
-                  <td className="px-3 py-2.5 text-sm font-light text-white">{invoice.invoice_number ?? invoice.filename ?? "—"}</td>
+                  <td className="px-3 py-2.5 text-sm font-light text-white">
+                    <span className="inline-flex items-center gap-2">
+                      {invoice.invoice_number ?? invoice.filename ?? "—"}
+                      {invoice.file_url && invoiceUrlLooksPdf(invoice.filename ?? "", invoice.file_url) ? (
+                        <span className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[rgba(255,255,255,0.5)]">
+                          PDF
+                        </span>
+                      ) : null}
+                    </span>
+                  </td>
                   <td className="px-3 py-2.5 text-sm font-light text-white">
                     {(() => {
                       const ids =
@@ -1195,26 +1367,78 @@ export function FinancialModule() {
       {/* Section 4 — Generator */}
       {canGenerateInvoice ? (
       <Card className="mt-6 rounded-[8px] border-[rgba(255,255,255,0.06)] bg-[#161616]">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-[0.7rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">{lt("Invoice generator")}</h2>
-          <button
-            type="button"
-            onClick={() => setGeneratorCollapsed((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs text-[rgba(255,255,255,0.75)]"
-          >
-            {generatorCollapsed ? (
-              <>
-                Generate Invoice <ChevronDown className="h-3.5 w-3.5" />
-              </>
-            ) : (
-              <>
-                Collapse <ChevronUp className="h-3.5 w-3.5" />
-              </>
-            )}
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-[0.7rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
+            {activePanel === "upload" ? lt("Upload Invoice") : lt("Invoice generator")}
+          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActivePanel((prev) => (prev === "generate" ? "none" : "generate"))}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs",
+                activePanel === "generate"
+                  ? "border-[#FF4500]/50 bg-[rgba(255,69,0,0.12)] text-white"
+                  : "border-[var(--border)] text-[rgba(255,255,255,0.75)]",
+              )}
+            >
+              {lt("Generate Invoice")}
+              {activePanel === "generate" ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePanel((prev) => (prev === "upload" ? "none" : "upload"))}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs",
+                activePanel === "upload"
+                  ? "border-[#FF4500]/50 bg-[rgba(255,69,0,0.12)] text-white"
+                  : "border-[var(--border)] text-[rgba(255,255,255,0.75)]",
+              )}
+            >
+              <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />
+              {lt("Upload Invoice")}
+              {activePanel === "upload" ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+          </div>
         </div>
-        {!generatorCollapsed ? (
+        {activePanel !== "none" ? (
           <>
+        {activePanel === "upload" ? (
+          <div className="mt-6 rounded-[8px] border border-dashed border-[var(--border)] bg-[#101010] p-4">
+            <p className="text-[0.65rem] font-normal uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+              {lt("Tax invoice PDF")}
+            </p>
+            <p className="mt-1 text-xs font-light text-[rgba(255,255,255,0.55)]">
+              {lt("Upload the official PDF issued by the city/government. Clients will download this file instead of a system-generated invoice.")}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.04)] px-3 py-2 text-xs text-white hover:bg-[rgba(255,255,255,0.08)]">
+                <Upload className="h-4 w-4" strokeWidth={1.75} />
+                {lt("Select PDF file")}
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="sr-only"
+                  onChange={(e) => setUploadPdfFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              {uploadPdfFile ? (
+                <span className="text-xs text-[rgba(255,255,255,0.75)]">
+                  {uploadPdfFile.name}
+                  <button
+                    type="button"
+                    className="ml-2 text-[rgba(255,255,255,0.45)] hover:text-white"
+                    onClick={() => setUploadPdfFile(null)}
+                  >
+                    {lt("Remove")}
+                  </button>
+                </span>
+              ) : (
+                <span className="text-xs text-[rgba(255,255,255,0.45)]">{lt("No file selected")}</span>
+              )}
+            </div>
+          </div>
+        ) : null}
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <label className="block space-y-1">
             <span className="text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">{lt("Invoice number")}</span>
@@ -1274,10 +1498,12 @@ export function FinancialModule() {
               })}
             </div>
           </label>
+          {activePanel === "generate" ? (
           <label className="block space-y-1 md:col-span-2">
             <span className="text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">{lt("Purchase order")}</span>
             <input className={inputClass} value={purchaseOrder} onChange={(e) => setPurchaseOrder(e.target.value)} />
           </label>
+          ) : null}
         </div>
 
         <div className="mt-6 overflow-x-auto rounded-[8px] border border-[var(--border)]">
@@ -1446,167 +1672,64 @@ export function FinancialModule() {
           </div>
         </div>
 
-        <div className="mt-8 rounded-[8px] border border-[var(--border)] bg-[#101010] p-4 text-sm font-light text-[rgba(255,255,255,0.75)]">
-          <p className="text-[0.65rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">{lt("Bank account details")}</p>
-          <p className="mt-2">
-            {lt("Bank:")} Community Federal Savings Bank
-          </p>
-          <p>
-            {lt("Account Number:")} <span className="mono-num">889037781-7</span>
-          </p>
-          <p>
-            {lt("ACH Routing:")} <span className="mono-num">026073150</span>
-          </p>
-          <p>
-            {lt("Wire Routing:")} <span className="mono-num">026073008</span>
-          </p>
-          <p>
-            {lt("SWIFT:")} <span className="mono-num">CMFGUS33</span>
-          </p>
-          <p>
-            {lt("Account Holder:")} Inter &amp; Co Global Account — Matheus Jeovane / Nexa Media Ltda.
-          </p>
-        </div>
-        <div className="mt-4 rounded-[8px] border border-[var(--border)] bg-[#101010] p-4 text-sm font-light text-[rgba(255,255,255,0.75)]">
-          <p className="text-[0.65rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">{lt("From")}</p>
-          <p className="mt-2">Nexa Media Ltda | Otus Media</p>
-        </div>
+        {activePanel === "generate" ? (
+          <>
+            <div className="mt-8 rounded-[8px] border border-[var(--border)] bg-[#101010] p-4 text-sm font-light text-[rgba(255,255,255,0.75)]">
+              <p className="text-[0.65rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">{lt("Bank account details")}</p>
+              <p className="mt-2">
+                {lt("Bank:")} Community Federal Savings Bank
+              </p>
+              <p>
+                {lt("Account Number:")} <span className="mono-num">889037781-7</span>
+              </p>
+              <p>
+                {lt("ACH Routing:")} <span className="mono-num">026073150</span>
+              </p>
+              <p>
+                {lt("Wire Routing:")} <span className="mono-num">026073008</span>
+              </p>
+              <p>
+                {lt("SWIFT:")} <span className="mono-num">CMFGUS33</span>
+              </p>
+              <p>
+                {lt("Account Holder:")} Inter &amp; Co Global Account — Matheus Jeovane / Nexa Media Ltda.
+              </p>
+            </div>
+            <div className="mt-4 rounded-[8px] border border-[var(--border)] bg-[#101010] p-4 text-sm font-light text-[rgba(255,255,255,0.75)]">
+              <p className="text-[0.65rem] font-normal uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">{lt("From")}</p>
+              <p className="mt-2">Nexa Media Ltda | Otus Media</p>
+            </div>
+          </>
+        ) : null}
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <button type="button" onClick={openInvoicePreviewWindow} className="btn-primary rounded-lg px-4 py-2 text-xs">
-            {lt("Preview Invoice")}
-          </button>
-          <button type="button" onClick={openInvoiceDownloadWindow} className="btn-primary rounded-lg px-4 py-2 text-xs">
-            {lt("Download Invoice")}
-          </button>
-          <button
-            type="button"
-            disabled={savingGenerated}
-            onClick={async () => {
-              console.log("Starting invoice save...");
-              setSaveError(null);
-              setSaveSuccess(null);
-              setSavingGenerated(true);
-
-              const trimmedInvoiceNumber = invoiceNumber.trim();
-              const validationSnapshot = {
-                invoiceNumber: trimmedInvoiceNumber || "(empty — will auto-generate)",
-                issueDate,
-                dueDateGen,
-                billedTo,
-                purchaseOrder,
-                linkedProjectIds,
-                lineItemsCount: lineItems.length,
-                invoiceTotal,
-                taxRate,
-                shipping,
-              };
-              console.log("[financial] Save validation — fields checked:", validationSnapshot);
-
-              const resolvedInvoiceNumber = trimmedInvoiceNumber || `INV-${Date.now()}`;
-              if (!trimmedInvoiceNumber) {
-                console.log("[financial] Auto-generated invoice number:", resolvedInvoiceNumber);
-                setInvoiceNumber(resolvedInvoiceNumber);
-              }
-
-              const formForHtml: InvoiceHtmlFormData = {
-                ...getInvoiceHtmlFormData(),
-                invoiceNumber: resolvedInvoiceNumber,
-              };
-              const invoiceHtml = buildInvoiceHtmlString(formForHtml, { previewChrome: false });
-              const blob = new Blob([invoiceHtml], { type: "text/html;charset=utf-8" });
-              console.log("[financial] HTML blob size (bytes):", blob.size, "type:", blob.type);
-
-              const storageBucket = "invoices";
-              const fileName = `invoice-${resolvedInvoiceNumber.replace(/[^\w.-]+/g, "_")}-${Date.now()}.html`;
-
-              try {
-                const { data: uploadData, error: uploadError } = await supabase.storage.from(storageBucket).upload(fileName, blob, {
-                  contentType: "text/html; charset=utf-8",
-                  upsert: false,
-                });
-                console.log("Upload result:", uploadData, uploadError);
-
-                if (uploadError) {
-                  const msg = uploadError.message || String(uploadError);
-                  console.error("[financial] Storage upload failed:", msg);
-                  setSaveError(`Storage upload failed: ${msg}`);
-                  return;
-                }
-
-                const pub = supabase.storage.from(storageBucket).getPublicUrl(fileName);
-                const publicUrl = pub.data.publicUrl;
-                console.log("Public URL:", publicUrl);
-
-                const invoicePayload = {
-                  filename: fileName,
-                  amount: invoiceTotal,
-                  status: "pending" as const,
-                  issue_date: issueDate,
-                  due_date: dueDateGen || null,
-                  project_name: billedTo.trim() || null,
-                  project_id: linkedProjectIds[0] ?? null,
-                  project_ids: linkedProjectIds.length > 0 ? linkedProjectIds : null,
-                  invoice_number: resolvedInvoiceNumber,
-                  file_url: publicUrl,
-                  client_slug: invoiceClientSlug,
-                };
-                console.log("Inserting invoice:", invoicePayload);
-
-                const { data: insertData, error: insertError } = await supabase
-                  .from("invoices")
-                  .insert([invoicePayload])
-                  .select("id")
-                  .single();
-                console.log("Insert result:", insertData, insertError);
-
-                if (insertError) {
-                  const msg = insertError.message || String(insertError);
-                  console.error("[financial] Supabase insert failed:", msg, insertError);
-                  setSaveError(`Could not save invoice: ${msg}`);
-                  return;
-                }
-                const invoiceId = String(insertData?.id ?? "");
-                if (!invoiceId) {
-                  setSaveError("Could not save invoice line items: missing invoice ID.");
-                  return;
-                }
-                const lineItemsPayload = lineItems.map((item) => ({
-                  invoice_id: invoiceId,
-                  description: item.description,
-                  unit_cost: item.unitCost,
-                  qty: item.qty,
-                  amount: item.amount,
-                  project_id: item.projectId || null,
-                  project_name: item.projectName || null,
-                  is_installment: item.isInstallment,
-                  installment_current: item.installmentCurrent,
-                  installment_total: item.installmentTotal,
-                }));
-                const { error: lineItemsInsertError } = await supabase.from("invoice_line_items").insert(lineItemsPayload);
-                if (lineItemsInsertError) {
-                  const msg = lineItemsInsertError.message || String(lineItemsInsertError);
-                  console.error("[financial] invoice line items insert failed:", msg, lineItemsInsertError);
-                  setSaveError(`Could not save invoice line items: ${msg}`);
-                  return;
-                }
-
-                setGeneratorCollapsed(true);
-                setSaveSuccess("Invoice saved successfully");
-                window.setTimeout(() => setSaveSuccess(null), 3000);
-                await loadFinancialData();
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                console.error("[financial] Unexpected save error:", err);
-                setSaveError(`Save failed: ${msg}`);
-              } finally {
-                setSavingGenerated(false);
-              }
-            }}
-            className="rounded-lg border border-[var(--border-strong)] px-4 py-2 text-xs text-white disabled:opacity-50"
-          >
-            {savingGenerated ? "Saving..." : "Save to Financial Records"}
-          </button>
+          {activePanel === "generate" ? (
+            <>
+              <button type="button" onClick={openInvoicePreviewWindow} className="btn-primary rounded-lg px-4 py-2 text-xs">
+                {lt("Preview Invoice")}
+              </button>
+              <button type="button" onClick={openInvoiceDownloadWindow} className="btn-primary rounded-lg px-4 py-2 text-xs">
+                {lt("Download Invoice")}
+              </button>
+              <button
+                type="button"
+                disabled={savingGenerated}
+                onClick={() => void saveGeneratedInvoice()}
+                className="rounded-lg border border-[var(--border-strong)] px-4 py-2 text-xs text-white disabled:opacity-50"
+              >
+                {savingGenerated ? lt("Saving…") : lt("Save to Financial Records")}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={savingUploaded || !uploadPdfFile}
+              onClick={() => void saveUploadedInvoice()}
+              className="btn-primary rounded-lg px-4 py-2 text-xs disabled:opacity-50"
+            >
+              {savingUploaded ? lt("Saving…") : lt("Save uploaded invoice")}
+            </button>
+          )}
         </div>
         </>
         ) : null}

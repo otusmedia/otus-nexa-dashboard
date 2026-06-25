@@ -2,7 +2,8 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/context/auth-context";
 import type { AppUser, ModuleKey, Role, UserCompany } from "@/types";
 import { ALL_MODULE_KEYS } from "@/lib/modules";
@@ -171,7 +172,6 @@ export default function LoginPage() {
   const [bootstrapped, setBootstrapped] = useState(false);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [firstAccessUser, setFirstAccessUser] = useState<AppUserDbRow | null>(null);
@@ -358,46 +358,36 @@ export default function LoginPage() {
           </div>
 
           {!firstAccessUser ? (
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                name="password"
-                autoComplete="current-password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className={`${inputClassName} pr-11`}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[rgba(255,255,255,0.45)] hover:text-white"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" strokeWidth={1.75} /> : <Eye className="h-4 w-4" strokeWidth={1.75} />}
-              </button>
-            </div>
+            <PasswordInput
+              name="password"
+              autoComplete="current-password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={inputClassName}
+              toggleClassName="text-[rgba(255,255,255,0.45)] hover:text-white"
+            />
           ) : null}
 
           {firstAccessUser ? (
             <div className="space-y-3 border-t border-[rgba(255,255,255,0.08)] pt-4">
               <p className="text-center text-[0.8rem] text-[#fbbf24]">First access — set your password</p>
-              <input
-                type="password"
+              <PasswordInput
                 autoComplete="new-password"
                 placeholder="New Password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className={inputClassName}
+                toggleClassName="text-[rgba(255,255,255,0.45)] hover:text-white"
                 required
               />
-              <input
-                type="password"
+              <PasswordInput
                 autoComplete="new-password"
                 placeholder="Confirm Password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className={inputClassName}
+                toggleClassName="text-[rgba(255,255,255,0.45)] hover:text-white"
                 required
               />
             </div>

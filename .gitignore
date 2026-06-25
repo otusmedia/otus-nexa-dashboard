@@ -9,3 +9,6 @@ out
 .env
 .env.local
 .env*.local
+
+# GHL import backups (local only, may contain PII)
+backups/

@@ -1,7 +1,7 @@
 import { platformNavigation } from "@/layout/navigation";
 import { isAgencyAdmin } from "@/lib/client-utils";
-import { hasModuleAccess } from "@/lib/modules";
-import type { AppUser, ModuleKey } from "@/types";
+import { hasModuleAccess, resolveProvisionedModulesForClient } from "@/lib/modules";
+import type { AppUser, Client, ModuleKey } from "@/types";
 
 export const AGENCY_HOME_PATH = "/home";
 
@@ -84,6 +84,36 @@ export function resolveDefaultLandingPathForUser(
     navOrder,
     canAccessMarketing: canAccessMarketingForUser(user),
   });
+}
+
+/** First module path when an agency admin scopes the UI to one client account. */
+export function resolveAgencyClientLandingPath(
+  user: AppUser,
+  clientSlug: string,
+  ctx: { clients: Client[]; users: AppUser[] },
+  opts: LandingPathOptions = {},
+): string {
+  const slug = clientSlug.trim();
+  if (!slug || slug === "all") {
+    return resolveDefaultLandingPathForUser(user, opts.navOrder);
+  }
+
+  const provisioned = resolveProvisionedModulesForClient(slug, ctx);
+  const scoped =
+    provisioned.length > 0
+      ? provisioned.filter((m) => hasModuleAccess(user.modules, m))
+      : [...user.modules];
+
+  const landingOpts = {
+    ...opts,
+    canAccessMarketing: opts.canAccessMarketing ?? canAccessMarketingForUser(user),
+  };
+
+  if (scoped.length === 0) {
+    return MODULE_ENTRY_PATHS.dashboard;
+  }
+
+  return resolveDefaultLandingPath(scoped, landingOpts);
 }
 
 export function isAgencyHomePath(pathname: string): boolean {

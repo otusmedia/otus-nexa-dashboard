@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { writeGhlImportBackup } from "@/lib/server/ghl/ghl-backup";
 import { fetchGhlContacts, fetchGhlOpportunities, fetchGhlPipelines } from "@/lib/server/ghl/ghl-client";
 import {
   buildCrmContactFromGhl,
@@ -237,6 +238,25 @@ export async function runGhlImport(config: GhlImportConfig): Promise<GhlImportRe
     }
   }
 
+  const contactPayloads: Record<string, unknown>[] = [];
+  for (const contact of contacts) {
+    if (contactIdsWithOpp.has(contact.id)) {
+      result.contactsSkipped += 1;
+      continue;
+    }
+    contactPayloads.push(buildCrmContactFromGhl(contact, config.clientSlug));
+  }
+
+  if (!config.dryRun) {
+    const backupPath = writeGhlImportBackup({
+      clientSlug: config.clientSlug,
+      dryRun: false,
+      leads: leadPayloads,
+      contacts: contactPayloads,
+    });
+    if (backupPath) logProgress(`Backup salvo em ${backupPath}`);
+  }
+
   logProgress(`Gravando ${leadPayloads.length} leads no CRM…`);
   if (config.dryRun) {
     result.leadsInserted = leadPayloads.length;
@@ -252,15 +272,6 @@ export async function runGhlImport(config: GhlImportConfig): Promise<GhlImportRe
     result.leadsUpdated = leadStats.updated;
     result.leadsSkipped += leadStats.failed;
     result.errors.push(...leadStats.errors);
-  }
-
-  const contactPayloads: Record<string, unknown>[] = [];
-  for (const contact of contacts) {
-    if (contactIdsWithOpp.has(contact.id)) {
-      result.contactsSkipped += 1;
-      continue;
-    }
-    contactPayloads.push(buildCrmContactFromGhl(contact, config.clientSlug));
   }
 
   if (config.importContacts !== false) {

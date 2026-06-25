@@ -9,7 +9,11 @@
     "lint": "next lint",
     "ghl:import": "tsx scripts/ghl-import.ts",
     "ghl:import:dry": "tsx scripts/ghl-import.ts --dry-run",
-    "ghl:cleanup": "tsx scripts/ghl-cleanup.ts"
+    "ghl:cleanup": "tsx scripts/ghl-cleanup.ts",
+    "ghl:diagnostic": "tsx scripts/ghl-recovery-diagnostic.ts",
+    "ghl:export": "tsx scripts/ghl-export-snapshot.ts",
+    "ghl:merge": "tsx scripts/ghl-merge-import.ts",
+    "ghl:backups": "tsx scripts/ghl-check-backups.ts"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",

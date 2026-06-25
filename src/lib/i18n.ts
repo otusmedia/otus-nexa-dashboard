@@ -255,6 +255,16 @@ const platformPtBR: Record<string, string> = {
   "Invoice Upload / Download": "Upload / Download de Faturas",
   "Upload Invoice": "Enviar Fatura",
   "Generate Invoice": "Gerar Fatura",
+  "Tax invoice PDF": "Nota fiscal (PDF)",
+  "Upload the official PDF issued by the city/government. Clients will download this file instead of a system-generated invoice.":
+    "Envie o PDF oficial emitido pela prefeitura/governo. O cliente fará o download deste arquivo em vez de uma fatura gerada pelo sistema.",
+  "Select PDF file": "Selecionar PDF",
+  "No file selected": "Nenhum arquivo selecionado",
+  "Select a PDF tax invoice file": "Selecione o PDF da nota fiscal",
+  "Only PDF files are supported for uploaded invoices": "Apenas arquivos PDF são aceitos para notas enviadas",
+  "Uploaded invoice saved successfully": "Nota fiscal salva com sucesso",
+  "Save uploaded invoice": "Salvar nota enviada",
+  "Save to Financial Records": "Salvar nos registros financeiros",
   "Download PDF": "Baixar PDF",
   paid: "pago",
   pending: "pendente",
@@ -418,6 +428,8 @@ const platformPtBR: Record<string, string> = {
   "WhatsApp group": "Grupo do WhatsApp",
   Email: "E-mail",
   Password: "Senha",
+  "Show password": "Mostrar senha",
+  "Hide password": "Ocultar senha",
   From: "De",
 
   // Login

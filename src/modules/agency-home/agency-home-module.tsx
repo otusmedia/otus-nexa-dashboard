@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { formatDisplayDate } from "@/app/(platform)/projects/data";
 import { useAppContext } from "@/components/providers/app-providers";
 import { PageHeader } from "@/components/ui/page-header";
 import { useLanguage } from "@/context/language-context";
+import { canAccessMarketingForUser, resolveAgencyClientLandingPath } from "@/lib/default-landing-path";
+import { readSidebarNavOrder } from "@/lib/sidebar-nav-order";
 import { AgencyHomeAttentionTable } from "@/modules/agency-home/agency-home-attention-table";
 import { AgencyHomeClientCard } from "@/modules/agency-home/agency-home-client-card";
 import { useAgencyHomeData } from "@/modules/agency-home/use-agency-home-data";
@@ -15,30 +17,37 @@ import { cn } from "@/lib/utils";
 
 export function AgencyHomeModule() {
   const router = useRouter();
-  const { clients, projectsByColumn, projectsClientFilter, setProjectsClientFilter } = useAppContext();
+  const { clients, projectsByColumn, setProjectsClientFilter, currentUser, users } =
+    useAppContext();
   const { t: lt } = useLanguage();
   const { loading, error, portfolioRows, attentionItems, recentUpdates, globalKpis, reload } =
     useAgencyHomeData(clients, projectsByColumn);
 
-  useEffect(() => {
-    if (projectsClientFilter !== "all") setProjectsClientFilter("all");
-  }, [projectsClientFilter, setProjectsClientFilter]);
-
   const onSelectClient = useCallback(
     (slug: string) => {
+      const landing = resolveAgencyClientLandingPath(
+        currentUser,
+        slug,
+        { clients, users },
+        {
+          navOrder: readSidebarNavOrder(currentUser.id),
+          canAccessMarketing: canAccessMarketingForUser(currentUser),
+        },
+      );
+      router.push(landing);
       setProjectsClientFilter(slug);
     },
-    [setProjectsClientFilter],
+    [clients, currentUser, router, setProjectsClientFilter, users],
   );
 
   const openClientCrm = (slug: string) => {
-    onSelectClient(slug);
     router.push("/crm/dashboard");
+    setProjectsClientFilter(slug);
   };
 
   const openClientFinancial = (slug: string) => {
-    onSelectClient(slug);
     router.push("/financial");
+    setProjectsClientFilter(slug);
   };
 
   return (

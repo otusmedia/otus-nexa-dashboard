@@ -39,10 +39,12 @@ import {
   canAccessMarketingForUser,
   isAgencyHomePath,
   pathnameAllowedForModules,
+  resolveAgencyClientLandingPath,
   resolveDefaultLandingPath,
   resolveDefaultLandingPathForUser,
 } from "@/lib/default-landing-path";
 import { Modal } from "@/components/ui/modal";
+import { PasswordInput } from "@/components/ui/password-input";
 import HeroSection from "@/components/layout/hero-section";
 
 const moduleLinks: SidebarNavLink[] = [
@@ -129,6 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     dismissNotification,
     allowedModules,
     clients,
+    users,
     dataClientSlug,
     projectsClientFilter,
     setProjectsClientFilter,
@@ -257,6 +260,42 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
   const avatarInitial = profileName.trim().slice(0, 1).toUpperCase() || "U";
   const agencyAdmin = isAgencyAdmin(currentUser);
+
+  const redirectAgencyAdminToClientLanding = useCallback(
+    (clientSlug: string) => {
+      const landing = resolveAgencyClientLandingPath(
+        currentUser,
+        clientSlug,
+        { clients, users },
+        {
+          navOrder,
+          canAccessMarketing: canAccessMarketingForUser(currentUser),
+        },
+      );
+      if (pathname !== landing && !pathname.startsWith(`${landing}/`)) {
+        router.push(landing);
+      }
+    },
+    [currentUser, clients, users, navOrder, pathname, router],
+  );
+
+  const handleClientFilterChange = useCallback(
+    (slug: string) => {
+      setProjectsClientFilter(slug);
+      if (!agencyAdmin || slug === "all") return;
+      if (isAgencyHomePath(pathname)) {
+        redirectAgencyAdminToClientLanding(slug);
+      }
+    },
+    [agencyAdmin, pathname, redirectAgencyAdminToClientLanding, setProjectsClientFilter],
+  );
+
+  useEffect(() => {
+    if (!agencyAdmin || projectsClientFilter === "all") return;
+    if (!isAgencyHomePath(pathname)) return;
+    redirectAgencyAdminToClientLanding(projectsClientFilter);
+  }, [agencyAdmin, pathname, projectsClientFilter, redirectAgencyAdminToClientLanding]);
+
   const sidebarClient = (() => {
     if (agencyAdmin) {
       if (projectsClientFilter === "all") return null;
@@ -551,7 +590,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     agencyAdmin,
     clients,
     projectsClientFilter,
-    setProjectsClientFilter,
+    setProjectsClientFilter: handleClientFilterChange,
     language,
     langMenuOpen,
     setLangMenuOpen,
@@ -750,12 +789,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             placeholder={lt("Email")}
             className="w-full rounded-lg px-3 py-2 text-sm"
           />
-          <input
-            type="password"
+          <PasswordInput
             value={profilePassword}
             onChange={(event) => setProfilePassword(event.target.value)}
             placeholder={lt("Password")}
             className="w-full rounded-lg px-3 py-2 text-sm"
+            showLabel={lt("Show password")}
+            hideLabel={lt("Hide password")}
           />
           <button onClick={() => setOpenSettingsModal(false)} className="btn-primary rounded-lg px-3 py-2 text-sm">
             {lt("Save")}

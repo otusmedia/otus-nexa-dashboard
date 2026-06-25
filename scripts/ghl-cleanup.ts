@@ -70,8 +70,21 @@ async function purgeTable(
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
+  const force = args.includes("--confirm");
   const clientArg = args.find((a) => a.startsWith("--client-slug="));
   const clientSlug = (clientArg?.split("=")[1] ?? process.env.GHL_CLIENT_SLUG ?? "biotecc").toLowerCase();
+
+  if (!dryRun && !force) {
+    console.error(
+      [
+        "GHL cleanup permanently deletes all rows with external_id ghl:opp:* and ghl:contact:*.",
+        "Export first:  npm run ghl:export -- --client-slug=" + clientSlug,
+        "Then re-run:   npm run ghl:cleanup -- --confirm",
+        "Or preview:    npm run ghl:cleanup -- --dry-run",
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
 
   const { createClient } = await import("@supabase/supabase-js");
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
