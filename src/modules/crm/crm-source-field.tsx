@@ -26,6 +26,8 @@ export function CrmSourceField({
   hint,
   className,
   onCreateOption,
+  formatOptionLabel = labelForSource,
+  createOptionLabel,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -34,6 +36,8 @@ export function CrmSourceField({
   hint?: string;
   className?: string;
   onCreateOption?: (source: string) => void | Promise<void>;
+  formatOptionLabel?: (value: string, language: AppLanguage) => string;
+  createOptionLabel?: (name: string, language: AppLanguage) => string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -136,8 +140,12 @@ export function CrmSourceField({
   const displayValue = open
     ? query
     : value
-      ? labelForSource(value, language)
+      ? formatOptionLabel(value, language)
       : "";
+
+  const formatCreateLabel =
+    createOptionLabel ??
+    ((name: string, lang: AppLanguage) => crmT('Add source "{name}"', lang).replace("{name}", name));
 
   const menu =
     open && dropdownItems.length > 0 && menuRect
@@ -167,8 +175,8 @@ export function CrmSourceField({
                 )}
               >
                 {item.type === "create"
-                  ? crmT('Add source "{name}"', language).replace("{name}", item.value)
-                  : labelForSource(item.value, language)}
+                  ? formatCreateLabel(item.value, language)
+                  : formatOptionLabel(item.value, language)}
               </button>
             ))}
           </div>,

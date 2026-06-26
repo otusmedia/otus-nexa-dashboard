@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { formatLeadValue, leadProposalValue, type CrmLead } from "@/lib/crm-data";
+import { funnelPipelinePath } from "@/lib/crm-funnels";
 import { getLeadInitials } from "@/modules/crm/use-crm-dashboard-data";
 import { cn } from "@/lib/utils";
 import { CrmDashboardCard, CrmDashboardSectionTitle, CrmDashboardSkeleton } from "./crm-dashboard-card";
@@ -11,6 +12,11 @@ type Props = {
   loading: boolean;
   lt: (key: string) => string;
 };
+
+function leadPipelineHref(lead: CrmLead): string {
+  const path = funnelPipelinePath(lead.funnel);
+  return `${path}?lead=${encodeURIComponent(lead.id)}`;
+}
 
 export function CrmDashboardLeadList({ leads, loading, lt }: Props) {
   const router = useRouter();
@@ -48,7 +54,7 @@ export function CrmDashboardLeadList({ leads, loading, lt }: Props) {
             <li key={lead.id}>
               <button
                 type="button"
-                onClick={() => router.push("/crm/pipeline")}
+                onClick={() => router.push(leadPipelineHref(lead))}
                 className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition hover:bg-white/[0.04]"
               >
                 <span

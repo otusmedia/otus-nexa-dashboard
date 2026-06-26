@@ -54,18 +54,14 @@ export type CrmOwnerFilterItem = {
   avatarUrl: string | null;
 };
 
-/** CRM dashboard owner filter — team members plus any owner names found on leads. */
+/** CRM dashboard owner filter — only owners that appear on at least one lead. */
 export function resolveCrmOwnerFilterItems(
   users: AppUser[],
-  dataClientSlug: string | null,
-  currentUser: AppUser,
+  _dataClientSlug: string | null,
+  _currentUser: AppUser,
   ownerNamesFromLeads: string[],
 ): CrmOwnerFilterItem[] {
   const map = new Map<string, CrmOwnerFilterItem>();
-
-  for (const option of resolveCrmOwnerOptions(users, dataClientSlug, currentUser)) {
-    map.set(option.name, { name: option.name, avatarUrl: option.avatarUrl });
-  }
 
   for (const rawName of ownerNamesFromLeads) {
     const name = rawName.trim();

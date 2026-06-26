@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { useAppContext } from "@/components/providers/app-providers";
@@ -16,6 +16,8 @@ import { formatDisplayDate } from "@/app/(platform)/projects/data";
 function formatCreated(iso: string) {
   return formatDisplayDate(iso || null);
 }
+
+const CONTACTS_PAGE_SIZE = 15;
 
 export function CrmContactsModule() {
   const { dataClientSlug } = useAppContext();
@@ -38,6 +40,8 @@ export function CrmContactsModule() {
   const [source, setSource] = useState<string>(defaultSource);
   const [notes, setNotes] = useState("");
   const [nameError, setNameError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
 
   const load = useCallback(async () => {
     const isInitialLoad = initialLoadRef.current;
@@ -77,6 +81,30 @@ export function CrmContactsModule() {
       void supabase.removeChannel(channel);
     };
   }, [load, dataClientSlug]);
+
+  const filteredContacts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter((c) => c.name.toLowerCase().includes(q));
+  }, [contacts, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredContacts.length / CONTACTS_PAGE_SIZE));
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, dataClientSlug]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
+
+  const paginatedContacts = useMemo(() => {
+    const start = (page - 1) * CONTACTS_PAGE_SIZE;
+    return filteredContacts.slice(start, start + CONTACTS_PAGE_SIZE);
+  }, [filteredContacts, page]);
+
+  const pageStart = filteredContacts.length === 0 ? 0 : (page - 1) * CONTACTS_PAGE_SIZE + 1;
+  const pageEnd = Math.min(page * CONTACTS_PAGE_SIZE, filteredContacts.length);
 
   const openCreate = () => {
     setEditingId(null);
@@ -166,6 +194,7 @@ export function CrmContactsModule() {
   };
 
   const empty = !loading && contacts.length === 0;
+  const searchEmpty = !loading && contacts.length > 0 && filteredContacts.length === 0;
 
   return (
     <div className="w-full min-w-0">
@@ -179,60 +208,122 @@ export function CrmContactsModule() {
         }
       />
 
+      {!empty ? (
+        <div className="mb-4 max-w-md">
+          <label className="mb-1 block text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+            {lt("Search by contact name")}
+          </label>
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={lt("Type a contact name…")}
+            className="w-full rounded-lg border border-[var(--border)] bg-[#161616] px-3 py-2 text-sm text-white placeholder:text-[rgba(255,255,255,0.35)]"
+          />
+        </div>
+      ) : null}
+
       {loading && contacts.length === 0 ? (
         <p className="text-sm text-[rgba(255,255,255,0.45)]">{lt("Loading contacts…")}</p>
       ) : empty ? (
         <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-xl border border-[var(--border)] bg-[#161616] px-6 py-16 text-center">
           <p className="text-sm text-[rgba(255,255,255,0.55)]">{lt("No contacts yet — add your first contact")}</p>
         </div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[#161616]">
-          <table className="w-full min-w-[900px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-                <th className="px-4 py-3 font-normal">{lt("Name")}</th>
-                <th className="px-4 py-3 font-normal">{lt("Company")}</th>
-                <th className="px-4 py-3 font-normal">{lt("Email")}</th>
-                <th className="px-4 py-3 font-normal">{lt("Phone")}</th>
-                <th className="px-4 py-3 font-normal">{lt("Role")}</th>
-                <th className="px-4 py-3 font-normal">{lt("Source")}</th>
-                <th className="px-4 py-3 font-normal">{lt("Created")}</th>
-                <th className="px-4 py-3 font-normal text-right">{lt("Actions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {contacts.map((c) => (
-                <tr key={c.id} className="border-b border-[var(--border)] text-white last:border-0">
-                  <td className="px-4 py-3 font-normal">{c.name}</td>
-                  <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.company ?? "—"}</td>
-                  <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.email ?? "—"}</td>
-                  <td className="mono-num px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.phone ?? "—"}</td>
-                  <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.role ?? "—"}</td>
-                  <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">
-                    {c.source ? crmSourceLabel(c.source, language) : "—"}
-                  </td>
-                  <td className="mono-num px-4 py-3 text-[rgba(255,255,255,0.55)]">{formatCreated(c.created_at)}</td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => openEdit(c)}
-                      className="mr-3 text-xs text-[#ff9a66] hover:underline"
-                    >
-                      {lt("Edit")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeleteId(c.id)}
-                      className="text-xs text-[#fca5a5] hover:underline"
-                    >
-                      {lt("Delete")}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      ) : searchEmpty ? (
+        <div className="flex min-h-[24vh] flex-col items-center justify-center rounded-xl border border-[var(--border)] bg-[#161616] px-6 py-12 text-center">
+          <p className="text-sm text-[rgba(255,255,255,0.55)]">{lt("No contacts match your search")}</p>
         </div>
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[#161616]">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border)] text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                  <th className="px-4 py-3 font-normal">{lt("Name")}</th>
+                  <th className="px-4 py-3 font-normal">{lt("Company")}</th>
+                  <th className="px-4 py-3 font-normal">{lt("Email")}</th>
+                  <th className="px-4 py-3 font-normal">{lt("Phone")}</th>
+                  <th className="px-4 py-3 font-normal">{lt("Role")}</th>
+                  <th className="px-4 py-3 font-normal">{lt("Source")}</th>
+                  <th className="px-4 py-3 font-normal">{lt("Created")}</th>
+                  <th className="px-4 py-3 font-normal text-right">{lt("Actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedContacts.map((c) => (
+                  <tr key={c.id} className="border-b border-[var(--border)] text-white last:border-0">
+                    <td className="px-4 py-3 font-normal">{c.name}</td>
+                    <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.company ?? "—"}</td>
+                    <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.email ?? "—"}</td>
+                    <td className="mono-num px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.phone ?? "—"}</td>
+                    <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">{c.role ?? "—"}</td>
+                    <td className="px-4 py-3 text-[rgba(255,255,255,0.75)]">
+                      {c.source ? crmSourceLabel(c.source, language) : "—"}
+                    </td>
+                    <td className="mono-num px-4 py-3 text-[rgba(255,255,255,0.55)]">{formatCreated(c.created_at)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(c)}
+                        className="mr-3 text-xs text-[#ff9a66] hover:underline"
+                      >
+                        {lt("Edit")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteId(c.id)}
+                        className="text-xs text-[#fca5a5] hover:underline"
+                      >
+                        {lt("Delete")}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {filteredContacts.length > CONTACTS_PAGE_SIZE ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[rgba(255,255,255,0.55)]">
+              <p>
+                {lt("Showing {from}–{to} of {total} contacts")
+                  .replace("{from}", String(pageStart))
+                  .replace("{to}", String(pageEnd))
+                  .replace("{total}", String(filteredContacts.length))}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="btn-ghost rounded-lg px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {lt("Previous")}
+                </button>
+                <span className="mono-num text-xs text-[rgba(255,255,255,0.45)]">
+                  {lt("Page {page} of {total}")
+                    .replace("{page}", String(page))
+                    .replace("{total}", String(totalPages))}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="btn-ghost rounded-lg px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {lt("Next")}
+                </button>
+              </div>
+            </div>
+          ) : filteredContacts.length > 0 ? (
+            <p className="mt-3 text-xs text-[rgba(255,255,255,0.45)]">
+              {lt("Showing {from}–{to} of {total} contacts")
+                .replace("{from}", String(pageStart))
+                .replace("{to}", String(pageEnd))
+                .replace("{total}", String(filteredContacts.length))}
+            </p>
+          ) : null}
+        </>
       )}
 
       {modalOpen ? (

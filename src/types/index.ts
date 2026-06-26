@@ -157,6 +157,16 @@ export type ClientCrmIntegration = {
   resumesEnabled: boolean;
 };
 
+/** Stored in `clients.whatsapp_config` — floating chat widget → WhatsApp group. */
+export type ClientWhatsAppConfig = {
+  enabled: boolean;
+  groupInviteUrl: string;
+  displayName: string;
+  subtitle: string;
+  greeting: string;
+  includeUserName: boolean;
+};
+
 export type AppLanguage = "en" | "pt-BR";
 
 export interface Client {
@@ -174,6 +184,7 @@ export interface Client {
   apis: ClientApisConfig;
   apiCredentials: ClientApiCredentials;
   crmIntegration: ClientCrmIntegration;
+  whatsappConfig: ClientWhatsAppConfig;
   /** When set, client admins may assign only these modules to users in this account. */
   enabledModules: ModuleKey[] | null;
   createdAt: string;

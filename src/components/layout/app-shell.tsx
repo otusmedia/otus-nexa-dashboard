@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/context/auth-context";
 import {
   BarChart3,
@@ -11,7 +11,6 @@ import {
   FileUp,
   LayoutDashboard,
   LogOut,
-  MessageCircle,
   Megaphone,
   MessageSquare,
   Settings,
@@ -24,8 +23,8 @@ import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { uploadProfileAvatar } from "@/lib/profile-avatar";
 import { supabase } from "@/lib/supabase";
-import { cn } from "@/lib/utils";
 import { FloatingSidebarRail } from "@/components/layout/floating-sidebar-rail";
+import { WhatsAppChatWidget } from "@/components/layout/whatsapp-chat-widget";
 import { SidebarDrawer } from "@/components/layout/sidebar-drawer";
 import { SidebarPanelContent, type SidebarPanelContentProps } from "@/components/layout/sidebar-panel-content";
 import type { SidebarNavLink } from "@/components/layout/sidebar-nav";
@@ -43,6 +42,7 @@ import {
   resolveDefaultLandingPath,
   resolveDefaultLandingPathForUser,
 } from "@/lib/default-landing-path";
+import { resolveActiveClient } from "@/lib/resolve-locale";
 import { Modal } from "@/components/ui/modal";
 import { PasswordInput } from "@/components/ui/password-input";
 import HeroSection from "@/components/layout/hero-section";
@@ -61,61 +61,6 @@ const moduleLinks: SidebarNavLink[] = [
 ];
 
 const GUEST_USER_ID = "__guest__";
-
-const WHATSAPP_POS_KEY = "whatsapp-button-position";
-const WH_BTN = 36;
-const WH_MARGIN = 20;
-const SIDEBAR_RAIL_LEFT_OFFSET = SIDEBAR_RAIL_LAYOUT_WIDTH;
-
-function clampWhatsAppPosition(left: number, top: number): { left: number; top: number } {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  return {
-    left: Math.max(WH_MARGIN, Math.min(left, w - WH_MARGIN - WH_BTN)),
-    top: Math.max(WH_MARGIN, Math.min(top, h - WH_MARGIN - WH_BTN)),
-  };
-}
-
-function getDefaultWhatsAppPosition(sidebarExpanded: boolean): { left: number; top: number } {
-  const h = window.innerHeight;
-  const lg = window.matchMedia("(min-width: 1024px)").matches;
-  let sidebar = 0;
-  if (!sidebarExpanded) {
-    sidebar = SIDEBAR_RAIL_LEFT_OFFSET;
-  } else if (lg) {
-    sidebar = 256;
-  }
-  return clampWhatsAppPosition(WH_MARGIN + sidebar, h - WH_MARGIN - WH_BTN);
-}
-
-function readStoredWhatsAppPosition(userId: string): { left: number; top: number } {
-  const expanded = readSidebarLayout(userId) !== "collapsed";
-  try {
-    const raw = localStorage.getItem(WHATSAPP_POS_KEY);
-    if (!raw) return getDefaultWhatsAppPosition(expanded);
-    const o = JSON.parse(raw) as { left?: unknown; top?: unknown };
-    if (typeof o.left !== "number" || typeof o.top !== "number") return getDefaultWhatsAppPosition(expanded);
-    return clampWhatsAppPosition(o.left, o.top);
-  } catch {
-    return getDefaultWhatsAppPosition(expanded);
-  }
-}
-
-function snapWhatsAppToNearestEdge(left: number, top: number): { left: number; top: number } {
-  const w = window.innerWidth;
-  const center = left + WH_BTN / 2;
-  const snapLeft = center < w / 2;
-  const nextLeft = snapLeft ? WH_MARGIN : w - WH_BTN - WH_MARGIN;
-  return clampWhatsAppPosition(nextLeft, top);
-}
-
-function persistWhatsAppPosition(p: { left: number; top: number }) {
-  try {
-    localStorage.setItem(WHATSAPP_POS_KEY, JSON.stringify(p));
-  } catch {
-    /* ignore */
-  }
-}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -429,119 +374,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [langMenuOpen]);
 
-  const [waPos, setWaPos] = useState<{ left: number; top: number }>({ left: WH_MARGIN, top: 600 });
-  const [waDragging, setWaDragging] = useState(false);
-  const [waSnapTransition, setWaSnapTransition] = useState(false);
-  const waLinkRef = useRef<HTMLAnchorElement>(null);
-  const waDragRef = useRef({
-    active: false,
-    offsetX: 0,
-    offsetY: 0,
-    startX: 0,
-    startY: 0,
-    hasMoved: false,
-  });
-  const waLivePosRef = useRef<{ left: number; top: number }>({ left: WH_MARGIN, top: 600 });
-  const waSuppressClickRef = useRef(false);
-  const waMoveMouseRef = useRef<(e: MouseEvent) => void>(() => {});
-  const waUpMouseRef = useRef<() => void>(() => {});
-  const waMoveTouchRef = useRef<(e: TouchEvent) => void>(() => {});
-  const waEndTouchRef = useRef<(e: TouchEvent) => void>(() => {});
-  const waRemoveDocListenersRef = useRef<(() => void) | null>(null);
-
-  useLayoutEffect(() => {
-    const p = readStoredWhatsAppPosition(currentUser.id);
-    setWaPos(p);
-    waLivePosRef.current = p;
-  }, [currentUser.id]);
-
-  useEffect(() => {
-    const onResize = () => {
-      setWaPos((prev) => {
-        const next = clampWhatsAppPosition(prev.left, prev.top);
-        waLivePosRef.current = next;
-        return next;
-      });
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      waRemoveDocListenersRef.current?.();
-      waRemoveDocListenersRef.current = null;
-      document.body.style.cursor = "";
-    };
-  }, []);
-
-  waMoveMouseRef.current = (e: MouseEvent) => {
-    const drag = waDragRef.current;
-    if (!drag.active) return;
-    const next = clampWhatsAppPosition(e.clientX - drag.offsetX, e.clientY - drag.offsetY);
-    waLivePosRef.current = next;
-    setWaPos(next);
-    const dx = e.clientX - drag.startX;
-    const dy = e.clientY - drag.startY;
-    if (dx * dx + dy * dy > 9) drag.hasMoved = true;
-  };
-
-  waUpMouseRef.current = () => {
-    const drag = waDragRef.current;
-    if (!drag.active) return;
-    drag.active = false;
-    waRemoveDocListenersRef.current?.();
-    waRemoveDocListenersRef.current = null;
-    document.body.style.cursor = "";
-    setWaDragging(false);
-    if (drag.hasMoved) {
-      const snapped = snapWhatsAppToNearestEdge(waLivePosRef.current.left, waLivePosRef.current.top);
-      waSuppressClickRef.current = true;
-      setWaSnapTransition(true);
-      setWaPos(snapped);
-      waLivePosRef.current = snapped;
-      persistWhatsAppPosition(snapped);
-      window.setTimeout(() => setWaSnapTransition(false), 200);
-    }
-    drag.hasMoved = false;
-  };
-
-  waMoveTouchRef.current = (e: TouchEvent) => {
-    const drag = waDragRef.current;
-    if (!drag.active || e.touches.length === 0) return;
-    e.preventDefault();
-    const t = e.touches[0];
-    const next = clampWhatsAppPosition(t.clientX - drag.offsetX, t.clientY - drag.offsetY);
-    waLivePosRef.current = next;
-    setWaPos(next);
-    const dx = t.clientX - drag.startX;
-    const dy = t.clientY - drag.startY;
-    if (dx * dx + dy * dy > 9) drag.hasMoved = true;
-  };
-
-  waEndTouchRef.current = (e: TouchEvent) => {
-    const drag = waDragRef.current;
-    if (!drag.active) return;
-    drag.active = false;
-    waRemoveDocListenersRef.current?.();
-    waRemoveDocListenersRef.current = null;
-    document.body.style.cursor = "";
-    setWaDragging(false);
-    if (drag.hasMoved) {
-      const t = e.changedTouches[0];
-      if (t) {
-        waLivePosRef.current = clampWhatsAppPosition(t.clientX - drag.offsetX, t.clientY - drag.offsetY);
-      }
-      const snapped = snapWhatsAppToNearestEdge(waLivePosRef.current.left, waLivePosRef.current.top);
-      waSuppressClickRef.current = true;
-      setWaSnapTransition(true);
-      setWaPos(snapped);
-      waLivePosRef.current = snapped;
-      persistWhatsAppPosition(snapped);
-      window.setTimeout(() => setWaSnapTransition(false), 200);
-    }
-    drag.hasMoved = false;
-  };
+  const activeClient = useMemo(
+    () => resolveActiveClient(currentUser, clients, projectsClientFilter),
+    [currentUser, clients, projectsClientFilter],
+  );
 
   useEffect(() => {
     setProfileImage(currentUser.avatarUrl);
@@ -673,89 +509,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {children}
             </div>
           </main>
-          <a
-            ref={waLinkRef}
-            href="https://chat.whatsapp.com/GM1ODG5EMHuLf03W6kn1b9?mode=gi_t"
-            target="_blank"
-            rel="noreferrer"
-            className={cn(
-              "fixed z-30 inline-flex h-9 w-9 cursor-grab items-center justify-center rounded-full border border-[var(--border)] bg-[#25d366] text-white",
-              waDragging && "cursor-grabbing",
-            )}
-            style={{
-              left: waPos.left,
-              top: waPos.top,
-              right: "auto",
-              bottom: "auto",
-              transition: waSnapTransition ? "left 0.15s ease, top 0.15s ease" : "none",
-            }}
-            aria-label={lt("WhatsApp group")}
-            onClick={(e) => {
-              if (waSuppressClickRef.current) {
-                e.preventDefault();
-                e.stopPropagation();
-                waSuppressClickRef.current = false;
-              }
-            }}
-            onMouseDown={(e) => {
-              if (e.button !== 0) return;
-              const el = waLinkRef.current;
-              if (!el) return;
-              const r = el.getBoundingClientRect();
-              waDragRef.current = {
-                active: true,
-                offsetX: e.clientX - r.left,
-                offsetY: e.clientY - r.top,
-                startX: e.clientX,
-                startY: e.clientY,
-                hasMoved: false,
-              };
-              waLivePosRef.current = { left: r.left, top: r.top };
-              document.body.style.cursor = "grabbing";
-              setWaDragging(true);
-              const move = (ev: MouseEvent) => waMoveMouseRef.current(ev);
-              const up = () => waUpMouseRef.current();
-              document.addEventListener("mousemove", move);
-              document.addEventListener("mouseup", up);
-              waRemoveDocListenersRef.current = () => {
-                document.removeEventListener("mousemove", move);
-                document.removeEventListener("mouseup", up);
-              };
-            }}
-            onTouchStart={(e) => {
-              if (e.touches.length !== 1) return;
-              const t = e.touches[0];
-              const el = waLinkRef.current;
-              if (!el) return;
-              const r = el.getBoundingClientRect();
-              waDragRef.current = {
-                active: true,
-                offsetX: t.clientX - r.left,
-                offsetY: t.clientY - r.top,
-                startX: t.clientX,
-                startY: t.clientY,
-                hasMoved: false,
-              };
-              waLivePosRef.current = { left: r.left, top: r.top };
-              document.body.style.cursor = "grabbing";
-              setWaDragging(true);
-              const move = (ev: TouchEvent) => waMoveTouchRef.current(ev);
-              const end = (ev: TouchEvent) => waEndTouchRef.current(ev);
-              const touchOpts: AddEventListenerOptions = { passive: false };
-              document.addEventListener("touchmove", move, touchOpts);
-              document.addEventListener("touchend", end);
-              document.addEventListener("touchcancel", end);
-              waRemoveDocListenersRef.current = () => {
-                document.removeEventListener("touchmove", move, touchOpts);
-                document.removeEventListener("touchend", end);
-                document.removeEventListener("touchcancel", end);
-              };
-            }}
-          >
-            <MessageCircle className="h-4 w-4" strokeWidth={1.75} />
-          </a>
         </div>
       </div>
+      {activeClient && !pathname.startsWith("/login") ? (
+        <WhatsAppChatWidget client={activeClient} currentUser={currentUser} lt={lt} />
+      ) : null}
       <Modal open={openSettingsModal} title={lt("Profile settings")} onClose={() => setOpenSettingsModal(false)} closeLabel={lt("Close")}>
         <div className="space-y-3">
           <div className="flex items-center gap-3">

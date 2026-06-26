@@ -127,6 +127,7 @@ export interface CrmLead {
   funnel: string;
   owner: string | null;
   source: string | null;
+  service_product: string | null;
   /** @deprecated Use proposal_value — kept for backward compatibility */
   value: number;
   proposal_value: number;
@@ -354,6 +355,7 @@ export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
     funnel: normalizeLeadFunnel(row.funnel),
     owner: row.owner != null ? String(row.owner) : null,
     source: row.source != null ? String(row.source) : null,
+    service_product: row.service_product != null ? String(row.service_product) : null,
     value: proposal,
     proposal_value: proposal,
     closed_value: closed,
@@ -481,6 +483,14 @@ export function normalizeCrmSourceSelect(raw: string | null | undefined, clientS
   if (s) return s;
   const options = getCrmSourceOptions(clientSlug);
   return options[0] ?? "WhatsApp";
+}
+
+export function normalizeServiceProduct(raw: string | null | undefined): string {
+  return (raw ?? "").trim();
+}
+
+export function normalizeCrmServiceProductSelect(raw: string | null | undefined): string {
+  return normalizeServiceProduct(raw);
 }
 
 export function normalizeResumeStatus(status: string | null | undefined): CrmResumeStatus {

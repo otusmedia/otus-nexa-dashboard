@@ -14,8 +14,13 @@ export function AutoResizeTextarea({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    const resize = () => {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    };
+    resize();
+    const raf = requestAnimationFrame(resize);
+    return () => cancelAnimationFrame(raf);
   }, [value]);
 
   return (

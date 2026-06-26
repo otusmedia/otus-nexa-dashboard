@@ -94,6 +94,11 @@ import {
   EMPTY_CLIENT_CRM_INTEGRATION,
   parseClientCrmIntegration,
 } from "@/lib/client-crm-integration";
+import {
+  clientWhatsAppConfigToDb,
+  EMPTY_CLIENT_WHATSAPP_CONFIG,
+  parseClientWhatsAppConfig,
+} from "@/lib/client-whatsapp-config";
 
 function filterProjectsByColumn(
   board: ProjectsByColumn,
@@ -161,6 +166,7 @@ interface AppContextValue {
     apis?: Client["apis"];
     apiCredentials?: Client["apiCredentials"];
     crmIntegration?: Client["crmIntegration"];
+    whatsappConfig?: Client["whatsappConfig"];
     defaultLocale?: AppLanguage;
     enabledModules?: ModuleKey[] | null;
   }) => Promise<{ ok: boolean; error?: string }>;
@@ -178,6 +184,7 @@ interface AppContextValue {
         | "apis"
         | "apiCredentials"
         | "crmIntegration"
+        | "whatsappConfig"
         | "defaultLocale"
         | "enabledModules"
       >
@@ -423,6 +430,7 @@ function clientFromRow(row: Record<string, unknown>): Client {
     apis,
     apiCredentials: parseClientApiCredentials(row.api_credentials),
     crmIntegration: parseClientCrmIntegration(row.crm_integration),
+    whatsappConfig: parseClientWhatsAppConfig(row.whatsapp_config),
     enabledModules: parseClientEnabledModules(row),
     createdAt: String(row.created_at ?? ""),
   };
@@ -1908,6 +1916,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         apis,
         apiCredentials,
         crmIntegration,
+        whatsappConfig,
         defaultLocale,
         enabledModules,
       }) => {
@@ -1932,6 +1941,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             api_config: apiConfigToDb(apisConfig),
             api_credentials: clientApiCredentialsToDb(apiCredentials ?? { ...EMPTY_CLIENT_API_CREDENTIALS }),
             crm_integration: clientCrmIntegrationToDb(crmIntegration ?? { ...EMPTY_CLIENT_CRM_INTEGRATION }),
+            whatsapp_config: clientWhatsAppConfigToDb(whatsappConfig ?? { ...EMPTY_CLIENT_WHATSAPP_CONFIG }),
             enabled_modules:
               enabledModules && enabledModules.length > 0 ? enabledModules : null,
           })
@@ -2013,6 +2023,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
         if (updates.crmIntegration !== undefined) {
           dbPatch.crm_integration = clientCrmIntegrationToDb(updates.crmIntegration);
+        }
+        if (updates.whatsappConfig !== undefined) {
+          dbPatch.whatsapp_config = clientWhatsAppConfigToDb(updates.whatsappConfig);
         }
         if (updates.defaultLocale !== undefined) {
           dbPatch.default_locale = updates.defaultLocale;

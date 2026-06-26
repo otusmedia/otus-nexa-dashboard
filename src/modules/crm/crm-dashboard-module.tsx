@@ -15,6 +15,7 @@ import { CrmDashboardLeadList } from "@/modules/crm/dashboard/crm-dashboard-lead
 import { CrmDashboardOwnerFilter } from "@/modules/crm/dashboard/crm-dashboard-owner-filter";
 import { CrmDashboardPipeline } from "@/modules/crm/dashboard/crm-dashboard-pipeline";
 import { CrmDashboardSchedule } from "@/modules/crm/dashboard/crm-dashboard-schedule";
+import { CrmDashboardServiceProducts } from "@/modules/crm/dashboard/crm-dashboard-service-products";
 import { CrmDashboardSources } from "@/modules/crm/dashboard/crm-dashboard-sources";
 import { CrmDashboardTrendChart } from "@/modules/crm/dashboard/crm-dashboard-trend-chart";
 import { useCrmDashboardData, type CrmChartRange } from "@/modules/crm/use-crm-dashboard-data";
@@ -45,6 +46,9 @@ export function CrmDashboardModule() {
     sourceMap,
     sourceLabels,
     sourceTotal,
+    serviceProductMap,
+    serviceProductLabels,
+    serviceProductTotal,
     pipelineRows,
     upcomingDateSlots,
     ownerOptions,
@@ -154,7 +158,7 @@ export function CrmDashboardModule() {
           />
         </div>
 
-        <div className="h-full xl:col-span-6">
+        <div className="h-full xl:col-span-4">
           <CrmDashboardSources
             sourceMap={sourceMap}
             sourceLabels={sourceLabels}
@@ -164,7 +168,16 @@ export function CrmDashboardModule() {
             lt={lt}
           />
         </div>
-        <div className="h-full xl:col-span-6">
+        <div className="h-full xl:col-span-4">
+          <CrmDashboardServiceProducts
+            serviceProductMap={serviceProductMap}
+            serviceProductLabels={serviceProductLabels}
+            serviceProductTotal={serviceProductTotal}
+            loading={loading}
+            lt={lt}
+          />
+        </div>
+        <div className="h-full xl:col-span-4">
           <CrmDashboardPipeline rows={pipelineRows} loading={loading} language={language} lt={lt} />
         </div>
       </div>

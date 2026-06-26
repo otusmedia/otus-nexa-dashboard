@@ -15,6 +15,7 @@ import {
   mapCrmAppointmentRow,
   mapCrmLeadRow,
   normalizeLeadStatus,
+  normalizeServiceProduct,
   normalizeSource,
   type CrmAppointment,
   type CrmLead,
@@ -62,6 +63,16 @@ function sourceCountMap(leads: CrmLead[], dataClientSlug: string | null): Record
   for (const label of getCrmLeadSourceLabels(dataClientSlug)) m[label] = 0;
   for (const lead of leads) {
     const key = normalizeSource(lead.source, dataClientSlug);
+    m[key] = (m[key] ?? 0) + 1;
+  }
+  return m;
+}
+
+function serviceProductCountMap(leads: CrmLead[]): Record<string, number> {
+  const m: Record<string, number> = {};
+  for (const lead of leads) {
+    const key = normalizeServiceProduct(lead.service_product);
+    if (!key) continue;
     m[key] = (m[key] ?? 0) + 1;
   }
   return m;
@@ -415,6 +426,18 @@ export function useCrmDashboardData(
   }, [dataClientSlug, sourceMap]);
   const sourceTotal = filteredLeads.length || 1;
 
+  const serviceProductMap = useMemo(() => serviceProductCountMap(filteredLeads), [filteredLeads]);
+  const serviceProductLabels = useMemo(() => {
+    return Object.entries(serviceProductMap)
+      .filter(([, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([label]) => label);
+  }, [serviceProductMap]);
+  const serviceProductTotal = useMemo(() => {
+    const withType = filteredLeads.filter((l) => normalizeServiceProduct(l.service_product)).length;
+    return withType || 1;
+  }, [filteredLeads]);
+
   const pipelineRows = useMemo(() => {
     return CRM_LEAD_STATUSES.map((stage) => {
       const inStage = filteredLeads.filter((l) => normalizeLeadStatus(l.status) === stage);
@@ -484,6 +507,9 @@ export function useCrmDashboardData(
     sourceMap,
     sourceLabels,
     sourceTotal,
+    serviceProductMap,
+    serviceProductLabels,
+    serviceProductTotal,
     pipelineRows,
     upcomingDateSlots,
     reload: load,
