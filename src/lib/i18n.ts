@@ -173,6 +173,7 @@ const platformPtBR: Record<string, string> = {
   "Add New Project": "Adicionar Projeto",
   "Task Management": "Gestão de Tarefas",
   "New Task": "Nova Tarefa",
+  "Edit Task": "Editar tarefa",
   "All Status": "Todos os Status",
   "All Assignees": "Todos os Responsáveis",
   "In Progress": "Em Andamento",

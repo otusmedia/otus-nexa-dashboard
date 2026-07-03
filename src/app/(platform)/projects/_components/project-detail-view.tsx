@@ -40,6 +40,7 @@ import {
 } from "../data";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
+import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
 import { Card } from "@/components/ui/card";
 import { PublishedToModal } from "@/components/ui/published-to-modal";
 import { MentionTextarea } from "@/components/ui/mention-textarea";
@@ -440,26 +441,22 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [projectDescriptionError, setProjectDescriptionError] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
   const [tasks, setTasks] = useState<LocalTask[]>([]);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [statusMenuOpen, setStatusMenuOpen] = useState(false); // modal menu
+  const [taskFormMode, setTaskFormMode] = useState<"create" | "edit" | null>(null);
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [rowStatusMenu, setRowStatusMenu] = useState<{ taskId: string; top: number; left: number } | null>(null);
   const [taskName, setTaskName] = useState("");
   const [owner, setOwner] = useState((project.owners[0] || OWNER_OPTIONS[0]) as string);
   const [dueDate, setDueDate] = useState("");
   const [taskStatus, setTaskStatus] = useState<TaskRowStatus>("Not Started");
+  const [taskDescription, setTaskDescription] = useState("");
+  const [taskPriority, setTaskPriority] = useState<Priority>("Medium");
+  const [taskShortDescription, setTaskShortDescription] = useState("");
+  const [taskIsFeatured, setTaskIsFeatured] = useState(false);
   const [taskNameError, setTaskNameError] = useState("");
   const [taskSubmitError, setTaskSubmitError] = useState("");
+  const [taskFormSaving, setTaskFormSaving] = useState(false);
   const [taskStatusFilter, setTaskStatusFilter] = useState<TaskRowStatus | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  const [panelStatusOpen, setPanelStatusOpen] = useState(false);
-  const [panelEditingName, setPanelEditingName] = useState(false);
-  const [panelOwnerEditing, setPanelOwnerEditing] = useState(false);
-  const [panelDueDateEditing, setPanelDueDateEditing] = useState(false);
-  const [panelDescription, setPanelDescription] = useState("");
-  const [panelSavedDescription, setPanelSavedDescription] = useState("");
-  const [taskDescriptionSavedHint, setTaskDescriptionSavedHint] = useState(false);
-  const [taskDescriptionError, setTaskDescriptionError] = useState("");
-  const [panelPriority, setPanelPriority] = useState<Priority>("Medium");
   const [taskDeleteDialog, setTaskDeleteDialog] = useState<{ id: string; name: string } | null>(null);
   const [coverUploadLoading, setCoverUploadLoading] = useState(false);
   const [coverUploadError, setCoverUploadError] = useState("");
@@ -496,11 +493,10 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const projectPropsOwnersRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const coverImageInputRef = useRef<HTMLInputElement | null>(null);
-  const panelDescriptionRef = useRef<HTMLTextAreaElement | null>(null);
-  /** Avoid resetting description/priority draft when `tasks` gets a new object for the same row (e.g. after updateTask or attachment fetch). */
-  const lastPanelSyncedTaskIdRef = useRef<string | null>(null);
   /** Avoid closing preview on unrelated rerenders; only reset when task changes. */
   const lastAttachmentTaskIdRef = useRef<string | null>(null);
+  const deepLinkedTaskOpenedRef = useRef<string | null>(null);
+  const taskFormOpen = taskFormMode !== null;
 
   const groupedStatuses = [
     { group: "To-do", options: TASK_STATUS_OPTIONS.filter((option) => option.group === "To-do") },
@@ -548,21 +544,54 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setOwner((project.owners[0] || OWNER_OPTIONS[0]) as string);
     setDueDate("");
     setTaskStatus("Not Started");
+    setTaskDescription("");
+    setTaskPriority("Medium");
+    setTaskShortDescription("");
+    setTaskIsFeatured(false);
+    setTaskNameError("");
+    setTaskSubmitError("");
+    setTaskFormSaving(false);
+    setStatusMenuOpen(false);
+  };
+
+  const populateTaskForm = (task: LocalTask) => {
+    setTaskName(task.name);
+    setOwner(task.owner || (project.owners[0] || OWNER_OPTIONS[0]));
+    setDueDate(task.dueDate || "");
+    setTaskStatus(task.status);
+    setTaskDescription(task.description);
+    setTaskPriority(task.priority);
+    setTaskShortDescription(task.shortDescription);
+    setTaskIsFeatured(task.isFeatured);
     setTaskNameError("");
     setTaskSubmitError("");
     setStatusMenuOpen(false);
   };
 
   const openTaskModal = () => {
+    if (isRocketRideClient) return;
     resetTaskForm();
-    setModalOpen(true);
+    setActiveTaskId(null);
+    setTaskFormMode("create");
+  };
+
+  const openTaskPanel = (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    populateTaskForm(task);
+    setActiveTaskId(taskId);
+    setTaskFormMode("edit");
   };
 
   const closeTaskModal = () => {
-    setModalOpen(false);
+    setTaskFormMode(null);
+    setActiveTaskId(null);
     setStatusMenuOpen(false);
     setTaskNameError("");
     setTaskSubmitError("");
+    setTaskFormSaving(false);
+    setCoverUploadError("");
+    setTaskAttachmentError("");
   };
 
   useEffect(() => {
@@ -648,10 +677,18 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
   useEffect(() => {
     const tid = searchParams.get("taskId");
-    if (!tid) return;
-    if (tasks.some((t) => t.id === tid)) {
-      setActiveTaskId(tid);
+    if (!tid) {
+      deepLinkedTaskOpenedRef.current = null;
+      return;
     }
+    if (deepLinkedTaskOpenedRef.current === tid) return;
+    const task = tasks.find((t) => t.id === tid);
+    if (!task) return;
+    deepLinkedTaskOpenedRef.current = tid;
+    populateTaskForm(task);
+    setActiveTaskId(tid);
+    setTaskFormMode("edit");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open once when task list includes deep-linked id
   }, [searchParams, tasks]);
 
   useEffect(() => {
@@ -924,54 +961,6 @@ export function ProjectDetailView({ project }: { project: Project }) {
 
   const activeTask = useMemo(() => tasks.find((task) => task.id === activeTaskId) || null, [tasks, activeTaskId]);
 
-  useEffect(() => {
-    if (!activeTaskId) {
-      lastPanelSyncedTaskIdRef.current = null;
-      setCoverUploadLoading(false);
-      setCoverUploadError("");
-      return;
-    }
-    const task = tasks.find((t) => t.id === activeTaskId) ?? null;
-    if (!task) {
-      lastPanelSyncedTaskIdRef.current = null;
-      setCoverUploadLoading(false);
-      setCoverUploadError("");
-      return;
-    }
-    const switchedTask = lastPanelSyncedTaskIdRef.current !== activeTaskId;
-    if (!switchedTask) return;
-    lastPanelSyncedTaskIdRef.current = activeTaskId;
-    setPanelDescription(task.description);
-    setPanelSavedDescription(task.description);
-    setTaskDescriptionSavedHint(false);
-    setTaskDescriptionError("");
-    setPanelPriority(task.priority);
-    setPanelStatusOpen(false);
-    setPanelEditingName(false);
-    setPanelOwnerEditing(false);
-    setPanelDueDateEditing(false);
-    setCoverUploadError("");
-    setCoverUploadLoading(false);
-  }, [activeTaskId, tasks]);
-
-  useEffect(() => {
-    if (!panelDescriptionRef.current) return;
-    panelDescriptionRef.current.style.height = "auto";
-    panelDescriptionRef.current.style.height = `${panelDescriptionRef.current.scrollHeight}px`;
-  }, [panelDescription, activeTaskId]);
-
-  const closeTaskPanel = () => {
-    setActiveTaskId(null);
-    setPanelStatusOpen(false);
-    setPanelEditingName(false);
-    setPanelOwnerEditing(false);
-    setPanelDueDateEditing(false);
-  };
-
-  const openTaskPanel = (taskId: string) => {
-    setActiveTaskId(taskId);
-  };
-
   const confirmDeleteTask = async () => {
     if (isRocketRideClient) return;
     if (!taskDeleteDialog) return;
@@ -985,7 +974,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setTasks(nextTasks);
     deleteBoardProjectTask(project.id, taskDeleteDialog.id);
     void syncProjectProgressFromLocalTasks(nextTasks);
-    if (activeTaskId === targetTaskId) closeTaskPanel();
+    if (activeTaskId === targetTaskId) closeTaskModal();
     setTaskDeleteDialog(null);
   };
 
@@ -1010,12 +999,10 @@ export function ProjectDetailView({ project }: { project: Project }) {
       if (!ok) return;
       setPublishedToModal({ taskId, taskName: name });
       setRowStatusMenu(null);
-      setPanelStatusOpen(false);
       return;
     }
     void updateTask(taskId, { status });
     setRowStatusMenu(null);
-    setPanelStatusOpen(false);
   };
 
   const handlePublishedToConfirm = async ({ platforms, publishedAt }: { platforms: string[]; publishedAt: string }) => {
@@ -1243,10 +1230,6 @@ export function ProjectDetailView({ project }: { project: Project }) {
     void updateTask(activeTaskId, { coverImage: null });
   };
 
-  const onPanelDescriptionChange = (value: string) => {
-    setPanelDescription(value);
-  };
-
   const saveProjectDescription = async () => {
     setProjectDescriptionError("");
     const { error } = await supabase
@@ -1263,20 +1246,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     window.setTimeout(() => setProjectDescriptionSavedHint(false), 2000);
   };
 
-  const saveTaskDescription = async () => {
-    if (!activeTask) return;
-    setTaskDescriptionError("");
-    const ok = await updateTask(activeTask.id, { description: panelDescription });
-    if (!ok) {
-      setTaskDescriptionError("Failed to save. Try again.");
-      return;
-    }
-    setPanelSavedDescription(panelDescription);
-    setTaskDescriptionSavedHint(true);
-    window.setTimeout(() => setTaskDescriptionSavedHint(false), 2000);
-  };
-
-  const handleCreateTask = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleTaskFormSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (isRocketRideClient) return;
     const trimmedName = taskName.trim();
@@ -1285,71 +1255,112 @@ export function ProjectDetailView({ project }: { project: Project }) {
       return;
     }
     setTaskSubmitError("");
-    const { data, error } = await supabase
-      .from("tasks")
-      .insert([
-        {
-          project_id: project.id,
-          title: trimmedName,
-          status: taskStatus,
-          assigned_to: owner,
-          due_date: dueDate || null,
-          priority: "Medium",
-          description: "",
-          client_slug: project.clientSlug?.trim() || null,
-        },
-      ])
-      .select()
-      .single();
-    if (error || !data) {
-      console.error("[supabase] board task insert failed:", error?.message ?? "Unknown error");
-      setTaskSubmitError("Failed to create task. Please try again.");
+    setTaskFormSaving(true);
+
+    const shortDesc = taskShortDescription.trim().slice(0, 200);
+    const descriptionTrimmed = taskDescription.trim();
+
+    if (taskFormMode === "create") {
+      const { data, error } = await supabase
+        .from("tasks")
+        .insert([
+          {
+            project_id: project.id,
+            title: trimmedName,
+            status: taskStatus,
+            assigned_to: owner,
+            due_date: dueDate || null,
+            priority: taskPriority,
+            description: descriptionTrimmed || "",
+            short_description: shortDesc || "",
+            is_featured: taskIsFeatured,
+            client_slug: project.clientSlug?.trim() || null,
+          },
+        ])
+        .select()
+        .single();
+      setTaskFormSaving(false);
+      if (error || !data) {
+        console.error("[supabase] board task insert failed:", error?.message ?? "Unknown error");
+        setTaskSubmitError("Failed to create task. Please try again.");
+        return;
+      }
+      const row = data as DbProjectTaskRow;
+      const createdStatus: TaskRowStatus =
+        row.status === "In Progress" ||
+        row.status === "Waiting for Approval" ||
+        row.status === "Done" ||
+        row.status === "Scheduled" ||
+        row.status === "Published"
+          ? row.status
+          : "Not Started";
+      const createdPriority: Priority =
+        row.priority === "Low" || row.priority === "Medium" || row.priority === "High" || row.priority === "Urgent"
+          ? row.priority
+          : taskPriority;
+      const createdTask: LocalTask = {
+        id: row.id,
+        name: row.title ?? trimmedName,
+        owner: row.assigned_to ?? owner,
+        dueDate: row.due_date,
+        status: createdStatus,
+        isFeatured: Boolean(row.is_featured),
+        coverImage: row.cover_image,
+        shortDescription: row.short_description ?? shortDesc,
+        description: row.description ?? descriptionTrimmed,
+        priority: createdPriority,
+        reviewStatus: row.review_status?.trim() ? String(row.review_status) : null,
+        publishedTo: Array.isArray(row.published_to) ? row.published_to.map(String) : [],
+        publishedAt: row.published_at?.trim() ? String(row.published_at) : null,
+        attachments: [],
+      };
+      const nextTasks = [...tasks, createdTask];
+      setTasks(nextTasks);
+      const boardRow: ProjectTaskRow = {
+        id: createdTask.id,
+        name: createdTask.name,
+        owner: createdTask.owner,
+        dueDate: createdTask.dueDate,
+        status: createdTask.status,
+        isFeatured: createdTask.isFeatured,
+        coverImage: createdTask.coverImage,
+        shortDescription: createdTask.shortDescription,
+        reviewStatus: createdTask.reviewStatus,
+        publishedTo: createdTask.publishedTo,
+        publishedAt: createdTask.publishedAt,
+        attachments: [],
+      };
+      addBoardProjectTask(project.id, boardRow);
+      void syncProjectProgressFromLocalTasks(nextTasks);
+      if (createdStatus === "Published") {
+        setPublishedToModal({ taskId: createdTask.id, taskName: createdTask.name });
+      }
+      closeTaskModal();
       return;
     }
-    const row = data as DbProjectTaskRow;
-    const createdStatus: TaskRowStatus =
-      row.status === "In Progress" ||
-      row.status === "Waiting for Approval" ||
-      row.status === "Done" ||
-      row.status === "Scheduled" ||
-      row.status === "Published"
-        ? row.status
-        : "Not Started";
-    const createdTask: LocalTask = {
-      id: row.id,
-      name: row.title ?? trimmedName,
-      owner: row.assigned_to ?? owner,
-      dueDate: row.due_date,
-      status: createdStatus,
-      isFeatured: Boolean(row.is_featured),
-      coverImage: row.cover_image,
-      shortDescription: row.short_description ?? "",
-      description: row.description ?? "",
-      priority: row.priority === "Low" || row.priority === "Medium" || row.priority === "High" || row.priority === "Urgent" ? row.priority : "Medium",
-      reviewStatus: row.review_status?.trim() ? String(row.review_status) : null,
-      publishedTo: Array.isArray(row.published_to) ? row.published_to.map(String) : [],
-      publishedAt: row.published_at?.trim() ? String(row.published_at) : null,
-      attachments: [],
-    };
-    const nextTasks = [...tasks, createdTask];
-    setTasks(nextTasks);
-    const boardRow: ProjectTaskRow = {
-      id: createdTask.id,
-      name: createdTask.name,
-      owner: createdTask.owner,
-      dueDate: createdTask.dueDate,
-      status: createdTask.status,
-      isFeatured: createdTask.isFeatured,
-      coverImage: createdTask.coverImage,
-      shortDescription: createdTask.shortDescription,
-      reviewStatus: createdTask.reviewStatus,
-      publishedTo: createdTask.publishedTo,
-      publishedAt: createdTask.publishedAt,
-      attachments: [],
-    };
-    addBoardProjectTask(project.id, boardRow);
-    void syncProjectProgressFromLocalTasks(nextTasks);
-    closeTaskModal();
+
+    if (taskFormMode === "edit" && activeTaskId) {
+      const previousStatus = activeTask?.status;
+      const ok = await updateTask(activeTaskId, {
+        name: trimmedName,
+        owner,
+        dueDate: dueDate || null,
+        status: taskStatus,
+        description: descriptionTrimmed,
+        priority: taskPriority,
+        shortDescription: shortDesc,
+        isFeatured: taskIsFeatured,
+      });
+      setTaskFormSaving(false);
+      if (!ok) {
+        setTaskSubmitError("Failed to save task. Please try again.");
+        return;
+      }
+      if (taskStatus === "Published" && previousStatus !== "Published") {
+        setPublishedToModal({ taskId: activeTaskId, taskName: trimmedName });
+      }
+      closeTaskModal();
+    }
   };
 
   const toggleProjectOwner = (member: (typeof PROJECT_TEAM_MEMBERS)[number]) => {
@@ -2265,181 +2276,143 @@ export function ProjectDetailView({ project }: { project: Project }) {
         </div>
       </Card>
 
-      {modalOpen && !isRocketRideClient ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
-          <div className="w-full max-w-xl rounded-[8px] border border-[var(--border)] bg-[#161616] p-5">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <p className="section-title">{lt("New Task")}</p>
-                <p className="mt-1 text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Create a task for this project.")}</p>
-              </div>
-              <button
-                type="button"
-                onClick={closeTaskModal}
-                className="rounded-[8px] border border-[var(--border)] px-2 py-1 text-xs font-light text-[rgba(255,255,255,0.4)] hover:border-[var(--border-strong)]"
-              >
-                {lt("Close")}
-              </button>
-            </div>
-            <form className="space-y-4" onSubmit={handleCreateTask}>
-              <label className="block space-y-1">
-                <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Task name")}</span>
-                <input
-                  value={taskName}
-                  onChange={(event) => {
-                    setTaskName(event.target.value);
-                    if (taskNameError) setTaskNameError("");
-                  }}
-                  placeholder={lt("Design Services Page")}
-                  className={cn(
-                    "w-full rounded-[8px] border bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white outline-none transition-colors",
-                    taskNameError ? "border-[#ef4444]/40" : "border-[var(--border)] focus:border-[var(--border-strong)]",
-                  )}
-                  required
-                />
-                {taskNameError ? <span className="text-xs font-light text-[#fca5a5]">{lt(taskNameError)}</span> : null}
-                {taskSubmitError ? <span className="text-xs font-light text-[#fca5a5]">{lt(taskSubmitError)}</span> : null}
-              </label>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="block space-y-1">
-                  <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Owner")}</span>
-                  <select
-                    value={owner}
-                    onChange={(event) => setOwner(event.target.value)}
-                    className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white outline-none transition-colors focus:border-[var(--border-strong)]"
-                  >
-                    {OWNER_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Due date")}</span>
-                  <input
-                    type="date"
-                    value={dueDate}
-                    onChange={(event) => setDueDate(event.target.value)}
-                    className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white outline-none transition-colors focus:border-[var(--border-strong)]"
-                  />
-                </label>
-              </div>
-
-              <div className="relative">
-                <span className="mb-1 block text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Status")}</span>
-                <button
-                  type="button"
-                  onClick={() => setStatusMenuOpen((prev) => !prev)}
-                  className="flex w-full items-center justify-between rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <span className={cn("h-1.5 w-1.5 rounded-full", selectedStatusOption.dotClass)} aria-hidden />
-                    {lt(selectedStatusOption.value)}
-                  </span>
-                  {statusMenuOpen ? <ChevronDown className="h-4 w-4 text-[rgba(255,255,255,0.4)]" /> : <ChevronRight className="h-4 w-4 text-[rgba(255,255,255,0.4)]" />}
-                </button>
-                {statusMenuOpen ? (
-                  <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-10 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2">
-                    {groupedStatuses.map((group) => (
-                      <div key={group.group} className="mb-2 last:mb-0">
-                        <p className="px-2 py-1 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-                          {lt(group.group)}
-                        </p>
-                        {group.options.map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => {
-                              setTaskStatus(option.value);
-                              setStatusMenuOpen(false);
-                            }}
-                            className={cn(
-                              "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white transition-colors hover:bg-[rgba(255,255,255,0.04)]",
-                              taskStatus === option.value && "bg-[rgba(255,255,255,0.04)]",
-                            )}
-                          >
-                            <span className={cn("h-1.5 w-1.5 rounded-full", option.dotClass)} aria-hidden />
-                            {lt(option.value)}
-                          </button>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={closeTaskModal}
-                  className="rounded-[8px] border border-[var(--border)] bg-transparent px-3 py-1.5 text-xs font-light text-[rgba(255,255,255,0.4)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--muted)]"
-                >
-                  {lt("Cancel")}
-                </button>
-                <button type="submit" className="btn-primary rounded-[8px] px-3 py-1.5 text-xs">
-                  {lt("Create Task")}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      <div className={cn("fixed inset-0 z-40 transition-opacity", activeTask ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0")}>
-        <button
-          type="button"
-          className="absolute inset-0 bg-black/30"
-          onClick={closeTaskPanel}
-          aria-label={lt("Close task panel")}
-        />
-        <aside
-          className={cn(
-            "absolute right-0 top-0 h-full w-full max-w-[480px] transform overflow-y-auto border-l border-[rgba(255,255,255,0.08)] bg-[#1a1a1a] p-5 transition-transform duration-200",
-            activeTask ? "translate-x-0" : "translate-x-full",
-          )}
-          onClick={(event) => event.stopPropagation()}
+      {taskFormOpen ? (
+        <div
+          className="fixed inset-0 z-[125] overflow-y-auto overscroll-contain bg-black/70 p-4"
+          role="presentation"
+          onClick={closeTaskModal}
         >
-          {activeTask ? (
-            <div className="space-y-5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  {canRespondToClientFeedback ? (
-                    <h2 className="text-2xl font-light text-white">{activeTask.name}</h2>
-                  ) : panelEditingName ? (
-                    <input
-                      autoFocus
-                      value={activeTask.name}
-                      onChange={(event) => void updateTask(activeTask.id, { name: event.target.value })}
-                      onBlur={() => setPanelEditingName(false)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          (event.currentTarget as HTMLInputElement).blur();
-                        }
-                      }}
-                      className="w-full border-none bg-transparent p-0 text-2xl font-light text-white outline-none"
-                    />
+          <div className="flex min-h-full items-center justify-center">
+            <form
+              onSubmit={(event) => void handleTaskFormSubmit(event)}
+              onClick={(event) => event.stopPropagation()}
+              className="my-4 flex max-h-[min(92vh,900px)] w-full max-w-xl flex-col overflow-hidden rounded-[8px] border border-[var(--border)] bg-[var(--surface)]"
+            >
+              <div className="shrink-0 border-b border-[var(--border)] p-4 pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-normal uppercase tracking-[0.08em] text-white">
+                      {taskFormMode === "create" ? lt("New Task") : lt("Edit Task")}
+                    </h3>
+                    <p className="mt-1 text-xs font-light text-[rgba(255,255,255,0.4)]">
+                      {taskFormMode === "create"
+                        ? lt("Create a task for this project.")
+                        : project.name}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeTaskModal}
+                    className="rounded-md border border-[var(--border-strong)] px-2 py-1 text-xs text-[rgba(255,255,255,0.7)]"
+                  >
+                    {lt("Close")}
+                  </button>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+                <label className="block space-y-1">
+                  <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Task name")}</span>
+                  {isRocketRideClient ? (
+                    <p className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white">{taskName || "—"}</p>
                   ) : (
-                    <button type="button" onClick={() => setPanelEditingName(true)} className="w-full text-left">
-                      <h2 className="text-2xl font-light text-white">{activeTask.name}</h2>
-                    </button>
+                    <input
+                      value={taskName}
+                      onChange={(event) => {
+                        setTaskName(event.target.value);
+                        if (taskNameError) setTaskNameError("");
+                      }}
+                      placeholder={lt("Design Services Page")}
+                      className={cn(
+                        "w-full rounded-[8px] border bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white outline-none transition-colors",
+                        taskNameError ? "border-[#ef4444]/40" : "border-[var(--border)] focus:border-[var(--border-strong)]",
+                      )}
+                      required
+                    />
                   )}
-                  <div className="relative mt-3 inline-block">
+                  {taskNameError ? <span className="text-xs font-light text-[#fca5a5]">{lt(taskNameError)}</span> : null}
+                  {taskSubmitError ? <span className="text-xs font-light text-[#fca5a5]">{lt(taskSubmitError)}</span> : null}
+                </label>
+
+                <label className="mt-4 block space-y-1">
+                  <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Description")}</span>
+                  {isRocketRideClient ? (
+                    <p className="whitespace-pre-wrap rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-[rgba(255,255,255,0.85)]">
+                      {taskDescription.trim() ? taskDescription : "—"}
+                    </p>
+                  ) : (
+                    <AutoResizeTextarea
+                      key={taskFormMode === "edit" ? activeTaskId ?? "edit" : "create"}
+                      value={taskDescription}
+                      onChange={(event) => setTaskDescription(event.target.value)}
+                      minRows={3}
+                      placeholder={lt("Add a task description...")}
+                      className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
+                    />
+                  )}
+                </label>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <label className="block space-y-1">
+                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Owner")}</span>
                     {isRocketRideClient ? (
-                      <TaskRowStatusBadge status={activeTask.status} publishedTo={activeTask.publishedTo} publishedAt={activeTask.publishedAt} />
+                      <OwnerAvatars names={[owner]} />
+                    ) : (
+                      <select
+                        value={owner}
+                        onChange={(event) => setOwner(event.target.value)}
+                        className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white outline-none"
+                      >
+                        {OWNER_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Due date")}</span>
+                    {isRocketRideClient ? (
+                      <p className="text-sm font-light text-[rgba(255,255,255,0.7)]">
+                        {dueDate ? <span className="mono-num">{formatDisplayDate(dueDate)}</span> : "—"}
+                      </p>
+                    ) : (
+                      <input
+                        type="date"
+                        value={dueDate}
+                        onChange={(event) => setDueDate(event.target.value)}
+                        className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white outline-none"
+                      />
+                    )}
+                  </label>
+                  <div className="relative block space-y-1">
+                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Status")}</span>
+                    {isRocketRideClient ? (
+                      <TaskRowStatusBadge
+                        status={taskStatus}
+                        publishedTo={activeTask?.publishedTo}
+                        publishedAt={activeTask?.publishedAt}
+                      />
                     ) : (
                       <>
                         <button
                           type="button"
-                          onClick={() => setPanelStatusOpen((prev) => !prev)}
-                          className="text-left"
+                          onClick={() => setStatusMenuOpen((prev) => !prev)}
+                          className="flex w-full items-center justify-between rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white"
                         >
-                          <TaskRowStatusBadge status={activeTask.status} publishedTo={activeTask.publishedTo} publishedAt={activeTask.publishedAt} />
+                          <span className="inline-flex items-center gap-2">
+                            <span className={cn("h-1.5 w-1.5 rounded-full", selectedStatusOption.dotClass)} aria-hidden />
+                            {lt(selectedStatusOption.value)}
+                          </span>
+                          {statusMenuOpen ? (
+                            <ChevronDown className="h-4 w-4 text-[rgba(255,255,255,0.4)]" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-[rgba(255,255,255,0.4)]" />
+                          )}
                         </button>
-                        {panelStatusOpen ? (
-                          <div className="absolute left-0 top-[calc(100%+6px)] z-20 w-56 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2">
+                        {statusMenuOpen ? (
+                          <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-10 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2">
                             {groupedStatuses.map((group) => (
                               <div key={group.group} className="mb-2 last:mb-0">
                                 <p className="px-2 py-1 text-[0.65rem] font-light uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
@@ -2449,10 +2422,13 @@ export function ProjectDetailView({ project }: { project: Project }) {
                                   <button
                                     key={option.value}
                                     type="button"
-                                    onClick={() => void handleTaskStatusSelect(activeTask.id, option.value)}
+                                    onClick={() => {
+                                      setTaskStatus(option.value);
+                                      setStatusMenuOpen(false);
+                                    }}
                                     className={cn(
-                                      "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
-                                      activeTask.status === option.value && "bg-[rgba(255,255,255,0.04)]",
+                                      "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white transition-colors hover:bg-[rgba(255,255,255,0.04)]",
+                                      taskStatus === option.value && "bg-[rgba(255,255,255,0.04)]",
                                     )}
                                   >
                                     <span className={cn("h-1.5 w-1.5 rounded-full", option.dotClass)} aria-hidden />
@@ -2466,165 +2442,102 @@ export function ProjectDetailView({ project }: { project: Project }) {
                       </>
                     )}
                   </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={closeTaskPanel}
-                  className="rounded-[8px] border border-[var(--border)] p-1.5 text-[rgba(255,255,255,0.6)] hover:border-[var(--border-strong)]"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="rounded-[8px] border border-[var(--border)] bg-[#161616] p-3">
-                <div className="grid grid-cols-[120px_1fr] gap-y-3">
-                  <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Owner")}</span>
-                  <div>
+                  <label className="block space-y-1">
+                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Priority")}</span>
                     {isRocketRideClient ? (
-                      <OwnerAvatars names={[activeTask.owner]} />
-                    ) : panelOwnerEditing ? (
-                      <select
-                        autoFocus
-                        value={activeTask.owner}
-                        onChange={(event) => void updateTask(activeTask.id, { owner: event.target.value })}
-                        onBlur={() => setPanelOwnerEditing(false)}
-                        className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light text-white outline-none"
+                      <span
+                        className={cn(
+                          "block text-sm font-light",
+                          PRIORITY_OPTIONS.find((option) => option.value === taskPriority)?.textClass,
+                        )}
                       >
-                        {OWNER_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
+                        {lt(taskPriority)}
+                      </span>
+                    ) : (
+                      <select
+                        value={taskPriority}
+                        onChange={(event) => setTaskPriority(event.target.value as Priority)}
+                        className={cn(
+                          "w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light outline-none",
+                          PRIORITY_OPTIONS.find((option) => option.value === taskPriority)?.textClass,
+                        )}
+                      >
+                        {PRIORITY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {lt(option.value)}
                           </option>
                         ))}
                       </select>
-                    ) : (
-                      <button type="button" onClick={() => setPanelOwnerEditing(true)} className="text-left">
-                        <OwnerAvatars names={[activeTask.owner]} />
-                      </button>
                     )}
-                  </div>
+                  </label>
+                </div>
 
-                  <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Due date")}</span>
-                  <div>
+                <div className="mt-4 block space-y-1">
+                  <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Project")}</span>
+                  <p className="text-sm font-light text-[rgba(255,255,255,0.7)]">{project.name}</p>
+                </div>
+
+                <div className="mt-4 space-y-2 border-t border-[var(--border)] pt-4">
+                  <p className="section-title mb-0">{lt("SHORT DESCRIPTION")}</p>
+                  <p className="text-xs font-light text-[rgba(255,255,255,0.4)]">
+                    {lt("Shown in Dashboard Highlights when featured")}
+                  </p>
+                  {isRocketRideClient ? (
+                    <p className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-[rgba(255,255,255,0.85)]">
+                      {taskShortDescription.trim() ? taskShortDescription : "—"}
+                    </p>
+                  ) : (
+                    <input
+                      type="text"
+                      maxLength={200}
+                      value={taskShortDescription}
+                      onChange={(event) => setTaskShortDescription(event.target.value.slice(0, 200))}
+                      placeholder={lt("Brief description of this work...")}
+                      className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
+                    />
+                  )}
+                </div>
+
+                <div className="mt-4 space-y-2 border-t border-[var(--border)] pt-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="section-title mb-0">{lt("FEATURED IN HIGHLIGHTS")}</span>
                     {isRocketRideClient ? (
-                      <span className="text-sm font-light text-[rgba(255,255,255,0.7)]">
-                        {activeTask.dueDate ? (
-                          <span className="mono-num">{formatDisplayDate(activeTask.dueDate)}</span>
-                        ) : (
-                          "—"
-                        )}
+                      <span className="text-xs font-light text-[rgba(255,255,255,0.55)]">
+                        {taskIsFeatured ? lt("Yes") : lt("No")}
                       </span>
-                    ) : panelDueDateEditing ? (
-                      <input
-                        type="date"
-                        autoFocus
-                        value={activeTask.dueDate || ""}
-                        onChange={(event) => void updateTask(activeTask.id, { dueDate: event.target.value || null })}
-                        onBlur={() => setPanelDueDateEditing(false)}
-                        className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light text-white outline-none"
-                      />
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setPanelDueDateEditing(true)}
-                        className="text-sm font-light text-[rgba(255,255,255,0.7)]"
-                      >
-                        {activeTask.dueDate ? (
-                          <span className="mono-num">{formatDisplayDate(activeTask.dueDate)}</span>
-                        ) : (
-                          "—"
+                        role="switch"
+                        aria-checked={taskIsFeatured}
+                        onClick={() => setTaskIsFeatured((prev) => !prev)}
+                        className={cn(
+                          "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+                          taskIsFeatured ? "bg-[var(--primary)]" : "bg-[rgba(255,255,255,0.15)]",
                         )}
+                      >
+                        <span
+                          className={cn(
+                            "absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-[left] duration-200 ease-out",
+                            taskIsFeatured ? "left-[calc(100%-1.375rem)]" : "left-1",
+                          )}
+                        />
                       </button>
                     )}
                   </div>
-
-                  <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Project")}</span>
-                  <span className="text-sm font-light text-[rgba(255,255,255,0.7)]">{project.name}</span>
-
-                  <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">{lt("Priority")}</span>
-                  {canRespondToClientFeedback ? (
-                    <span
-                      className={cn(
-                        "text-sm font-light",
-                        PRIORITY_OPTIONS.find((option) => option.value === panelPriority)?.textClass,
-                      )}
-                    >
-                      {lt(panelPriority)}
-                    </span>
-                  ) : (
-                    <select
-                      value={panelPriority}
-                      onChange={(event) => {
-                        const next = event.target.value as Priority;
-                        setPanelPriority(next);
-                        void updateTask(activeTask.id, { priority: next });
-                      }}
-                      className={cn(
-                        "w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light outline-none",
-                        PRIORITY_OPTIONS.find((option) => option.value === panelPriority)?.textClass,
-                      )}
-                    >
-                      {PRIORITY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {lt(option.value)}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  {!isRocketRideClient && taskIsFeatured && taskFormMode === "edit" && activeTask && !activeTask.coverImage ? (
+                    getTaskHighlightCoverUrl({ coverImage: null, attachments: activeTask.attachments }) ? (
+                      <p className="text-[0.72rem] font-light text-[rgba(255,255,255,0.4)]">
+                        {lt("Using first image attachment as cover — or upload a dedicated cover image")}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-amber-400">{lt("Add a cover image to display in Highlights")}</p>
+                    )
+                  ) : null}
                 </div>
-              </div>
 
-              <div>
-                <p className="section-title mb-2">{lt("Description")}</p>
-                {isRocketRideClient ? (
-                  <p className="whitespace-pre-wrap rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-[rgba(255,255,255,0.85)]">
-                    {panelDescription.trim() ? panelDescription : "—"}
-                  </p>
-                ) : (
+                {taskFormMode === "edit" && activeTask ? (
                   <>
-                    <textarea
-                      ref={panelDescriptionRef}
-                      value={panelDescription}
-                      onChange={(event) => {
-                        onPanelDescriptionChange(event.target.value);
-                        if (taskDescriptionError) setTaskDescriptionError("");
-                      }}
-                      rows={1}
-                      placeholder={lt("Add a task description...")}
-                      className="w-full resize-none overflow-hidden rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
-                    />
-                    {panelDescription !== panelSavedDescription ? (
-                      <div className="mt-2">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void saveTaskDescription();
-                            }}
-                            className="rounded-[8px] bg-[#ff4500] px-4 py-1.5 text-[0.8rem] font-light text-white transition-colors hover:bg-[#e33f00]"
-                          >
-                            {lt("Save")}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPanelDescription(panelSavedDescription);
-                              setTaskDescriptionError("");
-                            }}
-                            className="btn-ghost rounded-[8px] px-3 py-1.5 text-[0.8rem]"
-                          >
-                            {lt("Cancel")}
-                          </button>
-                          {taskDescriptionSavedHint ? <span className="text-[0.75rem] text-[#22c55e]">{lt("Saved")}</span> : null}
-                        </div>
-                        {taskDescriptionError ? (
-                          <p className="mt-1 text-[0.75rem] text-[#ef4444]">{lt(taskDescriptionError)}</p>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </>
-                )}
-              </div>
-
               <div>
                 <p className="section-title mb-2">{lt("Attachments")}</p>
                 {!isRocketRideClient ? (
@@ -2744,27 +2657,6 @@ export function ProjectDetailView({ project }: { project: Project }) {
               </div>
 
               <div className="space-y-2 border-t border-[var(--border)] pt-5">
-                <p className="section-title mb-0">{lt("SHORT DESCRIPTION")}</p>
-                <p className="text-xs font-light text-[rgba(255,255,255,0.4)]">
-                  {lt("Shown in Dashboard Highlights when featured")}
-                </p>
-                {isRocketRideClient ? (
-                  <p className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-[rgba(255,255,255,0.85)]">
-                    {activeTask.shortDescription.trim() ? activeTask.shortDescription : "—"}
-                  </p>
-                ) : (
-                  <input
-                    type="text"
-                    maxLength={200}
-                    value={activeTask.shortDescription}
-                    onChange={(event) => void updateTask(activeTask.id, { shortDescription: event.target.value.slice(0, 200) })}
-                    placeholder={lt("Brief description of this work...")}
-                    className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm font-light text-white placeholder:text-[rgba(255,255,255,0.4)]"
-                  />
-                )}
-              </div>
-
-              <div className="space-y-2 border-t border-[var(--border)] pt-5">
                 <p className="section-title mb-0">{lt("COVER IMAGE")}</p>
                 {!isRocketRideClient ? (
                   <input
@@ -2817,44 +2709,6 @@ export function ProjectDetailView({ project }: { project: Project }) {
                   <p className="text-[0.72rem] font-light text-[rgba(255,255,255,0.3)]">
                     {lt("Recommended: 1920×1080px — any size accepted")}
                   </p>
-                ) : null}
-              </div>
-
-              <div className="space-y-2 border-t border-[var(--border)] pt-5">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="section-title mb-0">{lt("FEATURED IN HIGHLIGHTS")}</span>
-                  {canRespondToClientFeedback ? (
-                    <span className="text-xs font-light text-[rgba(255,255,255,0.55)]">
-                      {activeTask.isFeatured ? lt("Yes") : lt("No")}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={activeTask.isFeatured}
-                      onClick={() => void updateTask(activeTask.id, { isFeatured: !activeTask.isFeatured })}
-                      className={cn(
-                        "relative h-7 w-12 shrink-0 rounded-full transition-colors",
-                        activeTask.isFeatured ? "bg-[var(--primary)]" : "bg-[rgba(255,255,255,0.15)]",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-[left] duration-200 ease-out",
-                          activeTask.isFeatured ? "left-[calc(100%-1.375rem)]" : "left-1",
-                        )}
-                      />
-                    </button>
-                  )}
-                </div>
-                {!isRocketRideClient && activeTask.isFeatured && !activeTask.coverImage ? (
-                  getTaskHighlightCoverUrl({ coverImage: null, attachments: activeTask.attachments }) ? (
-                    <p className="text-[0.72rem] font-light text-[rgba(255,255,255,0.4)]">
-                      {lt("Using first image attachment as cover — or upload a dedicated cover image")}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-amber-400">{lt("Add a cover image to display in Highlights")}</p>
-                  )
                 ) : null}
               </div>
 
@@ -3311,10 +3165,51 @@ export function ProjectDetailView({ project }: { project: Project }) {
                     </ul>
                   )}
                 </div>
-            </div>
-          ) : null}
-        </aside>
-      </div>
+                  </>
+                ) : null}
+
+              </div>
+
+              {!isRocketRideClient ? (
+                <div className="shrink-0 border-t border-[var(--border)] p-4">
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={closeTaskModal}
+                      className="rounded-[8px] border border-[var(--border)] bg-transparent px-3 py-1.5 text-xs font-light text-[rgba(255,255,255,0.4)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--muted)]"
+                    >
+                      {lt("Cancel")}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={taskFormSaving}
+                      className="btn-primary rounded-[8px] px-3 py-1.5 text-xs disabled:opacity-60"
+                    >
+                      {taskFormSaving
+                        ? lt("Saving…")
+                        : taskFormMode === "create"
+                          ? lt("Create Task")
+                          : lt("Save")}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="shrink-0 border-t border-[var(--border)] p-4">
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={closeTaskModal}
+                      className="rounded-[8px] border border-[var(--border)] bg-transparent px-3 py-1.5 text-xs font-light text-[rgba(255,255,255,0.7)]"
+                    >
+                      {lt("Close")}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </form>
+          </div>
+        </div>
+      ) : null}
 
       {previewAttachment
         ? createPortal(
