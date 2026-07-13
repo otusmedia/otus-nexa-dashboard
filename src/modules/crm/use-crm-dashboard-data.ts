@@ -7,7 +7,7 @@ import {
   formatLeadValue,
   getCrmLeadSourceLabels,
   isCrmAppointmentDone,
-  isSalesLead,
+  isCrmDashboardLead,
   leadClosedValue,
   leadProposalValue,
   leadStageValueSum,
@@ -25,7 +25,12 @@ import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
 import type { AppUser } from "@/types";
 
-export type CrmChartRange = "7d" | "30d";
+export type CrmChartRange = "7d" | "30d" | "custom";
+
+export type CrmCustomDateRange = {
+  startYmd: string;
+  endYmd: string;
+};
 
 export type CrmHeroMetric = {
   value: string;
@@ -81,17 +86,53 @@ function serviceProductCountMap(leads: CrmLead[]): Record<string, number> {
 function toDateKey(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
-function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+function localTodayKey(): string {
+  return localDateKeyFromDate(new Date());
 }
 
-function addDays(base: Date, days: number): Date {
-  const d = new Date(base);
+function addDaysLocal(base: Date, days: number): Date {
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
   d.setDate(d.getDate() + days);
   return d;
+}
+
+function localDateKeyFromDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function parseYmdLocal(ymd: string): Date | null {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (![y, m, d].every((n) => Number.isFinite(n))) return null;
+  return new Date(y, m - 1, d, 12, 0, 0, 0);
+}
+
+function resolvePeriodBounds(
+  chartRange: CrmChartRange,
+  customRange: CrmCustomDateRange | null,
+): { startYmd: string; endYmd: string } {
+  const end = new Date();
+  end.setHours(12, 0, 0, 0);
+  if (chartRange === "custom" && customRange?.startYmd && customRange?.endYmd) {
+    return { startYmd: customRange.startYmd, endYmd: customRange.endYmd };
+  }
+  const days = chartRange === "30d" ? 30 : 7;
+  const start = addDaysLocal(end, -(days - 1));
+  return { startYmd: localDateKeyFromDate(start), endYmd: localDateKeyFromDate(end) };
+}
+
+function leadInPeriod(lead: CrmLead, startYmd: string, endYmd: string): boolean {
+  const key = toDateKey(lead.created_at);
+  if (!key) return false;
+  return key >= startYmd && key <= endYmd;
 }
 
 function formatShortDay(date: Date, locale: string): string {
@@ -124,6 +165,7 @@ export function useCrmDashboardData(
   locale: string,
   currentUser: AppUser,
   ownerFilter = "",
+  customRange: CrmCustomDateRange | null = null,
 ) {
   const [leads, setLeads] = useState<CrmLead[]>([]);
   const [appointments, setAppointments] = useState<CrmAppointment[]>([]);
@@ -166,7 +208,7 @@ export function useCrmDashboardData(
       ((leadsRes.data ?? []) as Record<string, unknown>[])
         .map((row) => mapCrmLeadRow(row))
         .filter((lead) => rowMatchesDataClient(lead.client_slug, dataClientSlug))
-        .filter((lead) => isSalesLead(lead)),
+        .filter((lead) => isCrmDashboardLead(lead)),
       currentUser,
     );
 
@@ -270,6 +312,16 @@ export function useCrmDashboardData(
     return leads.filter((lead) => (lead.owner ?? "").trim() === owner);
   }, [leads, ownerFilter]);
 
+  const periodBounds = useMemo(
+    () => resolvePeriodBounds(chartRange, customRange),
+    [chartRange, customRange],
+  );
+
+  const periodLeads = useMemo(
+    () => filteredLeads.filter((lead) => leadInPeriod(lead, periodBounds.startYmd, periodBounds.endYmd)),
+    [filteredLeads, periodBounds],
+  );
+
   const leadById = useMemo(() => new Map(filteredLeads.map((l) => [l.id, l])), [filteredLeads]);
   const filteredLeadIds = useMemo(() => new Set(filteredLeads.map((l) => l.id)), [filteredLeads]);
 
@@ -283,13 +335,13 @@ export function useCrmDashboardData(
     [activityLog, filteredLeadIds],
   );
 
-  const total = filteredLeads.length;
-  const wonCount = filteredLeads.filter((l) => normalizeLeadStatus(l.status) === "Won").length;
+  const total = periodLeads.length;
+  const wonCount = periodLeads.filter((l) => normalizeLeadStatus(l.status) === "Won").length;
   const conversionPct = total === 0 ? 0 : Math.round((wonCount / total) * 1000) / 10;
-  const totalSalesValue = filteredLeads
+  const totalSalesValue = periodLeads
     .filter((l) => normalizeLeadStatus(l.status) === "Won")
     .reduce((a, l) => a + (leadClosedValue(l) > 0 ? leadClosedValue(l) : leadProposalValue(l)), 0);
-  const openProposalLeads = filteredLeads.filter((l) => normalizeLeadStatus(l.status) === "Proposal Sent");
+  const openProposalLeads = periodLeads.filter((l) => normalizeLeadStatus(l.status) === "Proposal Sent");
   const openProposalsCount = openProposalLeads.length;
   const openProposalsValue = openProposalLeads.reduce((a, l) => a + leadProposalValue(l), 0);
 
@@ -314,25 +366,56 @@ export function useCrmDashboardData(
   );
 
   const trendBars = useMemo((): CrmTrendBar[] => {
-    const days = chartRange === "7d" ? 7 : 30;
-    const end = new Date();
-    end.setHours(12, 0, 0, 0);
+    const start = parseYmdLocal(periodBounds.startYmd);
+    const end = parseYmdLocal(periodBounds.endYmd);
+    if (!start || !end) return [];
+
+    const daySpan =
+      Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+    const useDaily = daySpan <= 45;
     const buckets: { dateKey: string; label: string; count: number }[] = [];
 
-    for (let i = days - 1; i >= 0; i--) {
-      const d = addDays(end, -i);
-      const dateKey = d.toISOString().slice(0, 10);
-      buckets.push({
-        dateKey,
-        label: chartRange === "7d" ? formatShortDay(d, locale) : String(d.getDate()),
-        count: 0,
-      });
-    }
-
-    for (const lead of filteredLeads) {
-      const key = toDateKey(lead.created_at);
-      const bucket = buckets.find((b) => b.dateKey === key);
-      if (bucket) bucket.count += 1;
+    if (useDaily) {
+      for (let i = 0; i < daySpan; i++) {
+        const d = addDaysLocal(start, i);
+        const dateKey = localDateKeyFromDate(d);
+        buckets.push({
+          dateKey,
+          label:
+            chartRange === "7d" || daySpan <= 10
+              ? formatShortDay(d, locale)
+              : String(d.getDate()),
+          count: 0,
+        });
+      }
+      for (const lead of periodLeads) {
+        const key = toDateKey(lead.created_at);
+        const bucket = buckets.find((b) => b.dateKey === key);
+        if (bucket) bucket.count += 1;
+      }
+    } else {
+      // Weekly buckets for long custom ranges
+      let cursor = new Date(start);
+      while (cursor <= end) {
+        const weekStart = localDateKeyFromDate(cursor);
+        const weekEndDate = addDaysLocal(cursor, 6);
+        const cappedEnd = weekEndDate > end ? end : weekEndDate;
+        const weekEnd = localDateKeyFromDate(cappedEnd);
+        buckets.push({
+          dateKey: `${weekStart}_${weekEnd}`,
+          label: formatShortDate(weekStart, locale),
+          count: 0,
+        });
+        cursor = addDaysLocal(cursor, 7);
+      }
+      for (const lead of periodLeads) {
+        const key = toDateKey(lead.created_at);
+        const bucket = buckets.find((b) => {
+          const [from, to] = b.dateKey.split("_");
+          return key >= (from ?? "") && key <= (to ?? "");
+        });
+        if (bucket) bucket.count += 1;
+      }
     }
 
     const max = Math.max(1, ...buckets.map((b) => b.count));
@@ -340,16 +423,16 @@ export function useCrmDashboardData(
       ...b,
       heightPct: Math.max(8, Math.round((b.count / max) * 100)),
     }));
-  }, [filteredLeads, chartRange, locale]);
+  }, [periodLeads, periodBounds, chartRange, locale]);
 
   const priorityLeads = useMemo(() => {
-    return [...filteredLeads]
+    return [...periodLeads]
       .sort((a, b) => {
         if (leadProposalValue(b) !== leadProposalValue(a)) return leadProposalValue(b) - leadProposalValue(a);
         return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
       })
       .slice(0, 5);
-  }, [filteredLeads]);
+  }, [periodLeads]);
 
   const appointmentsWithLead = useMemo((): CrmAppointmentWithLead[] => {
     return filteredAppointments
@@ -365,7 +448,7 @@ export function useCrmDashboardData(
       .filter((a): a is CrmAppointmentWithLead => a != null);
   }, [filteredAppointments, leadById]);
 
-  const today = todayKey();
+  const today = localTodayKey();
 
   const upcomingAppointments = useMemo(() => {
     return appointmentsWithLead
@@ -416,7 +499,7 @@ export function useCrmDashboardData(
 
   const latestActivity = recentActivity[0] ?? null;
 
-  const sourceMap = useMemo(() => sourceCountMap(filteredLeads, dataClientSlug), [filteredLeads, dataClientSlug]);
+  const sourceMap = useMemo(() => sourceCountMap(periodLeads, dataClientSlug), [periodLeads, dataClientSlug]);
   const sourceLabels = useMemo(() => {
     const base = [...getCrmLeadSourceLabels(dataClientSlug)];
     for (const key of Object.keys(sourceMap)) {
@@ -424,9 +507,9 @@ export function useCrmDashboardData(
     }
     return base;
   }, [dataClientSlug, sourceMap]);
-  const sourceTotal = filteredLeads.length || 1;
+  const sourceTotal = periodLeads.length || 1;
 
-  const serviceProductMap = useMemo(() => serviceProductCountMap(filteredLeads), [filteredLeads]);
+  const serviceProductMap = useMemo(() => serviceProductCountMap(periodLeads), [periodLeads]);
   const serviceProductLabels = useMemo(() => {
     return Object.entries(serviceProductMap)
       .filter(([, count]) => count > 0)
@@ -434,20 +517,20 @@ export function useCrmDashboardData(
       .map(([label]) => label);
   }, [serviceProductMap]);
   const serviceProductTotal = useMemo(() => {
-    const withType = filteredLeads.filter((l) => normalizeServiceProduct(l.service_product)).length;
+    const withType = periodLeads.filter((l) => normalizeServiceProduct(l.service_product)).length;
     return withType || 1;
-  }, [filteredLeads]);
+  }, [periodLeads]);
 
   const pipelineRows = useMemo(() => {
     return CRM_LEAD_STATUSES.map((stage) => {
-      const inStage = filteredLeads.filter((l) => normalizeLeadStatus(l.status) === stage);
+      const inStage = periodLeads.filter((l) => normalizeLeadStatus(l.status) === stage);
       return {
         stage: stage as CrmLeadStatus,
         count: inStage.length,
         valueSum: inStage.reduce((a, l) => a + leadStageValueSum(l), 0),
       };
     });
-  }, [filteredLeads]);
+  }, [periodLeads]);
 
   const upcomingDateSlots = useMemo(() => {
     const slots: { dateKey: string; label: string; count: number; isToday: boolean; isNext: boolean }[] = [];
@@ -471,8 +554,8 @@ export function useCrmDashboardData(
     if (firstFuture) firstFuture.isNext = true;
     if (slots.length === 0 && !nextMarked) {
       for (let i = 0; i < 6; i++) {
-        const d = addDays(new Date(), i);
-        const dateKey = d.toISOString().slice(0, 10);
+        const d = addDaysLocal(new Date(), i);
+        const dateKey = localDateKeyFromDate(d);
         slots.push({
           dateKey,
           label: formatShortDate(dateKey, locale),
@@ -487,7 +570,7 @@ export function useCrmDashboardData(
   }, [upcomingAppointments, today, locale]);
 
   return {
-    leads: filteredLeads,
+    leads: periodLeads,
     allLeadsCount: leads.length,
     ownerOptions,
     loading,

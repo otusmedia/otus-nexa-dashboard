@@ -1,42 +1,22 @@
 "use client";
 
-import type { CrmChartRange, CrmTrendBar } from "@/modules/crm/use-crm-dashboard-data";
-import { cn } from "@/lib/utils";
+import type { CrmTrendBar } from "@/modules/crm/use-crm-dashboard-data";
 import { CrmDashboardCard, CrmDashboardSectionTitle, CrmDashboardSkeleton } from "./crm-dashboard-card";
 
 type Props = {
   bars: CrmTrendBar[];
-  range: CrmChartRange;
-  onRangeChange: (range: CrmChartRange) => void;
   loading: boolean;
   accentColor?: string;
   lt: (key: string) => string;
 };
 
-export function CrmDashboardTrendChart({ bars, range, onRangeChange, loading, accentColor, lt }: Props) {
+export function CrmDashboardTrendChart({ bars, loading, accentColor, lt }: Props) {
   const barColor = accentColor ?? "#ffffff";
 
   return (
     <CrmDashboardCard className="flex h-full min-h-[280px] flex-col">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <CrmDashboardSectionTitle>{lt("Leads created")}</CrmDashboardSectionTitle>
-        <div className="flex gap-1 rounded-lg border border-white/[0.08] p-0.5">
-          {(["7d", "30d"] as const).map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => onRangeChange(r)}
-              className={cn(
-                "rounded-md px-2.5 py-1 text-[0.65rem] transition",
-                range === r
-                  ? "bg-white text-black"
-                  : "text-[rgba(255,255,255,0.45)] hover:text-white",
-              )}
-            >
-              {r === "7d" ? lt("Last 7 days") : lt("Last 30 days")}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col justify-end">
@@ -66,7 +46,7 @@ export function CrmDashboardTrendChart({ bars, range, onRangeChange, loading, ac
             </div>
             <div
               className="mt-2 grid text-[0.65rem] text-[rgba(255,255,255,0.4)]"
-              style={{ gridTemplateColumns: `repeat(${bars.length}, minmax(0, 1fr))` }}
+              style={{ gridTemplateColumns: `repeat(${Math.max(bars.length, 1)}, minmax(0, 1fr))` }}
             >
               {bars.map((bar) => (
                 <span key={`lbl-${bar.dateKey}`} className="truncate text-center">

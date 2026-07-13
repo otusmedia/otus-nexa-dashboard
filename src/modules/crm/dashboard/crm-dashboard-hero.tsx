@@ -22,7 +22,7 @@ export function CrmDashboardHero({ hero, compactKpis, loading, lt }: Props) {
           <DataTooltip
             source="CRM module — Supabase database — calculated"
             reliability="high"
-            note="Won leads divided by total leads. Accuracy depends on keeping lead statuses updated."
+            note="Won leads divided by total leads in the selected period (sales and site funnels). Accuracy depends on keeping lead statuses updated."
           />
         </div>
         {loading ? (

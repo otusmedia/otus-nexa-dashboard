@@ -10,6 +10,7 @@ import { canViewAllCrmLeads } from "@/lib/crm-lead-visibility";
 import { resolveCrmOwnerFilterItems } from "@/lib/crm-team-members";
 import { CrmDashboardActivityCard } from "@/modules/crm/dashboard/crm-dashboard-activity-card";
 import { CrmDashboardAppointmentsGrid } from "@/modules/crm/dashboard/crm-dashboard-appointments-grid";
+import { CrmDashboardDateRange } from "@/modules/crm/dashboard/crm-dashboard-date-range";
 import { CrmDashboardHero } from "@/modules/crm/dashboard/crm-dashboard-hero";
 import { CrmDashboardLeadList } from "@/modules/crm/dashboard/crm-dashboard-lead-list";
 import { CrmDashboardOwnerFilter } from "@/modules/crm/dashboard/crm-dashboard-owner-filter";
@@ -18,12 +19,17 @@ import { CrmDashboardSchedule } from "@/modules/crm/dashboard/crm-dashboard-sche
 import { CrmDashboardServiceProducts } from "@/modules/crm/dashboard/crm-dashboard-service-products";
 import { CrmDashboardSources } from "@/modules/crm/dashboard/crm-dashboard-sources";
 import { CrmDashboardTrendChart } from "@/modules/crm/dashboard/crm-dashboard-trend-chart";
-import { useCrmDashboardData, type CrmChartRange } from "@/modules/crm/use-crm-dashboard-data";
+import {
+  useCrmDashboardData,
+  type CrmChartRange,
+  type CrmCustomDateRange,
+} from "@/modules/crm/use-crm-dashboard-data";
 
 export function CrmDashboardModule() {
   const { dataClientSlug, currentUser, clients, projectsClientFilter, users } = useAppContext();
   const { language, t: lt } = useLanguage();
   const [chartRange, setChartRange] = useState<CrmChartRange>("7d");
+  const [customRange, setCustomRange] = useState<CrmCustomDateRange | null>(null);
   const [ownerFilter, setOwnerFilter] = useState("");
 
   const activeClient = dataClientSlug ? clients.find((c) => c.slug === dataClientSlug) : undefined;
@@ -53,7 +59,14 @@ export function CrmDashboardModule() {
     upcomingDateSlots,
     ownerOptions,
     reload,
-  } = useCrmDashboardData(dataClientSlug, chartRange, language, currentUser, ownerFilter);
+  } = useCrmDashboardData(
+    dataClientSlug,
+    chartRange,
+    language,
+    currentUser,
+    ownerFilter,
+    customRange,
+  );
 
   const dashboardOwnerItems = useMemo(
     () => resolveCrmOwnerFilterItems(users, dataClientSlug, currentUser, ownerOptions),
@@ -100,16 +113,29 @@ export function CrmDashboardModule() {
         </p>
       ) : null}
 
-      {canFilterByOwner && dashboardOwnerItems.length > 0 ? (
-        <CrmDashboardOwnerFilter
-          value={ownerFilter}
-          owners={dashboardOwnerItems}
-          onChange={setOwnerFilter}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {canFilterByOwner && dashboardOwnerItems.length > 0 ? (
+          <CrmDashboardOwnerFilter
+            value={ownerFilter}
+            owners={dashboardOwnerItems}
+            onChange={setOwnerFilter}
+            lt={lt}
+            accentColor={accentColor}
+          />
+        ) : (
+          <div />
+        )}
+        <CrmDashboardDateRange
+          range={chartRange}
+          customRange={customRange}
+          onRangeChange={setChartRange}
+          onCustomRangeApply={(range) => {
+            setCustomRange(range);
+            setChartRange("custom");
+          }}
           lt={lt}
-          accentColor={accentColor}
-          className="mb-4"
         />
-      ) : null}
+      </div>
 
       {ownerFilter && !loading && total === 0 && allLeadsCount > 0 ? (
         <p className="mb-4 text-xs text-[rgba(255,255,255,0.45)]">{lt("No leads for this owner.")}</p>
@@ -122,8 +148,6 @@ export function CrmDashboardModule() {
         <div className="h-full xl:col-span-5">
           <CrmDashboardTrendChart
             bars={trendBars}
-            range={chartRange}
-            onRangeChange={setChartRange}
             loading={loading}
             accentColor={accentColor}
             lt={lt}

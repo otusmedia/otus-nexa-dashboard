@@ -416,6 +416,11 @@ export function isResumeLead(lead: Pick<CrmLead, "funnel">): boolean {
   return lead.funnel === "resume";
 }
 
+/** CRM dashboard KPIs: sales + custom funnels (e.g. Site); excludes resumes / HR funnel. */
+export function isCrmDashboardLead(lead: Pick<CrmLead, "funnel">): boolean {
+  return !isResumeLead(lead);
+}
+
 /** Maps localized/custom stage labels to canonical CRM kanban statuses. */
 const LEAD_STATUS_ALIASES: Record<string, CrmLeadStatus> = {
   "new lead": "New Lead",
