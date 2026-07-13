@@ -25,7 +25,7 @@ import { rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
 import type { AppUser } from "@/types";
 
-export type CrmChartRange = "7d" | "30d" | "custom";
+export type CrmChartRange = "7d" | "30d" | "90d" | "custom";
 
 export type CrmCustomDateRange = {
   startYmd: string;
@@ -124,7 +124,7 @@ function resolvePeriodBounds(
   if (chartRange === "custom" && customRange?.startYmd && customRange?.endYmd) {
     return { startYmd: customRange.startYmd, endYmd: customRange.endYmd };
   }
-  const days = chartRange === "30d" ? 30 : 7;
+  const days = chartRange === "90d" ? 90 : chartRange === "30d" ? 30 : 7;
   const start = addDaysLocal(end, -(days - 1));
   return { startYmd: localDateKeyFromDate(start), endYmd: localDateKeyFromDate(end) };
 }

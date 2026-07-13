@@ -54,7 +54,7 @@ export function CrmDashboardDateRange({
 
   return (
     <div ref={rootRef} className={cn("relative flex gap-1 rounded-lg border border-white/[0.08] p-0.5", className)}>
-      {(["7d", "30d"] as const).map((r) => (
+      {(["7d", "30d", "90d"] as const).map((r) => (
         <button
           key={r}
           type="button"
@@ -67,7 +67,7 @@ export function CrmDashboardDateRange({
             range === r ? "bg-white text-black" : "text-[rgba(255,255,255,0.45)] hover:text-white",
           )}
         >
-          {r === "7d" ? lt("Last 7 days") : lt("Last 30 days")}
+          {r === "7d" ? lt("Last 7 days") : r === "30d" ? lt("Last 30 days") : lt("Last 90 days")}
         </button>
       ))}
       <button
