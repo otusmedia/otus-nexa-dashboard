@@ -9,6 +9,7 @@
     "lint": "next lint",
     "ghl:import": "tsx scripts/ghl-import.ts",
     "ghl:import:dry": "tsx scripts/ghl-import.ts --dry-run",
+    "ghl:test-api": "tsx scripts/ghl-test-api.ts",
     "ghl:cleanup": "tsx scripts/ghl-cleanup.ts",
     "ghl:diagnostic": "tsx scripts/ghl-recovery-diagnostic.ts",
     "ghl:export": "tsx scripts/ghl-export-snapshot.ts",

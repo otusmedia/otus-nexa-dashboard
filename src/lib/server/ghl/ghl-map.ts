@@ -1,5 +1,6 @@
-import type { CrmLeadStatus } from "@/lib/server/ghl/ghl-stage-map";
 import type { GhlContact, GhlOpportunity, GhlPipeline } from "@/lib/server/ghl/ghl-types";
+
+const GHL_DEFAULT_FUNNEL_SLUG = "sales";
 
 type GhlJson = Record<string, unknown>;
 
@@ -136,6 +137,14 @@ function pipelineNameById(pipelines: GhlPipeline[], pipelineId?: string | null):
   return pipelines.find((p) => p.id === pipelineId)?.name ?? null;
 }
 
+/** Map GHL pipeline name to Nexa CRM funnel slug (Biotecc: Site → site, Vendas → sales). */
+export function resolveCrmFunnelFromGhlPipeline(pipelineName: string | null | undefined): string {
+  const normalized = pipelineName?.trim().toLowerCase() ?? "";
+  if (normalized === "site") return "site";
+  if (normalized === "vendas" || normalized === "sales") return GHL_DEFAULT_FUNNEL_SLUG;
+  return GHL_DEFAULT_FUNNEL_SLUG;
+}
+
 export function stageNameById(pipelines: GhlPipeline[], stageId?: string | null): string | null {
   if (!stageId) return null;
   for (const p of pipelines) {
@@ -152,7 +161,7 @@ function formatNotes(lines: Array<string | null | undefined>): string {
 export function buildCrmLeadFromGhlOpportunity(
   opp: GhlOpportunity,
   clientSlug: string,
-  crmStatus: CrmLeadStatus,
+  funnelStageName: string,
   pipelines: GhlPipeline[],
 ): Record<string, unknown> {
   const c = opp.contact;
@@ -175,12 +184,15 @@ export function buildCrmLeadFromGhlOpportunity(
     opp.assignedTo ? `Responsável GHL ID: ${opp.assignedTo}` : null,
   ]);
 
+  const funnel = resolveCrmFunnelFromGhlPipeline(pipelineName);
+
   const row: Record<string, unknown> = {
     name: c?.name?.trim() || opp.name.trim() || "Oportunidade",
     company: c?.companyName?.trim() || null,
     email: c?.email?.trim().toLowerCase() || null,
     phone: c?.phone?.trim() || null,
-    status: crmStatus,
+    status: funnelStageName,
+    funnel,
     owner: null,
     source: leadSource,
     value: opp.monetaryValue ?? 0,

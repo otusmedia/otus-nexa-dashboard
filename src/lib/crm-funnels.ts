@@ -1,4 +1,5 @@
 import { slugFromClientName } from "@/lib/client-utils";
+import { matchLeadStatusToFunnelStage } from "@/lib/crm-funnel-stage-match";
 import { canViewAllCrmLeads } from "@/lib/crm-lead-visibility";
 import {
   CRM_KANBAN_COLUMNS,
@@ -108,8 +109,8 @@ function builtinResumeFunnel(clientSlug: string): CrmFunnelDef {
 
 export function funnelAccessibleToUser(funnel: CrmFunnelDef, user: AppUser): boolean {
   if (canViewAllCrmLeads(user)) return true;
-  if (funnel.isBuiltin && !funnel.accessUserIds.length) return true;
-  if (!funnel.accessUserIds.length) return false;
+  // No ACL → open to the client team (same as builtin Sales). Restricted funnels list users explicitly.
+  if (!funnel.accessUserIds.length) return true;
   return funnel.accessUserIds.includes(user.id);
 }
 
@@ -283,10 +284,8 @@ export function normalizeFunnelStageStatus(
   status: string | null | undefined,
   stages: CrmFunnelStageDef[],
 ): string {
-  const s = (status ?? "").trim();
-  if (!s) return stages[0]?.name ?? "New Lead";
-  const match = stages.find((stage) => stage.name.toLowerCase() === s.toLowerCase());
-  return match?.name ?? stages[0]?.name ?? s;
+  if (!stages.length) return (status ?? "").trim() || "New Lead";
+  return matchLeadStatusToFunnelStage(status, stages);
 }
 
 export function groupLeadsByFunnelStages(

@@ -11,6 +11,7 @@ import { EMPTY_CLIENT_APIS } from "@/lib/client-apis";
 import { EMPTY_CLIENT_API_CREDENTIALS } from "@/lib/client-api-credentials";
 import { EMPTY_CLIENT_CRM_INTEGRATION } from "@/lib/client-crm-integration";
 import { EMPTY_CLIENT_WHATSAPP_CONFIG } from "@/lib/client-whatsapp-config";
+import { DEFAULT_CLIENT_DASHBOARD_CARDS, type ClientDashboardCards } from "@/lib/client-dashboard-cards";
 import { ClientCrmFeaturesFields } from "@/modules/settings/client-crm-features-fields";
 import { ClientCrmIntegrationFields } from "@/modules/settings/client-crm-integration-fields";
 import { ClientWhatsAppFields } from "@/modules/settings/client-whatsapp-fields";
@@ -18,6 +19,7 @@ import { GhlImportPanel } from "@/modules/settings/ghl-import-panel";
 import { uploadClientHeroImage } from "@/lib/client-hero-upload";
 import { readSvgFileAsDataUrl } from "@/lib/client-logo-upload";
 import { ClientApisFields } from "@/modules/settings/client-form-fields";
+import { ClientDashboardCardsFields } from "@/modules/settings/client-dashboard-cards-fields";
 import { ClientEnabledModulesFields } from "@/modules/settings/client-enabled-modules-fields";
 import type { AppLanguage, Client, ClientApiCredentials, ClientApisConfig, ClientCrmIntegration, ClientWhatsAppConfig, ModuleKey } from "@/types";
 import { cn } from "@/lib/utils";
@@ -33,6 +35,7 @@ type ClientFormState = {
   apiCredentials: ClientApiCredentials;
   crmIntegration: ClientCrmIntegration;
   whatsappConfig: ClientWhatsAppConfig;
+  dashboardCards: ClientDashboardCards;
   defaultLocale: AppLanguage;
   enabledModules: ModuleKey[];
 };
@@ -49,6 +52,7 @@ function emptyClientForm(): ClientFormState {
     apiCredentials: { ...EMPTY_CLIENT_API_CREDENTIALS },
     crmIntegration: { ...EMPTY_CLIENT_CRM_INTEGRATION },
     whatsappConfig: { ...EMPTY_CLIENT_WHATSAPP_CONFIG },
+    dashboardCards: { ...DEFAULT_CLIENT_DASHBOARD_CARDS },
     defaultLocale: "en",
     enabledModules: [],
   };
@@ -127,6 +131,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       apiCredentials: form.apiCredentials,
       crmIntegration: form.crmIntegration,
       whatsappConfig: form.whatsappConfig,
+      dashboardCards: form.dashboardCards,
       defaultLocale: form.defaultLocale,
       enabledModules: form.enabledModules.length > 0 ? form.enabledModules : null,
     });
@@ -151,6 +156,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       apiCredentials: { ...client.apiCredentials },
       crmIntegration: { ...client.crmIntegration },
       whatsappConfig: { ...client.whatsappConfig },
+      dashboardCards: { ...client.dashboardCards },
       defaultLocale: client.defaultLocale,
       enabledModules: client.enabledModules ? [...client.enabledModules] : [],
     });
@@ -176,6 +182,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       apiCredentials: editForm.apiCredentials,
       crmIntegration: editForm.crmIntegration,
       whatsappConfig: editForm.whatsappConfig,
+      dashboardCards: editForm.dashboardCards,
       defaultLocale: editForm.defaultLocale,
       enabledModules: editForm.enabledModules.length > 0 ? editForm.enabledModules : null,
     });
@@ -383,6 +390,10 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
             value={form.enabledModules}
             onChange={(enabledModules) => setForm((prev) => ({ ...prev, enabledModules }))}
           />
+          <ClientDashboardCardsFields
+            value={form.dashboardCards}
+            onChange={(dashboardCards) => setForm((prev) => ({ ...prev, dashboardCards }))}
+          />
           <ClientCrmFeaturesFields
             value={form.crmIntegration}
             onChange={(crmIntegration) => setForm((prev) => ({ ...prev, crmIntegration }))}
@@ -519,6 +530,10 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
             <ClientEnabledModulesFields
               value={editForm.enabledModules}
               onChange={(enabledModules) => setEditForm((prev) => (prev ? { ...prev, enabledModules } : prev))}
+            />
+            <ClientDashboardCardsFields
+              value={editForm.dashboardCards}
+              onChange={(dashboardCards) => setEditForm((prev) => (prev ? { ...prev, dashboardCards } : prev))}
             />
             <ClientCrmFeaturesFields
               value={editForm.crmIntegration}

@@ -12,6 +12,7 @@ import { useLanguage } from "@/context/language-context";
 import { useMetaAds } from "@/context/meta-ads-context";
 import { apiUrlWithClient } from "@/lib/client-api-credentials";
 import { canImportData } from "@/lib/can-import-data";
+import { isDashboardCardVisible } from "@/lib/client-dashboard-cards";
 import {
   clearInstagramCsvForClient,
   readInstagramCsvForClient,
@@ -659,6 +660,7 @@ export function DashboardModule() {
     td,
     projectsByColumn,
     currentUser,
+    clients,
     clientApis,
     clientApisEnabled,
     dataClientSlug,
@@ -667,6 +669,20 @@ export function DashboardModule() {
   } = useAppContext();
   const { t: lt } = useLanguage();
   const canSeeActivity = currentUser?.company === "nexa" || currentUser?.company === "otus";
+  const dashboardCards = useMemo(() => {
+    if (!dataClientSlug) return null;
+    return clients.find((c) => c.slug === dataClientSlug)?.dashboardCards ?? null;
+  }, [clients, dataClientSlug]);
+  const showOverviewKpis = isDashboardCardVisible(dashboardCards, "overviewKpis");
+  const showHighlights = isDashboardCardVisible(dashboardCards, "highlights");
+  const showInstagramPerformance = isDashboardCardVisible(dashboardCards, "instagramPerformance");
+  const showMetaAds = isDashboardCardVisible(dashboardCards, "metaAds");
+  const showGoogleAds = isDashboardCardVisible(dashboardCards, "googleAds");
+  const showTopCreatives = isDashboardCardVisible(dashboardCards, "topCreatives");
+  const showWebsiteAnalytics = isDashboardCardVisible(dashboardCards, "websiteAnalytics");
+  const showInstagramFeed = isDashboardCardVisible(dashboardCards, "instagramFeed");
+  const showActivitySummary = isDashboardCardVisible(dashboardCards, "activitySummary");
+  const showPaidTraffic = showMetaAds || showGoogleAds;
   const metaAds = useMetaAds();
   const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "custom">("30d");
   const [customApplied, setCustomApplied] = useState<DashboardCustomRange | null>(null);
@@ -1820,6 +1836,7 @@ export function DashboardModule() {
           </div>
         }
       />
+      {showOverviewKpis ? (
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Card className="p-4">
           <div className="flex items-center justify-between">
@@ -1950,7 +1967,9 @@ export function DashboardModule() {
           <DashboardVsComparisonBlock primaryRaw="+0.0%" invert={false} dateRange={dateRange} lt={lt} />
         </Card>
       </div>
+      ) : null}
 
+      {showHighlights ? (
       <div className="mt-6">
         <div className="mb-3">
           <h2 className="text-[0.7rem] uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">{lt("Highlights")}</h2>
@@ -2034,7 +2053,9 @@ export function DashboardModule() {
           </div>
         )}
       </div>
+      ) : null}
 
+      {showInstagramPerformance ? (
       <div className="mt-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -2226,32 +2247,34 @@ export function DashboardModule() {
           </Card>
         </div>
       </div>
+      ) : null}
 
-      <div className="mt-6">
+      <div className={showPaidTraffic || showTopCreatives ? "mt-6" : undefined}>
+        {showPaidTraffic ? (
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2 className="section-title">{lt("Paid Traffic Performance")}</h2>
-            {metaDataMode === "live" && !metaApiLoading ? (
+            {showMetaAds && metaDataMode === "live" && !metaApiLoading ? (
               <span className="rounded border border-[#379136]/40 bg-[#379136]/15 px-2 py-0.5 text-[0.65rem] font-medium text-[#379136]">
                 Live
               </span>
             ) : null}
-            {metaDataMode === "csv" && csvBadgeDate ? (
+            {showMetaAds && metaDataMode === "csv" && csvBadgeDate ? (
               <span className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[0.65rem] font-medium text-amber-400">
                 CSV — {csvBadgeDate}
               </span>
-            ) : metaDataMode === "mock" && !metaApiLoading ? (
+            ) : showMetaAds && metaDataMode === "mock" && !metaApiLoading ? (
               <span className="rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-0.5 text-[0.65rem] font-medium text-[var(--muted)]">
                 {lt("No data")}
               </span>
             ) : null}
-            {!metaApiLoading && metaLive == null && metaDataMode !== "csv" && metaInsightsError ? (
+            {showMetaAds && !metaApiLoading && metaLive == null && metaDataMode !== "csv" && metaInsightsError ? (
               <span className="rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-0.5 text-[0.65rem] text-[rgba(255,255,255,0.35)]">
                 {lt("Live data unavailable")}
               </span>
             ) : null}
           </div>
-          {canImportData(currentUser) && dataClientSlug && metaDataMode !== "live" ? (
+          {showMetaAds && canImportData(currentUser) && dataClientSlug && metaDataMode !== "live" ? (
             <div className="flex shrink-0 flex-wrap items-center gap-2">
               {metaDataMode === "csv" ? (
                 <button
@@ -2277,7 +2300,15 @@ export function DashboardModule() {
             </div>
           ) : null}
         </div>
-        <div className="mt-3 grid items-stretch gap-3 xl:grid-cols-2">
+        ) : null}
+        {showPaidTraffic ? (
+        <div
+          className={cn(
+            "mt-3 grid items-stretch gap-3",
+            showMetaAds && showGoogleAds ? "xl:grid-cols-2" : "xl:grid-cols-1",
+          )}
+        >
+          {showMetaAds ? (
           <div className="flex h-full min-h-0 min-w-0 flex-col gap-3">
             <Card className="flex h-full min-h-0 flex-1 flex-col">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -2394,6 +2425,8 @@ export function DashboardModule() {
               </div>
             ) : null}
           </div>
+          ) : null}
+          {showGoogleAds ? (
           <div className="flex h-full min-h-0 min-w-0 flex-col">
             <Card className="flex h-full min-h-0 flex-col">
               <div className="mb-2 flex items-center justify-between">
@@ -2446,7 +2479,9 @@ export function DashboardModule() {
               </button>
             </Card>
           </div>
+          ) : null}
         </div>
+        ) : null}
 
         <Modal
           open={importModalOpen}
@@ -2557,6 +2592,8 @@ export function DashboardModule() {
           )}
         </Modal>
 
+        {showTopCreatives ? (
+        <>
         <div className="mt-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -2782,8 +2819,11 @@ export function DashboardModule() {
             </button>
           </div>
         </Modal>
+        </>
+        ) : null}
       </div>
 
+      {showWebsiteAnalytics ? (
       <div className="mt-6">
         <h2 className="section-title">{lt("Website Analytics")}</h2>
         <div className="mt-3 grid gap-3 xl:grid-cols-3">
@@ -2885,7 +2925,9 @@ export function DashboardModule() {
           </p>
         </Card>
       </div>
+      ) : null}
 
+      {showInstagramFeed ? (
       <div className="mt-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -3178,8 +3220,9 @@ export function DashboardModule() {
           </div>
         </Modal>
       </div>
+      ) : null}
 
-      {canSeeActivity ? (
+      {canSeeActivity && showActivitySummary ? (
         <Card className="mt-6">
           <h2 className="section-title">{lt("Activity Summary")}</h2>
           <div className="mt-3 grid gap-2 md:grid-cols-2">

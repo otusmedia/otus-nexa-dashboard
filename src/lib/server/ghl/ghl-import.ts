@@ -1,18 +1,58 @@
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { resolveFunnelStageName } from "@/lib/crm-funnel-stage-match";
 import { writeGhlImportBackup } from "@/lib/server/ghl/ghl-backup";
 import { fetchGhlContacts, fetchGhlOpportunities, fetchGhlPipelines } from "@/lib/server/ghl/ghl-client";
 import {
   buildCrmContactFromGhl,
   buildCrmLeadFromGhlOpportunity,
+  resolveCrmFunnelFromGhlPipeline,
   stageNameById,
 } from "@/lib/server/ghl/ghl-map";
-import {
-  buildStageMapFromPipelines,
-  mapGhlToCrmStatus,
-  normalizeLeadStatus,
-} from "@/lib/server/ghl/ghl-stage-map";
 import type { GhlImportConfig, GhlImportResult } from "@/lib/server/ghl/ghl-types";
 
+const DEFAULT_SALES_FUNNEL_STAGES = [
+  "New Lead",
+  "In Contact",
+  "Proposal Sent",
+  "Qualified",
+  "Disqualified",
+  "Lost",
+  "Won",
+];
+
+async function loadFunnelStagesBySlug(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  clientSlug: string,
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  result.set("sales", [...DEFAULT_SALES_FUNNEL_STAGES]);
+
+  const { data: funnels, error } = await supabase
+    .from("crm_funnels")
+    .select("id, slug")
+    .eq("client_slug", clientSlug);
+  if (error) throw new Error(error.message);
+
+  for (const funnel of funnels ?? []) {
+    const slug = String(funnel.slug ?? "").trim().toLowerCase();
+    const funnelId = String(funnel.id ?? "");
+    if (!slug || !funnelId) continue;
+
+    const { data: stages, error: stageErr } = await supabase
+      .from("crm_funnel_stages")
+      .select("name, sort_order")
+      .eq("funnel_id", funnelId)
+      .order("sort_order", { ascending: true });
+    if (stageErr) throw new Error(stageErr.message);
+
+    const names = (stages ?? [])
+      .map((row) => String(row.name ?? "").trim())
+      .filter(Boolean);
+    if (names.length) result.set(slug, names);
+  }
+
+  return result;
+}
 const OPP_EXT_PREFIX = "ghl:opp:";
 const CONTACT_EXT_PREFIX = "ghl:contact:";
 const UPSERT_BATCH = 50;
@@ -167,10 +207,8 @@ export async function runGhlImport(config: GhlImportConfig): Promise<GhlImportRe
   const pipelines = await fetchGhlPipelines(config.token, config.locationId);
   result.pipelines = pipelines.length;
 
-  const stageMap = {
-    ...buildStageMapFromPipelines(pipelines),
-    ...(config.stageMap ?? {}),
-  };
+  logProgress("Carregando estágios dos funis CRM…");
+  const funnelStagesBySlug = await loadFunnelStagesBySlug(supabase, config.clientSlug);
 
   const pipelineIdsToImport =
     config.pipelineIds && config.pipelineIds.length > 0
@@ -222,16 +260,17 @@ export async function runGhlImport(config: GhlImportConfig): Promise<GhlImportRe
   const leadPayloads: Record<string, unknown>[] = [];
   for (const opp of opportunities) {
     try {
-      const stageName = stageNameById(pipelines, opp.pipelineStageId);
-      const crmStatus = normalizeLeadStatus(
-        mapGhlToCrmStatus({
-          opportunityStatus: opp.status,
-          stageName: stageName ?? null,
-          stageMap,
-          stageId: opp.pipelineStageId,
-        }),
+      const pipelineName = pipelineNameById.get(opp.pipelineId ?? "") ?? null;
+      const funnelSlug = resolveCrmFunnelFromGhlPipeline(pipelineName);
+      const funnelStages = funnelStagesBySlug.get(funnelSlug) ?? DEFAULT_SALES_FUNNEL_STAGES;
+      const ghlStageName = stageNameById(pipelines, opp.pipelineStageId);
+      const funnelStage = resolveFunnelStageName(funnelStages, {
+        ghlStageName,
+        opportunityStatus: opp.status,
+      });
+      leadPayloads.push(
+        buildCrmLeadFromGhlOpportunity(opp, config.clientSlug, funnelStage, pipelines),
       );
-      leadPayloads.push(buildCrmLeadFromGhlOpportunity(opp, config.clientSlug, crmStatus, pipelines));
     } catch (e) {
       result.errors.push(`Lead ${opp.id}: ${e instanceof Error ? e.message : String(e)}`);
       result.leadsSkipped += 1;

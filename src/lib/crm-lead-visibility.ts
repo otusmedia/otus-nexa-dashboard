@@ -23,7 +23,13 @@ export function leadAssignedToUser(lead: Pick<CrmLead, "owner">, user: AppUser):
   return owner !== "" && owner === me;
 }
 
+/** Leads with no owner are shared pipeline inventory (e.g. GHL imports) until claimed. */
+export function leadIsUnassigned(lead: Pick<CrmLead, "owner">): boolean {
+  return !(lead.owner ?? "").trim();
+}
+
 export function filterCrmLeadsForUser(leads: CrmLead[], user: AppUser): CrmLead[] {
   if (canViewAllCrmLeads(user)) return leads;
-  return leads.filter((lead) => leadAssignedToUser(lead, user));
+  // Client team (non-admin): own leads + unassigned ones for the shared pipeline.
+  return leads.filter((lead) => leadAssignedToUser(lead, user) || leadIsUnassigned(lead));
 }

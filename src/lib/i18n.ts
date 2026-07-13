@@ -21,6 +21,10 @@ const platformPtBR: Record<string, string> = {
   "Users & RBAC": "Usuários e RBAC",
 
   // Dashboard
+  "Dashboard cards": "Cards do dashboard",
+  "Choose which cards appear on this client's dashboard. Uncheck to hide.":
+    "Escolha quais cards aparecem no dashboard deste cliente. Desmarque para ocultar.",
+  "Overview KPIs": "KPIs gerais",
   "KPI overview and multi-channel activity summary": "Visão geral de KPIs e resumo multicanal",
   "Active Tasks": "Tarefas Ativas",
   "Completed Projects": "Projetos Concluídos",

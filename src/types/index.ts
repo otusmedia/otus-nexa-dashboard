@@ -1,3 +1,7 @@
+import type { ClientDashboardCards } from "@/lib/client-dashboard-cards";
+
+export type { ClientDashboardCards, DashboardCardKey } from "@/lib/client-dashboard-cards";
+
 export type Role = "admin" | "manager" | "contributor" | "client";
 
 /** Agency team or client slug (e.g. nexa, otus, rocketride, grupo-elo). */
@@ -185,6 +189,8 @@ export interface Client {
   apiCredentials: ClientApiCredentials;
   crmIntegration: ClientCrmIntegration;
   whatsappConfig: ClientWhatsAppConfig;
+  /** Which dashboard cards are visible for this client (Nexa admin). */
+  dashboardCards: ClientDashboardCards;
   /** When set, client admins may assign only these modules to users in this account. */
   enabledModules: ModuleKey[] | null;
   createdAt: string;

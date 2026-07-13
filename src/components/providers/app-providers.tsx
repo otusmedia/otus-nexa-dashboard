@@ -99,6 +99,11 @@ import {
   EMPTY_CLIENT_WHATSAPP_CONFIG,
   parseClientWhatsAppConfig,
 } from "@/lib/client-whatsapp-config";
+import {
+  clientDashboardCardsToDb,
+  DEFAULT_CLIENT_DASHBOARD_CARDS,
+  parseClientDashboardCards,
+} from "@/lib/client-dashboard-cards";
 
 function filterProjectsByColumn(
   board: ProjectsByColumn,
@@ -167,6 +172,7 @@ interface AppContextValue {
     apiCredentials?: Client["apiCredentials"];
     crmIntegration?: Client["crmIntegration"];
     whatsappConfig?: Client["whatsappConfig"];
+    dashboardCards?: Client["dashboardCards"];
     defaultLocale?: AppLanguage;
     enabledModules?: ModuleKey[] | null;
   }) => Promise<{ ok: boolean; error?: string }>;
@@ -185,6 +191,7 @@ interface AppContextValue {
         | "apiCredentials"
         | "crmIntegration"
         | "whatsappConfig"
+        | "dashboardCards"
         | "defaultLocale"
         | "enabledModules"
       >
@@ -431,6 +438,7 @@ function clientFromRow(row: Record<string, unknown>): Client {
     apiCredentials: parseClientApiCredentials(row.api_credentials),
     crmIntegration: parseClientCrmIntegration(row.crm_integration),
     whatsappConfig: parseClientWhatsAppConfig(row.whatsapp_config),
+    dashboardCards: parseClientDashboardCards(row.dashboard_cards),
     enabledModules: parseClientEnabledModules(row),
     createdAt: String(row.created_at ?? ""),
   };
@@ -1917,6 +1925,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         apiCredentials,
         crmIntegration,
         whatsappConfig,
+        dashboardCards,
         defaultLocale,
         enabledModules,
       }) => {
@@ -1942,6 +1951,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             api_credentials: clientApiCredentialsToDb(apiCredentials ?? { ...EMPTY_CLIENT_API_CREDENTIALS }),
             crm_integration: clientCrmIntegrationToDb(crmIntegration ?? { ...EMPTY_CLIENT_CRM_INTEGRATION }),
             whatsapp_config: clientWhatsAppConfigToDb(whatsappConfig ?? { ...EMPTY_CLIENT_WHATSAPP_CONFIG }),
+            dashboard_cards: clientDashboardCardsToDb(dashboardCards ?? { ...DEFAULT_CLIENT_DASHBOARD_CARDS }),
             enabled_modules:
               enabledModules && enabledModules.length > 0 ? enabledModules : null,
           })
@@ -2026,6 +2036,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
         if (updates.whatsappConfig !== undefined) {
           dbPatch.whatsapp_config = clientWhatsAppConfigToDb(updates.whatsappConfig);
+        }
+        if (updates.dashboardCards !== undefined) {
+          dbPatch.dashboard_cards = clientDashboardCardsToDb(updates.dashboardCards);
         }
         if (updates.defaultLocale !== undefined) {
           dbPatch.default_locale = updates.defaultLocale;
