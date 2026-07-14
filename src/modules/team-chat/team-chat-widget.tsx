@@ -329,12 +329,23 @@ export function TeamChatWidget({ lt, offsetForWhatsApp = false }: Props) {
       <button
         type="button"
         onClick={() => chat.setOpen((v) => !v)}
-        className="relative flex h-11 w-11 items-center justify-center rounded-full bg-[#FF4500] text-white shadow-lg transition hover:brightness-110"
+        className="relative flex h-11 w-11 items-center justify-center rounded-full text-[rgba(255,255,255,0.55)] transition hover:text-white"
+        style={{
+          background: "rgba(255, 255, 255, 0.05)",
+          backdropFilter: "blur(11px) saturate(110%)",
+          WebkitBackdropFilter: "blur(11px) saturate(110%)",
+          border: "1px solid rgba(255, 255, 255, 0.08)",
+          boxShadow: "0 8px 24px rgba(0, 0, 0, 0.25)",
+        }}
         aria-label={chat.open ? lt("Close team chat") : lt("Open team chat")}
       >
-        {chat.open ? <X className="h-5 w-5" /> : <MessageCircle className="h-5 w-5" />}
+        {chat.open ? (
+          <X className="h-5 w-5" strokeWidth={1.75} />
+        ) : (
+          <MessageCircle className="h-5 w-5" strokeWidth={1.75} />
+        )}
         {!chat.open && chat.unreadTotal > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[9px] font-semibold text-[#FF4500]">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-white/15 bg-[#FF4500] px-1 text-[9px] font-semibold text-white">
             {chat.unreadTotal > 99 ? "99+" : chat.unreadTotal}
           </span>
         ) : null}
