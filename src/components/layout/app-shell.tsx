@@ -25,6 +25,8 @@ import { uploadProfileAvatar } from "@/lib/profile-avatar";
 import { supabase } from "@/lib/supabase";
 import { FloatingSidebarRail } from "@/components/layout/floating-sidebar-rail";
 import { WhatsAppChatWidget } from "@/components/layout/whatsapp-chat-widget";
+import { whatsAppWidgetReady } from "@/lib/client-whatsapp-config";
+import { TeamChatWidget } from "@/modules/team-chat/team-chat-widget";
 import { SidebarDrawer } from "@/components/layout/sidebar-drawer";
 import { SidebarPanelContent, type SidebarPanelContentProps } from "@/components/layout/sidebar-panel-content";
 import type { SidebarNavLink } from "@/components/layout/sidebar-nav";
@@ -377,6 +379,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [currentUser, clients, projectsClientFilter],
   );
 
+  const showWhatsAppWidget = Boolean(
+    activeClient && !pathname.startsWith("/login") && whatsAppWidgetReady(activeClient.whatsappConfig),
+  );
+  const showTeamChat = currentUser.id !== GUEST_USER_ID && !pathname.startsWith("/login");
+
   useEffect(() => {
     setProfileImage(currentUser.avatarUrl);
   }, [currentUser.avatarUrl]);
@@ -509,9 +516,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </main>
         </div>
       </div>
-      {activeClient && !pathname.startsWith("/login") ? (
+      {showWhatsAppWidget && activeClient ? (
         <WhatsAppChatWidget client={activeClient} currentUser={currentUser} lt={lt} />
       ) : null}
+      {showTeamChat ? <TeamChatWidget lt={lt} offsetForWhatsApp={showWhatsAppWidget} /> : null}
       <Modal open={openSettingsModal} title={lt("Profile settings")} onClose={() => setOpenSettingsModal(false)} closeLabel={lt("Close")}>
         <div className="space-y-3">
           <div className="flex items-center gap-3">
