@@ -69,10 +69,10 @@ export function resolveDefaultCrmPath(): string {
 }
 
 export function canAccessMarketingForUser(user: AppUser): boolean {
-  return (
-    (user.role === "admin" && (user.company === "nexa" || user.company === "otus")) ||
-    (user.role === "manager" && user.modules.includes("marketing"))
-  );
+  if (user.role === "admin" && (user.company === "nexa" || user.company === "otus")) {
+    return true;
+  }
+  return hasModuleAccess(user.modules, "marketing");
 }
 
 export function resolveDefaultLandingPathForUser(

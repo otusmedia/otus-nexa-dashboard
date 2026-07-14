@@ -7,15 +7,14 @@ import {
   canAccessMarketingForUser,
   resolveDefaultLandingPath,
 } from "@/lib/default-landing-path";
+import { hasModuleAccess } from "@/lib/modules";
 import { readSidebarNavOrder } from "@/lib/sidebar-nav-order";
 
 export function MarketingAccessGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { currentUser, allowedModules } = useAppContext();
 
-  const allowed =
-    (currentUser.role === "admin" && (currentUser.company === "nexa" || currentUser.company === "otus")) ||
-    (currentUser.role === "manager" && currentUser.modules.includes("marketing"));
+  const allowed = canAccessMarketingForUser(currentUser) && hasModuleAccess(allowedModules, "marketing");
 
   useEffect(() => {
     if (allowed) return;
@@ -24,7 +23,7 @@ export function MarketingAccessGuard({ children }: { children: React.ReactNode }
       canAccessMarketing: canAccessMarketingForUser(currentUser),
     });
     router.replace(fallback);
-  }, [allowed, allowedModules, currentUser.id, router]);
+  }, [allowed, allowedModules, currentUser, router]);
 
   if (!allowed) return null;
   return <>{children}</>;

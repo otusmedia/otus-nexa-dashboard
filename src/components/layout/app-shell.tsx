@@ -106,9 +106,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   dataClientSlugRef.current = dataClientSlug;
 
   const isAdmin = currentUser.role === "admin";
-  const canAccessMarketing =
-    (currentUser.role === "admin" && (currentUser.company === "nexa" || currentUser.company === "otus")) ||
-    (currentUser.role === "manager" && currentUser.modules.includes("marketing"));
+  const canAccessMarketing = canAccessMarketingForUser(currentUser);
   const [navOrder, setNavOrder] = useState<ModuleKey[] | null>(null);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [sidebarLayoutHydrated, setSidebarLayoutHydrated] = useState(false);
