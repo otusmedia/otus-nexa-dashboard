@@ -177,7 +177,10 @@ export interface Client {
   id: string;
   name: string;
   slug: string;
+  /** Logo for dark UI (typically light/white mark). */
   logoUrl: string | null;
+  /** Logo for light UI (typically dark mark). Falls back to logoUrl when null. */
+  logoLightUrl: string | null;
   heroImageUrl: string | null;
   primaryColor: string;
   active: boolean;

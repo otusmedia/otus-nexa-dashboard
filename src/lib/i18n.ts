@@ -22,6 +22,14 @@ const platformPtBR: Record<string, string> = {
   Theme: "Tema",
   "Dark theme": "Tema escuro",
   "Light theme": "Tema claro",
+  "Logo (dark theme)": "Logo (tema escuro)",
+  "Logo (light theme)": "Logo (tema claro)",
+  "SVG for dark backgrounds (typically a light mark).":
+    "SVG para fundos escuros (geralmente marca clara).",
+  "SVG for light backgrounds (typically a dark mark).":
+    "SVG para fundos claros (geralmente marca escura).",
+  "Remove dark logo": "Remover logo escuro",
+  "Remove light logo": "Remover logo claro",
 
   // Dashboard
   "Dashboard cards": "Cards do dashboard",
@@ -635,6 +643,8 @@ const platformPtBR: Record<string, string> = {
   "Could not upload quote.": "Não foi possível enviar o orçamento.",
   "CRM CNPJ/quote migration required. Run supabase/crm-lead-cnpj-quote.sql in Supabase.":
     "Migration do CRM pendente. Execute supabase/crm-lead-cnpj-quote.sql no Supabase (SQL Editor).",
+  "Client dashboard cards migration required. Run supabase/client-dashboard-cards.sql in Supabase SQL Editor.":
+    "Migration pendente. Execute supabase/client-dashboard-cards.sql no Supabase (SQL Editor).",
   "Matching contacts": "Contatos encontrados",
   "No matching contacts": "Nenhum contato encontrado",
   "Select or type a new source": "Selecione ou digite e pressione Enter para criar",

@@ -20,7 +20,7 @@ function ClientFilterChip({
   accentColor,
   onClick,
 }: {
-  client: Pick<Client, "name" | "slug" | "logoUrl" | "primaryColor">;
+  client: Pick<Client, "name" | "slug" | "logoUrl" | "logoLightUrl" | "primaryColor">;
   active: boolean;
   accentColor: string;
   onClick: () => void;

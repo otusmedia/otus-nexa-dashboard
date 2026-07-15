@@ -120,7 +120,7 @@ export function CrmPipelineShell({ children }: { children: React.ReactNode }) {
               className={cn(
                 "rounded-[6px] px-3 py-1.5 text-xs transition-colors",
                 active
-                  ? "bg-[rgba(255,69,0,0.15)] text-white"
+                  ? "bg-[rgba(255,69,0,0.15)] text-[rgba(255,69,0,1)]"
                   : "text-[rgba(255,255,255,0.45)] hover:text-white",
               )}
             >

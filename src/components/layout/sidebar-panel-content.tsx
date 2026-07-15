@@ -187,6 +187,12 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
         </nav>
       </div>
 
+      {sidebarClient && (sidebarClient.logoUrl || sidebarClient.logoLightUrl) ? (
+        <div className="shrink-0 px-3 pb-3">
+          <ClientLogo client={sidebarClient} size="sidebar" className="object-left" />
+        </div>
+      ) : null}
+
       <div className="shrink-0 space-y-3 border-t border-[var(--border)] px-3 pb-8 pt-3">
         <SidebarThemeSwitch lt={lt} />
         {agencyAdmin ? (
@@ -327,21 +333,7 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
                 )}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-light text-[rgba(255,255,255,0.5)]">{profileName}</span>
-                {sidebarClient ? (
-                  sidebarClient.logoUrl ? (
-                    <span className="mt-1 block">
-                      <ClientLogo client={sidebarClient} size="xs" />
-                    </span>
-                  ) : (
-                    <span
-                      className="mt-0.5 inline-flex max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] font-normal text-[rgba(255,255,255,0.65)]"
-                      style={{ borderColor: sidebarClient.primaryColor }}
-                    >
-                      {sidebarClient.name}
-                    </span>
-                  )
-                ) : null}
+                <span className="block truncate text-xs font-light text-[var(--muted)]">{profileName}</span>
               </span>
             </button>
             {openProfileMenu ? (

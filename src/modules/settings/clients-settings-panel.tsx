@@ -30,6 +30,7 @@ type ClientFormState = {
   primaryColor: string;
   active: boolean;
   logoUrl: string | null;
+  logoLightUrl: string | null;
   heroImageUrl: string | null;
   apis: ClientApisConfig;
   apiCredentials: ClientApiCredentials;
@@ -47,6 +48,7 @@ function emptyClientForm(): ClientFormState {
     primaryColor: "#FF4500",
     active: true,
     logoUrl: null,
+    logoLightUrl: null,
     heroImageUrl: null,
     apis: { ...EMPTY_CLIENT_APIS },
     apiCredentials: { ...EMPTY_CLIENT_API_CREDENTIALS },
@@ -56,6 +58,82 @@ function emptyClientForm(): ClientFormState {
     defaultLocale: "en",
     enabledModules: [],
   };
+}
+
+function ClientLogoThemeFields({
+  name,
+  primaryColor,
+  logoUrl,
+  logoLightUrl,
+  onLogoChange,
+  onLogoLightChange,
+  onPickFile,
+  lt,
+}: {
+  name: string;
+  primaryColor: string;
+  logoUrl: string | null;
+  logoLightUrl: string | null;
+  onLogoChange: (url: string | null) => void;
+  onLogoLightChange: (url: string | null) => void;
+  onPickFile: (file: File | undefined, apply: (url: string | null) => void) => void;
+  lt: (key: string) => string;
+}) {
+  const previewClient = {
+    name: name || "Client",
+    logoUrl,
+    logoLightUrl,
+    primaryColor,
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Logo (dark theme)")}</label>
+        <p className="mb-1.5 text-[0.7rem] text-[var(--muted)]">
+          {lt("SVG for dark backgrounds (typically a light mark).")}
+        </p>
+        <input
+          type="file"
+          accept="image/svg+xml,.svg"
+          onChange={(e) => void onPickFile(e.target.files?.[0], onLogoChange)}
+          className="w-full text-xs text-[var(--muted)]"
+        />
+        {logoUrl ? (
+          <div className="mt-2 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[#111111] px-3 py-2">
+            <ClientLogo client={previewClient} size="sidebar" theme="dark" />
+            <button type="button" className="btn-ghost rounded px-2 py-1 text-xs" onClick={() => onLogoChange(null)}>
+              {lt("Remove dark logo")}
+            </button>
+          </div>
+        ) : null}
+      </div>
+      <div>
+        <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Logo (light theme)")}</label>
+        <p className="mb-1.5 text-[0.7rem] text-[var(--muted)]">
+          {lt("SVG for light backgrounds (typically a dark mark).")}
+        </p>
+        <input
+          type="file"
+          accept="image/svg+xml,.svg"
+          onChange={(e) => void onPickFile(e.target.files?.[0], onLogoLightChange)}
+          className="w-full text-xs text-[var(--muted)]"
+        />
+        {logoLightUrl ? (
+          <div className="mt-2 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[#f4f4f5] px-3 py-2">
+            <ClientLogo client={previewClient} size="sidebar" theme="light" />
+            <button
+              type="button"
+              className="btn-ghost rounded px-2 py-1 text-xs"
+              onClick={() => onLogoLightChange(null)}
+            >
+              {lt("Remove light logo")}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 type ClientsSettingsPanelProps = {
@@ -126,6 +204,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       primaryColor: form.primaryColor,
       active: form.active,
       logoUrl: form.logoUrl,
+      logoLightUrl: form.logoLightUrl,
       heroImageUrl: form.heroImageUrl,
       apis: form.apis,
       apiCredentials: form.apiCredentials,
@@ -136,7 +215,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       enabledModules: form.enabledModules.length > 0 ? form.enabledModules : null,
     });
     if (!result.ok) {
-      setSaveError(result.error ?? lt("Could not save client."));
+      setSaveError(lt(result.error ?? "Could not save client."));
       return;
     }
     setAddOpen(false);
@@ -151,6 +230,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       primaryColor: client.primaryColor,
       active: client.active,
       logoUrl: client.logoUrl,
+      logoLightUrl: client.logoLightUrl,
       heroImageUrl: client.heroImageUrl,
       apis: { ...client.apis },
       apiCredentials: { ...client.apiCredentials },
@@ -177,6 +257,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       primaryColor: editForm.primaryColor,
       active: editForm.active,
       logoUrl: editForm.logoUrl,
+      logoLightUrl: editForm.logoLightUrl,
       heroImageUrl: editForm.heroImageUrl,
       apis: editForm.apis,
       apiCredentials: editForm.apiCredentials,
@@ -187,7 +268,7 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
       enabledModules: editForm.enabledModules.length > 0 ? editForm.enabledModules : null,
     });
     if (!result.ok) {
-      setSaveError(result.error ?? lt("Could not save client."));
+      setSaveError(lt(result.error ?? "Could not save client."));
       return;
     }
     setEditTarget(null);
@@ -331,32 +412,16 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
               <option value="pt-BR">{lt("Portuguese (Brazil)")}</option>
             </select>
           </div>
-          <div>
-            <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Logo (SVG)")}</label>
-            <input
-              type="file"
-              accept="image/svg+xml,.svg"
-              onChange={(e) =>
-                void handleLogoFile(e.target.files?.[0], (logoUrl) => setForm((prev) => ({ ...prev, logoUrl })))
-              }
-              className="w-full text-xs text-[var(--muted)]"
-            />
-            {form.logoUrl ? (
-              <div className="mt-2 flex items-center gap-2">
-                <ClientLogo
-                  client={{ name: form.name || "Client", logoUrl: form.logoUrl, primaryColor: form.primaryColor }}
-                  size="md"
-                />
-                <button
-                  type="button"
-                  className="btn-ghost rounded px-2 py-1 text-xs"
-                  onClick={() => setForm((prev) => ({ ...prev, logoUrl: null }))}
-                >
-                  {lt("Remove logo")}
-                </button>
-              </div>
-            ) : null}
-          </div>
+          <ClientLogoThemeFields
+            name={form.name}
+            primaryColor={form.primaryColor}
+            logoUrl={form.logoUrl}
+            logoLightUrl={form.logoLightUrl}
+            onLogoChange={(logoUrl) => setForm((prev) => ({ ...prev, logoUrl }))}
+            onLogoLightChange={(logoLightUrl) => setForm((prev) => ({ ...prev, logoLightUrl }))}
+            onPickFile={(file, apply) => void handleLogoFile(file, apply)}
+            lt={lt}
+          />
           <div>
             <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Hero background")}</label>
             <input
@@ -470,38 +535,18 @@ export function ClientsSettingsPanel({ onAddUserForClient }: ClientsSettingsPane
                 className="h-10 w-full cursor-pointer rounded-lg border border-[var(--border)] bg-transparent"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Logo (SVG)")}</label>
-              <input
-                type="file"
-                accept="image/svg+xml,.svg"
-                onChange={(e) =>
-                  void handleLogoFile(e.target.files?.[0], (logoUrl) =>
-                    setEditForm((prev) => (prev ? { ...prev, logoUrl } : prev)),
-                  )
-                }
-                className="w-full text-xs text-[var(--muted)]"
-              />
-              {editForm.logoUrl ? (
-                <div className="mt-2 flex items-center gap-2">
-                  <ClientLogo
-                    client={{
-                      name: editForm.name || "Client",
-                      logoUrl: editForm.logoUrl,
-                      primaryColor: editForm.primaryColor,
-                    }}
-                    size="md"
-                  />
-                  <button
-                    type="button"
-                    className="btn-ghost rounded px-2 py-1 text-xs"
-                    onClick={() => setEditForm((prev) => (prev ? { ...prev, logoUrl: null } : prev))}
-                  >
-                    {lt("Remove logo")}
-                  </button>
-                </div>
-              ) : null}
-            </div>
+            <ClientLogoThemeFields
+              name={editForm.name}
+              primaryColor={editForm.primaryColor}
+              logoUrl={editForm.logoUrl}
+              logoLightUrl={editForm.logoLightUrl}
+              onLogoChange={(logoUrl) => setEditForm((prev) => (prev ? { ...prev, logoUrl } : prev))}
+              onLogoLightChange={(logoLightUrl) =>
+                setEditForm((prev) => (prev ? { ...prev, logoLightUrl } : prev))
+              }
+              onPickFile={(file, apply) => void handleLogoFile(file, apply)}
+              lt={lt}
+            />
             <div>
               <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Hero background")}</label>
               <input

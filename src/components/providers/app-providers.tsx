@@ -167,6 +167,7 @@ interface AppContextValue {
     primaryColor: string;
     active: boolean;
     logoUrl?: string | null;
+    logoLightUrl?: string | null;
     heroImageUrl?: string | null;
     apis?: Client["apis"];
     apiCredentials?: Client["apiCredentials"];
@@ -186,6 +187,7 @@ interface AppContextValue {
         | "primaryColor"
         | "active"
         | "logoUrl"
+        | "logoLightUrl"
         | "heroImageUrl"
         | "apis"
         | "apiCredentials"
@@ -428,6 +430,10 @@ function clientFromRow(row: Record<string, unknown>): Client {
     name: String(row.name ?? ""),
     slug: String(row.slug ?? ""),
     logoUrl: row.logo_url != null && String(row.logo_url).trim() !== "" ? String(row.logo_url) : null,
+    logoLightUrl:
+      row.logo_light_url != null && String(row.logo_light_url).trim() !== ""
+        ? String(row.logo_light_url)
+        : null,
     heroImageUrl:
       row.hero_image_url != null && String(row.hero_image_url).trim() !== "" ? String(row.hero_image_url) : null,
     primaryColor: String(row.primary_color ?? "#FF4500"),
@@ -1920,6 +1926,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         primaryColor,
         active,
         logoUrl,
+        logoLightUrl,
         heroImageUrl: heroUrl,
         apis,
         apiCredentials,
@@ -1946,6 +1953,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             default_locale: defaultLocale ?? "en",
             api_enabled: anyApi,
             logo_url: logoUrl ?? null,
+            logo_light_url: logoLightUrl ?? null,
             hero_image_url: heroUrl ?? null,
             api_config: apiConfigToDb(apisConfig),
             api_credentials: clientApiCredentialsToDb(apiCredentials ?? { ...EMPTY_CLIENT_API_CREDENTIALS }),
@@ -2023,6 +2031,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (updates.primaryColor !== undefined) dbPatch.primary_color = updates.primaryColor;
         if (updates.active !== undefined) dbPatch.active = updates.active;
         if (updates.logoUrl !== undefined) dbPatch.logo_url = updates.logoUrl;
+        if (updates.logoLightUrl !== undefined) dbPatch.logo_light_url = updates.logoLightUrl;
         if (updates.heroImageUrl !== undefined) dbPatch.hero_image_url = updates.heroImageUrl;
         if (updates.apis !== undefined) {
           dbPatch.api_config = apiConfigToDb(updates.apis);
@@ -2051,6 +2060,13 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         const { data, error } = await supabase.from("clients").update(dbPatch).eq("id", id).select("*").single();
         if (error) {
           console.error("[supabase] clients update failed:", error.message);
+          if (error.message.includes("dashboard_cards")) {
+            return {
+              ok: false,
+              error:
+                "Client dashboard cards migration required. Run supabase/client-dashboard-cards.sql in Supabase SQL Editor.",
+            };
+          }
           return { ok: false, error: error.message };
         }
         if (data) {

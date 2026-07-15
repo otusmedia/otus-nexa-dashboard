@@ -16,7 +16,8 @@
     "ghl:merge": "tsx scripts/ghl-merge-import.ts",
     "ghl:backups": "tsx scripts/ghl-check-backups.ts",
     "crm:migrate:service-product": "tsx scripts/apply-crm-service-product-migration.ts",
-    "chat:migrate": "tsx scripts/apply-team-chat-migration.ts"
+    "chat:migrate": "tsx scripts/apply-team-chat-migration.ts",
+    "clients:migrate:dashboard-cards": "tsx scripts/apply-client-dashboard-cards-migration.ts"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
