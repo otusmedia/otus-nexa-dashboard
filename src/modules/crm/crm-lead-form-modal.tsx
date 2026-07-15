@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
@@ -23,15 +23,19 @@ import {
   leadClosedValue,
   leadProposalValue,
   mapCrmAppointmentRow,
+  mapCrmContactRow,
   mapCrmLeadRow,
   normalizeCrmServiceProductSelect,
   normalizeCrmSourceSelect,
   normalizeLeadStatus,
   normalizeResumeStatus,
+  parseCrmMoney,
   type CrmAppointment,
+  type CrmContact,
   type CrmLead,
   type CrmLeadStatus,
 } from "@/lib/crm-data";
+import { uploadCrmLeadQuote } from "@/lib/crm-lead-quote";
 import {
   isResumeFunnelSlug,
   isSalesFunnelSlug,
@@ -129,16 +133,24 @@ export function CrmLeadFormModal({
   const [company, setCompany] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [cnpj, setCnpj] = useState("");
   const [source, setSource] = useState<string>(defaultSource);
   const [serviceProduct, setServiceProduct] = useState("");
-  const [proposalValueStr, setProposalValueStr] = useState("0");
-  const [closedValueStr, setClosedValueStr] = useState("0");
+  const [proposalValueStr, setProposalValueStr] = useState("0,00");
+  const [closedValueStr, setClosedValueStr] = useState("0,00");
   const [owner, setOwner] = useState("");
   const [description, setDescription] = useState("");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState(initialStage ?? funnel.stages[0]?.name ?? "New Lead");
   const [nameError, setNameError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [contactSuggestions, setContactSuggestions] = useState<CrmContact[]>([]);
+  const [contactSearchOpen, setContactSearchOpen] = useState(false);
+  const [quoteUrl, setQuoteUrl] = useState<string | null>(null);
+  const [quoteName, setQuoteName] = useState<string | null>(null);
+  const [quoteUploading, setQuoteUploading] = useState(false);
+  const quoteInputRef = useRef<HTMLInputElement>(null);
+  const contactSearchSeq = useRef(0);
   const [appointments, setAppointments] = useState<CrmAppointment[]>([]);
   const [apptsLoading, setApptsLoading] = useState(false);
   const [showApptForm, setShowApptForm] = useState(false);
@@ -191,12 +203,22 @@ export function CrmLeadFormModal({
       setPhone("");
       setSource(defaultSource);
       setServiceProduct("");
-      setProposalValueStr("0");
-      setClosedValueStr("0");
-      setOwner("");
+      setProposalValueStr(crmMoneyInputValue(0));
+      setClosedValueStr(crmMoneyInputValue(0));
+      setOwner(
+        ownerOptions.some((m) => m.name === currentUser.name.trim())
+          ? currentUser.name.trim()
+          : "",
+      );
       setDescription("");
+      setNotes("");
+      setCnpj("");
+      setQuoteUrl(null);
+      setQuoteName(null);
       setStatus(initialStage ?? funnel.stages[0]?.name ?? "New Lead");
       setNameError("");
+      setContactSuggestions([]);
+      setContactSearchOpen(false);
       return;
     }
     if (!lead) return;
@@ -204,6 +226,7 @@ export function CrmLeadFormModal({
     setCompany(lead.company ?? "");
     setEmail(lead.email ?? "");
     setPhone(lead.phone ?? "");
+    setCnpj(lead.cnpj ?? "");
     setSource(normalizeCrmSourceSelect(lead.source, crmClientSlug));
     setServiceProduct(normalizeCrmServiceProductSelect(lead.service_product));
     setProposalValueStr(crmMoneyInputValue(leadProposalValue(lead)));
@@ -211,6 +234,8 @@ export function CrmLeadFormModal({
     setOwner(lead.owner ?? "");
     setDescription(lead.description ?? "");
     setNotes(lead.notes ?? "");
+    setQuoteUrl(lead.quote_url ?? null);
+    setQuoteName(lead.quote_name ?? null);
     setStatus(
       funnel
         ? normalizeFunnelStageStatus(lead.status, funnel.stages)
@@ -219,7 +244,84 @@ export function CrmLeadFormModal({
           : normalizeLeadStatus(lead.status),
     );
     setNameError("");
-  }, [open, mode, lead, initialStage, funnel, defaultSource, crmClientSlug]);
+    setContactSuggestions([]);
+    setContactSearchOpen(false);
+  }, [open, mode, lead, initialStage, funnel, defaultSource, crmClientSlug, ownerOptions, currentUser.name]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (deleteLeadModalOpen || markResumeModalOpen || moveBackToSalesModalOpen || deleteApptId) return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    open,
+    onClose,
+    deleteLeadModalOpen,
+    markResumeModalOpen,
+    moveBackToSalesModalOpen,
+    deleteApptId,
+  ]);
+
+  useEffect(() => {
+    if (!open || mode !== "create") return;
+    const q = name.trim().replace(/[%_,.()]/g, " ").replace(/\s+/g, " ").trim();
+    if (q.length < 2) {
+      setContactSuggestions([]);
+      return;
+    }
+    const seq = ++contactSearchSeq.current;
+    const timer = window.setTimeout(async () => {
+      let query = supabase
+        .from("crm_contacts")
+        .select("*")
+        .or(`name.ilike.%${q}%,company.ilike.%${q}%,email.ilike.%${q}%`)
+        .order("created_at", { ascending: false })
+        .limit(8);
+      if (leadClientSlug) query = query.eq("client_slug", leadClientSlug);
+      const { data, error } = await query;
+      if (seq !== contactSearchSeq.current) return;
+      if (error) {
+        console.error("[crm] contact search", error.message);
+        setContactSuggestions([]);
+        return;
+      }
+      setContactSuggestions((data ?? []).map((row) => mapCrmContactRow(row as Record<string, unknown>)));
+      setContactSearchOpen(true);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [open, mode, name, leadClientSlug]);
+
+  const applyContactSuggestion = (contact: CrmContact) => {
+    setName(contact.name || name);
+    setCompany(contact.company ?? "");
+    setEmail(contact.email ?? "");
+    setPhone(contact.phone ?? "");
+    if (contact.source) setSource(normalizeCrmSourceSelect(contact.source, crmClientSlug));
+    setContactSuggestions([]);
+    setContactSearchOpen(false);
+    setNameError("");
+  };
+
+  const handleQuoteSelected = async (file: File | null) => {
+    if (!file) return;
+    setQuoteUploading(true);
+    const leadKey = lead?.id ?? `draft-${Date.now()}`;
+    const result = await uploadCrmLeadQuote(leadClientSlug, leadKey, file);
+    setQuoteUploading(false);
+    if (!result.ok) {
+      console.error("[crm] quote upload", result.error);
+      pushNotification(lt("Could not upload quote."), "task");
+      return;
+    }
+    setQuoteUrl(result.url);
+    setQuoteName(result.name);
+    pushNotification(lt("Quote uploaded."), "task");
+  };
 
   const loadAppointments = useCallback(async () => {
     if (!lead?.id) {
@@ -321,38 +423,47 @@ export function CrmLeadFormModal({
       setNameError(lt("Name is required."));
       return;
     }
-    const proposalNum = Number.parseFloat(proposalValueStr.replace(/,/g, "")) || 0;
-    const closedNum = Number.parseFloat(closedValueStr.replace(/,/g, "")) || 0;
+    const proposalNum = parseCrmMoney(proposalValueStr);
+    const closedNum = parseCrmMoney(closedValueStr);
     const sourceTrimmed = source.trim();
     const serviceProductTrimmed = serviceProduct.trim();
     const ownerName = owner.trim();
     const ownerUser = findCrmOwnerUser(users, ownerName);
     const transferToSales = shouldTransferLeadToSalesFunnel(funnel, ownerUser);
+    const cnpjTrimmed = cnpj.trim() || null;
     setSaving(true);
 
     if (mode === "create") {
       const leadFunnel = transferToSales ? "sales" : funnel.slug;
       const leadStatus = transferToSales ? SALES_FUNNEL_TRANSFER_STATUS : status;
-      const { data, error } = await supabase
-        .from("crm_leads")
-        .insert({
-          name: trimmed,
-          company: company.trim() || null,
-          email: email.trim() || null,
-          phone: phone.trim() || null,
-          source: sourceTrimmed || null,
-          service_product: serviceProductTrimmed || null,
-          value: proposalNum,
-          proposal_value: proposalNum,
-          closed_value: closedNum,
-          owner: ownerName || null,
-          description: description.trim() || null,
-          status: leadStatus,
-          funnel: leadFunnel,
-          client_slug: leadClientSlug,
-        })
-        .select("*")
-        .maybeSingle();
+      const insertPayload: Record<string, unknown> = {
+        name: trimmed,
+        company: company.trim() || null,
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+        cnpj: cnpjTrimmed,
+        source: sourceTrimmed || null,
+        service_product: serviceProductTrimmed || null,
+        value: proposalNum,
+        proposal_value: proposalNum,
+        closed_value: closedNum,
+        owner: ownerName || null,
+        description: description.trim() || null,
+        quote_url: quoteUrl,
+        quote_name: quoteName,
+        status: leadStatus,
+        funnel: leadFunnel,
+        client_slug: leadClientSlug,
+      };
+      let { data, error } = await supabase.from("crm_leads").insert(insertPayload).select("*").maybeSingle();
+      if (error && /cnpj|quote_url|quote_name/i.test(error.message)) {
+        pushNotification(
+          lt("CRM CNPJ/quote migration required. Run supabase/crm-lead-cnpj-quote.sql in Supabase."),
+          "task",
+        );
+        const { cnpj: _c, quote_url: _u, quote_name: _n, ...fallback } = insertPayload;
+        ({ data, error } = await supabase.from("crm_leads").insert(fallback).select("*").maybeSingle());
+      }
       setSaving(false);
       if (error) {
         console.error("[crm] add lead", error.message);
@@ -391,6 +502,7 @@ export function CrmLeadFormModal({
       company: company.trim() || null,
       email: email.trim() || null,
       phone: phone.trim() || null,
+      cnpj: cnpjTrimmed,
       source: sourceTrimmed || null,
       service_product: serviceProductTrimmed || null,
       value: proposalNum,
@@ -399,6 +511,8 @@ export function CrmLeadFormModal({
       owner: ownerName || null,
       description: description.trim() || null,
       notes: notes.trim() || null,
+      quote_url: quoteUrl,
+      quote_name: quoteName,
       status: normalizedStatus,
       updated_at: now,
     };
@@ -407,12 +521,25 @@ export function CrmLeadFormModal({
       updatePayload.status = SALES_FUNNEL_TRANSFER_STATUS;
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("crm_leads")
       .update(updatePayload)
       .eq("id", lead.id)
       .select("*")
       .maybeSingle();
+    if (error && /cnpj|quote_url|quote_name/i.test(error.message)) {
+      pushNotification(
+        lt("CRM CNPJ/quote migration required. Run supabase/crm-lead-cnpj-quote.sql in Supabase."),
+        "task",
+      );
+      const { cnpj: _c, quote_url: _u, quote_name: _n, ...fallback } = updatePayload;
+      ({ data, error } = await supabase
+        .from("crm_leads")
+        .update(fallback)
+        .eq("id", lead.id)
+        .select("*")
+        .maybeSingle());
+    }
     setSaving(false);
     if (error) {
       console.error("[crm] save lead", error.message);
@@ -737,24 +864,64 @@ export function CrmLeadFormModal({
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <label className="block space-y-1 md:col-span-2">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Name *")}</span>
-                <input
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value);
-                    if (nameError) setNameError("");
-                  }}
-                  className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
-                  required
-                />
+              <div className="relative block space-y-1 md:col-span-2">
+                <label className="block space-y-1">
+                  <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Name *")}</span>
+                  <input
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      if (nameError) setNameError("");
+                    }}
+                    onFocus={() => {
+                      if (mode === "create" && contactSuggestions.length > 0) setContactSearchOpen(true);
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => setContactSearchOpen(false), 150);
+                    }}
+                    autoComplete="off"
+                    className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                    required
+                  />
+                </label>
                 {nameError ? <p className="text-xs text-[#f87171]">{nameError}</p> : null}
-              </label>
+                {mode === "create" && contactSearchOpen && contactSuggestions.length > 0 ? (
+                  <ul className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-48 overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] py-1 shadow-lg">
+                    <li className="px-3 py-1 text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+                      {lt("Matching contacts")}
+                    </li>
+                    {contactSuggestions.map((contact) => (
+                      <li key={contact.id}>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => applyContactSuggestion(contact)}
+                          className="flex w-full flex-col items-start px-3 py-2 text-left text-sm text-white hover:bg-[rgba(255,255,255,0.06)]"
+                        >
+                          <span>{contact.name}</span>
+                          <span className="text-xs text-[rgba(255,255,255,0.45)]">
+                            {[contact.company, contact.email].filter(Boolean).join(" · ") || contact.phone || "—"}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
               <label className="block space-y-1">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Company")}</span>
                 <input
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
+                  className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("CNPJ")}</span>
+                <input
+                  value={cnpj}
+                  onChange={(e) => setCnpj(e.target.value)}
+                  placeholder="00.000.000/0000-00"
                   className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 />
               </label>
@@ -837,6 +1004,53 @@ export function CrmLeadFormModal({
                   <p className="text-xs text-[rgba(255,255,255,0.45)]">{lt("Owner outside funnel transfer hint")}</p>
                 ) : null}
               </label>
+              <div className="block space-y-1 md:col-span-2">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                  {lt("Quote / estimate")}
+                </span>
+                <input
+                  ref={quoteInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    e.target.value = "";
+                    void handleQuoteSelected(file);
+                  }}
+                />
+                {quoteUrl ? (
+                  <div className="flex flex-wrap items-center gap-2 rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2">
+                    <a
+                      href={quoteUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="min-w-0 flex-1 truncate text-sm text-white underline-offset-2 hover:underline"
+                    >
+                      {quoteName || lt("Quote / estimate")}
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuoteUrl(null);
+                        setQuoteName(null);
+                      }}
+                      className="rounded-md border border-[var(--border-strong)] px-2 py-1 text-xs text-[rgba(255,255,255,0.7)]"
+                    >
+                      {lt("Remove quote")}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={quoteUploading}
+                    onClick={() => quoteInputRef.current?.click()}
+                    className="w-full rounded-[8px] border border-dashed border-[var(--border-strong)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-[rgba(255,255,255,0.65)] transition hover:text-white disabled:opacity-50"
+                  >
+                    {quoteUploading ? lt("Uploading quote…") : lt("Attach quote")}
+                  </button>
+                )}
+              </div>
             </div>
 
             {mode === "edit" ? (

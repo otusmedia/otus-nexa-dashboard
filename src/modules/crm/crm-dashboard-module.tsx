@@ -128,7 +128,10 @@ export function CrmDashboardModule() {
         <CrmDashboardDateRange
           range={chartRange}
           customRange={customRange}
-          onRangeChange={setChartRange}
+          onRangeChange={(range) => {
+            if (range === "all") return;
+            setChartRange(range);
+          }}
           onCustomRangeApply={(range) => {
             setCustomRange(range);
             setChartRange("custom");

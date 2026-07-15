@@ -12,13 +12,17 @@ function formatCustomRangeButtonLabel(startYmd: string, endYmd: string): string 
   return `${fmt(a)} — ${fmt(b)}`;
 }
 
+export type CrmDateRangeValue = CrmChartRange | "all";
+
 type Props = {
-  range: CrmChartRange;
+  range: CrmDateRangeValue;
   customRange: CrmCustomDateRange | null;
-  onRangeChange: (range: CrmChartRange) => void;
+  onRangeChange: (range: CrmDateRangeValue) => void;
   onCustomRangeApply: (range: CrmCustomDateRange) => void;
   lt: (key: string) => string;
   className?: string;
+  /** When true, shows an All option (useful for pipeline filters). */
+  showAllOption?: boolean;
 };
 
 export function CrmDashboardDateRange({
@@ -28,6 +32,7 @@ export function CrmDashboardDateRange({
   onCustomRangeApply,
   lt,
   className,
+  showAllOption = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [draftStart, setDraftStart] = useState(customRange?.startYmd ?? "");
@@ -54,6 +59,21 @@ export function CrmDashboardDateRange({
 
   return (
     <div ref={rootRef} className={cn("relative flex gap-1 rounded-lg border border-white/[0.08] p-0.5", className)}>
+      {showAllOption ? (
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            onRangeChange("all");
+          }}
+          className={cn(
+            "rounded-md px-2.5 py-1 text-[0.65rem] transition",
+            range === "all" ? "bg-white text-black" : "text-[rgba(255,255,255,0.45)] hover:text-white",
+          )}
+        >
+          {lt("All")}
+        </button>
+      ) : null}
       {(["7d", "30d", "90d"] as const).map((r) => (
         <button
           key={r}

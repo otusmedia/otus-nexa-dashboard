@@ -1,7 +1,6 @@
 import { formatDisplayDate } from "@/app/(platform)/projects/data";
 import type { AppLanguage } from "@/lib/locale-types";
 import { supabase } from "@/lib/supabase";
-import { formatCurrency } from "@/lib/utils";
 
 export type CrmAppointmentStatus = "pending" | "done";
 
@@ -123,6 +122,7 @@ export interface CrmLead {
   company: string | null;
   email: string | null;
   phone: string | null;
+  cnpj: string | null;
   status: string;
   funnel: string;
   owner: string | null;
@@ -134,6 +134,8 @@ export interface CrmLead {
   closed_value: number;
   description: string | null;
   notes: string | null;
+  quote_url: string | null;
+  quote_name: string | null;
   client_slug: string | null;
   external_id: string | null;
   created_at: string;
@@ -317,7 +319,29 @@ export interface CrmContact {
 
 export function parseCrmMoney(raw: unknown): number {
   if (raw == null || raw === "") return 0;
-  const n = typeof raw === "number" ? raw : Number.parseFloat(String(raw));
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : 0;
+  const s = String(raw).trim();
+  if (!s) return 0;
+  // pt-BR: 1.234,56 or 151,50 — en: 1,234.56 or 151.50
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+  let normalized = s.replace(/[^\d.,\-]/g, "");
+  if (hasComma && hasDot) {
+    if (normalized.lastIndexOf(",") > normalized.lastIndexOf(".")) {
+      // 1.234,56
+      normalized = normalized.replace(/\./g, "").replace(",", ".");
+    } else {
+      // 1,234.56
+      normalized = normalized.replace(/,/g, "");
+    }
+  } else if (hasComma) {
+    // 151,50
+    normalized = normalized.replace(",", ".");
+  } else {
+    // 151.50 or 15150
+    normalized = normalized.replace(/,/g, "");
+  }
+  const n = Number.parseFloat(normalized);
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -325,8 +349,13 @@ export function leadProposalValue(lead: Pick<CrmLead, "proposal_value">): number
   return lead.proposal_value ?? 0;
 }
 
+/** Display/edit money in pt-BR with 2 decimal places (e.g. 151,50). */
 export function crmMoneyInputValue(amount: number): string {
-  return Number.isFinite(amount) ? String(amount) : "0";
+  if (!Number.isFinite(amount)) return "0,00";
+  return amount.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 export function leadClosedValue(lead: Pick<CrmLead, "closed_value">): number {
@@ -351,6 +380,7 @@ export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
     company: row.company != null ? String(row.company) : null,
     email: row.email != null ? String(row.email) : null,
     phone: row.phone != null ? String(row.phone) : null,
+    cnpj: row.cnpj != null ? String(row.cnpj) : null,
     status: String(row.status ?? "New Lead"),
     funnel: normalizeLeadFunnel(row.funnel),
     owner: row.owner != null ? String(row.owner) : null,
@@ -361,6 +391,8 @@ export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
     closed_value: closed,
     description: row.description != null ? String(row.description) : null,
     notes: row.notes != null ? String(row.notes) : null,
+    quote_url: row.quote_url != null ? String(row.quote_url) : null,
+    quote_name: row.quote_name != null ? String(row.quote_name) : null,
     client_slug: row.client_slug != null ? String(row.client_slug) : null,
     external_id: row.external_id != null ? String(row.external_id) : null,
     created_at: String(row.created_at ?? ""),
@@ -527,8 +559,15 @@ export function groupLeadsByStatus(leads: CrmLead[]): Record<CrmLeadStatus, CrmL
   return buckets;
 }
 
+/** CRM money display: BRL with 2 decimals (does not change financial `formatCurrency`). */
 export function formatLeadValue(value: number): string {
-  return formatCurrency(value);
+  const n = Number.isFinite(value) ? value : 0;
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
 }
 
 export function formatLeadCreatedAt(iso: string): string {

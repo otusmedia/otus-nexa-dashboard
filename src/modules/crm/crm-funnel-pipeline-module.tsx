@@ -19,12 +19,18 @@ import { type CrmLead } from "@/lib/crm-data";
 import { crmLeadStatusLabel, crmResumeStatusLabel } from "@/lib/crm-i18n";
 import type { AppLanguage } from "@/lib/locale-types";
 import { supabase } from "@/lib/supabase";
+import { CrmDashboardDateRange, type CrmDateRangeValue } from "@/modules/crm/dashboard/crm-dashboard-date-range";
 import { CrmEditFunnelModal } from "@/modules/crm/crm-edit-funnel-modal";
 import { CrmKanbanBoard } from "@/modules/crm/crm-kanban-board";
 import { CrmLeadFormModal } from "@/modules/crm/crm-lead-form-modal";
 import { CrmPipelineShell } from "@/modules/crm/crm-pipeline-shell";
 import { deleteCrmFunnel, notifyCrmFunnelsReload, updateCrmFunnelDef, useCrmFunnels } from "@/modules/crm/use-crm-funnels";
 import { useCrmKanbanLeads } from "@/modules/crm/use-crm-kanban-leads";
+import {
+  crmLeadCreatedInPeriod,
+  resolveCrmPeriodBounds,
+  type CrmCustomDateRange,
+} from "@/modules/crm/use-crm-dashboard-data";
 
 function stageLabel(funnel: CrmFunnelDef, stageName: string, language: AppLanguage): string {
   if (isResumeFunnelSlug(funnel.slug)) return crmResumeStatusLabel(stageName, language);
@@ -63,6 +69,8 @@ export function CrmFunnelPipelineModule({ funnel: initialFunnel }: { funnel: Crm
   const [createStage, setCreateStage] = useState(initialStage);
   const [editOpen, setEditOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<CrmDateRangeValue>("all");
+  const [customRange, setCustomRange] = useState<CrmCustomDateRange | null>(null);
 
   const columns = useMemo(
     () =>
@@ -74,7 +82,16 @@ export function CrmFunnelPipelineModule({ funnel: initialFunnel }: { funnel: Crm
     [funnel, language],
   );
 
-  const byColumn = useMemo(() => groupLeadsByFunnelStages(leads, funnel.stages), [leads, funnel.stages]);
+  const filteredLeads = useMemo(() => {
+    if (dateRange === "all") return leads;
+    const bounds = resolveCrmPeriodBounds(dateRange, customRange);
+    return leads.filter((lead) => crmLeadCreatedInPeriod(lead, bounds.startYmd, bounds.endYmd));
+  }, [leads, dateRange, customRange]);
+
+  const byColumn = useMemo(
+    () => groupLeadsByFunnelStages(filteredLeads, funnel.stages),
+    [filteredLeads, funnel.stages],
+  );
 
   const onDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
@@ -116,7 +133,8 @@ export function CrmFunnelPipelineModule({ funnel: initialFunnel }: { funnel: Crm
       onLeadUpdated(savedLead);
     } else {
       setLeads((prev) => [savedLead, ...prev]);
-      setSelectedId(savedLead.id);
+      // Keep create modal closed — do not reopen as edit.
+      setSelectedId(null);
     }
   };
 
@@ -177,11 +195,24 @@ export function CrmFunnelPipelineModule({ funnel: initialFunnel }: { funnel: Crm
           {successMessage}
         </p>
       ) : null}
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+        <CrmDashboardDateRange
+          range={dateRange}
+          customRange={customRange}
+          showAllOption
+          onRangeChange={setDateRange}
+          onCustomRangeApply={(range) => {
+            setCustomRange(range);
+            setDateRange("custom");
+          }}
+          lt={lt}
+        />
+      </div>
       <CrmKanbanBoard
         columns={columns}
         leadsByColumn={byColumn as Record<string, CrmLead[]>}
         loading={loading}
-        leadCount={leads.length}
+        leadCount={filteredLeads.length}
         onDragEnd={onDragEnd}
         onOpenLead={(lead) => setSelectedId(lead.id)}
         onAddLead={allowAddLead ? openAddModal : undefined}

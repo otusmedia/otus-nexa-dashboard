@@ -115,7 +115,7 @@ function parseYmdLocal(ymd: string): Date | null {
   return new Date(y, m - 1, d, 12, 0, 0, 0);
 }
 
-function resolvePeriodBounds(
+export function resolveCrmPeriodBounds(
   chartRange: CrmChartRange,
   customRange: CrmCustomDateRange | null,
 ): { startYmd: string; endYmd: string } {
@@ -129,10 +129,22 @@ function resolvePeriodBounds(
   return { startYmd: localDateKeyFromDate(start), endYmd: localDateKeyFromDate(end) };
 }
 
-function leadInPeriod(lead: CrmLead, startYmd: string, endYmd: string): boolean {
+/** @deprecated Use resolveCrmPeriodBounds */
+function resolvePeriodBounds(
+  chartRange: CrmChartRange,
+  customRange: CrmCustomDateRange | null,
+): { startYmd: string; endYmd: string } {
+  return resolveCrmPeriodBounds(chartRange, customRange);
+}
+
+export function crmLeadCreatedInPeriod(lead: CrmLead, startYmd: string, endYmd: string): boolean {
   const key = toDateKey(lead.created_at);
   if (!key) return false;
   return key >= startYmd && key <= endYmd;
+}
+
+function leadInPeriod(lead: CrmLead, startYmd: string, endYmd: string): boolean {
+  return crmLeadCreatedInPeriod(lead, startYmd, endYmd);
 }
 
 function formatShortDay(date: Date, locale: string): string {

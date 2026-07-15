@@ -38,13 +38,14 @@ export function CrmKanbanBoard({
   }
 
   return (
-    <div className="w-full min-w-0 overflow-x-auto">
-      <DragDropContext onDragEnd={onDragEnd}>
-        <div className="mb-3 px-1 text-xs font-light text-[rgba(255,255,255,0.4)]">
-          {leadCount} {lt("leads")}
-        </div>
-        <div className="h-[80vh] w-max overflow-hidden">
-          <div className="flex h-full min-h-0 w-max flex-row gap-4 px-1 pb-4">
+    <div className="flex w-full min-w-0 flex-col" style={{ height: "calc(100dvh - 11.5rem)" }}>
+      <div className="mb-3 shrink-0 px-1 text-xs font-light text-[rgba(255,255,255,0.4)]">
+        {leadCount} {lt("leads")}
+      </div>
+      {/* Horizontal scrollbar stays at the bottom of the board viewport (no page scroll needed). */}
+      <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden pb-1">
+        <DragDropContext onDragEnd={onDragEnd}>
+          <div className="flex h-full min-h-0 w-max flex-row gap-4 px-1">
             {columns.map((col) => (
               <CrmPipelineColumn
                 key={col.id}
@@ -58,8 +59,8 @@ export function CrmKanbanBoard({
               />
             ))}
           </div>
-        </div>
-      </DragDropContext>
+        </DragDropContext>
+      </div>
     </div>
   );
 }
