@@ -12,7 +12,7 @@ import { DeleteConfirmModal } from "@/components/ui/delete-confirm-modal";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { cn, formatCurrency } from "@/lib/utils";
-import { rowMatchesDataClient } from "@/lib/client-utils";
+import { isAgencyCompany, rowMatchesDataClient } from "@/lib/client-utils";
 import { supabase } from "@/lib/supabase";
 
 const DEMO_PDF_URL =
@@ -351,7 +351,9 @@ function normalizeInvoiceProjectIds(row: Record<string, unknown>): string[] {
 export function FinancialModule() {
   const { t: lt } = useLanguage();
   const { currentUser, dataClientSlug } = useAppContext();
-  const canGenerateInvoice = currentUser?.company === "nexa" || currentUser?.company === "otus";
+  /** Agency staff may create/edit/status/delete; client users (including client admins) view + download only. */
+  const canManageInvoices = isAgencyCompany(currentUser?.company ?? "");
+  const canGenerateInvoice = canManageInvoices;
   const [invoices, setInvoices] = useState<DbInvoice[]>([]);
   const [projects, setProjects] = useState<DbProject[]>([]);
   const [invoiceLineItems, setInvoiceLineItems] = useState<DbInvoiceLineItem[]>([]);
@@ -526,6 +528,7 @@ export function FinancialModule() {
   }, [loadFinancialData]);
 
   const applyInvoiceStatusChange = async (invoiceId: string, newStatus: DbInvoice["status"], previousStatus: DbInvoice["status"]) => {
+    if (!canManageInvoices) return;
     setInvoices((list) => list.map((inv) => (inv.id === invoiceId ? { ...inv, status: newStatus } : inv)));
     setInvoiceStatusMenu(null);
     const { error } = await supabase.from("invoices").update({ status: newStatus }).eq("id", invoiceId);
@@ -675,6 +678,7 @@ export function FinancialModule() {
   };
 
   const openEditInvoiceModal = (invoice: DbInvoice) => {
+    if (!canManageInvoices) return;
     const modalLineItems = invoiceLineItems
       .filter((item) => item.invoice_id === invoice.id)
       .map((item) => ({
@@ -897,6 +901,7 @@ export function FinancialModule() {
   );
 
   const saveGeneratedInvoice = async () => {
+    if (!canManageInvoices) return;
     setSaveError(null);
     setSaveSuccess(null);
     setSavingGenerated(true);
@@ -945,6 +950,7 @@ export function FinancialModule() {
   };
 
   const saveUploadedInvoice = async () => {
+    if (!canManageInvoices) return;
     setSaveError(null);
     setSaveSuccess(null);
 
@@ -1016,7 +1022,7 @@ export function FinancialModule() {
   );
 
   const saveEditedInvoice = async () => {
-    if (!editModal) return;
+    if (!canManageInvoices || !editModal) return;
     setSaveError(null);
     setSaveSuccess(null);
     setEditModal((prev) => (prev ? { ...prev, saving: true } : prev));
@@ -1283,70 +1289,90 @@ export function FinancialModule() {
                   </td>
                   <td className="mono-num px-3 py-2.5 text-sm font-light tabular-nums text-white">{formatCurrency(invoice.amount)}</td>
                   <td className="relative px-3 py-2.5">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        const { top, left } = getInvoiceStatusDropdownPosition(rect);
-                        setInvoiceStatusMenu((prev) =>
-                          prev?.invoiceId === invoice.id ? null : { invoiceId: invoice.id, top, left },
-                        );
-                      }}
-                      className="text-left"
-                      aria-haspopup="listbox"
-                      aria-expanded={invoiceStatusMenu?.invoiceId === invoice.id}
-                    >
+                    {canManageInvoices ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            const rect = event.currentTarget.getBoundingClientRect();
+                            const { top, left } = getInvoiceStatusDropdownPosition(rect);
+                            setInvoiceStatusMenu((prev) =>
+                              prev?.invoiceId === invoice.id ? null : { invoiceId: invoice.id, top, left },
+                            );
+                          }}
+                          className="text-left"
+                          aria-haspopup="listbox"
+                          aria-expanded={invoiceStatusMenu?.invoiceId === invoice.id}
+                        >
+                          <span
+                            className={cn(
+                              "inline-flex cursor-pointer rounded-full border px-2 py-0.5 text-[0.68rem] font-normal",
+                              statusBadgeClass(invoice.status),
+                            )}
+                          >
+                            {invoice.status}
+                          </span>
+                        </button>
+                        {invoiceStatusMenu?.invoiceId === invoice.id
+                          ? createPortal(
+                              <div
+                                className="w-44 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2"
+                                style={{
+                                  position: "fixed",
+                                  top: invoiceStatusMenu.top,
+                                  left: invoiceStatusMenu.left,
+                                  zIndex: 9999,
+                                }}
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onClick={(event) => event.stopPropagation()}
+                                role="listbox"
+                              >
+                                {INVOICE_STATUS_OPTIONS.map((option) => (
+                                  <button
+                                    key={option.value}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={invoice.status === option.value}
+                                    onClick={() => void applyInvoiceStatusChange(invoice.id, option.value, invoice.status)}
+                                    className={cn(
+                                      "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
+                                      invoice.status === option.value && "bg-[rgba(255,255,255,0.04)]",
+                                    )}
+                                  >
+                                    <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", option.dotClass)} aria-hidden />
+                                    {option.label}
+                                  </button>
+                                ))}
+                              </div>,
+                              document.body,
+                            )
+                          : null}
+                      </>
+                    ) : (
                       <span
                         className={cn(
-                          "inline-flex cursor-pointer rounded-full border px-2 py-0.5 text-[0.68rem] font-normal",
+                          "inline-flex rounded-full border px-2 py-0.5 text-[0.68rem] font-normal",
                           statusBadgeClass(invoice.status),
                         )}
                       >
                         {invoice.status}
                       </span>
-                    </button>
-                    {invoiceStatusMenu?.invoiceId === invoice.id
-                      ? createPortal(
-                          <div
-                            className="w-44 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2"
-                            style={{ position: "fixed", top: invoiceStatusMenu.top, left: invoiceStatusMenu.left, zIndex: 9999 }}
-                            onMouseDown={(event) => event.stopPropagation()}
-                            onClick={(event) => event.stopPropagation()}
-                            role="listbox"
-                          >
-                            {INVOICE_STATUS_OPTIONS.map((option) => (
-                              <button
-                                key={option.value}
-                                type="button"
-                                role="option"
-                                aria-selected={invoice.status === option.value}
-                                onClick={() => void applyInvoiceStatusChange(invoice.id, option.value, invoice.status)}
-                                className={cn(
-                                  "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white hover:bg-[rgba(255,255,255,0.04)]",
-                                  invoice.status === option.value && "bg-[rgba(255,255,255,0.04)]",
-                                )}
-                              >
-                                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", option.dotClass)} aria-hidden />
-                                {option.label}
-                              </button>
-                            ))}
-                          </div>,
-                          document.body,
-                        )
-                      : null}
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <div className="flex flex-wrap justify-end gap-2">
                       <button type="button" onClick={() => openPdfModal(invoice.filename ?? "Invoice", invoice.file_url)} className="rounded-lg border border-[var(--border-strong)] bg-transparent px-3 py-1 text-xs font-light text-[rgba(255,255,255,0.75)]">View</button>
-                      <button
-                        type="button"
-                        onClick={() => openEditInvoiceModal(invoice)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-strong)] bg-transparent px-3 py-1 text-xs font-light text-[rgba(255,255,255,0.75)]"
-                      >
-                        <Pencil className="h-3 w-3" />
-                        Edit
-                      </button>
+                      {canManageInvoices ? (
+                        <button
+                          type="button"
+                          onClick={() => openEditInvoiceModal(invoice)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-strong)] bg-transparent px-3 py-1 text-xs font-light text-[rgba(255,255,255,0.75)]"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Edit
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => void downloadInvoiceFileFromUrl(invoice.file_url ?? DEMO_PDF_URL, invoice.filename)}
@@ -1354,7 +1380,9 @@ export function FinancialModule() {
                       >
                         Download
                       </button>
-                      <button type="button" onClick={() => setDeleteInvoice(invoice)} className="rounded-lg border border-[rgba(239,68,68,0.35)] px-3 py-1 text-xs text-[#fca5a5]">Delete</button>
+                      {canManageInvoices ? (
+                        <button type="button" onClick={() => setDeleteInvoice(invoice)} className="rounded-lg border border-[rgba(239,68,68,0.35)] px-3 py-1 text-xs text-[#fca5a5]">Delete</button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -1736,7 +1764,7 @@ export function FinancialModule() {
       </Card>
       ) : null}
 
-      {editModal ? (
+      {canManageInvoices && editModal ? (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4">
           <div className="flex h-[90vh] w-full max-w-[800px] flex-col overflow-hidden rounded-[8px] border border-[var(--border)] bg-[#161616]">
             <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
@@ -2099,14 +2127,14 @@ export function FinancialModule() {
       ) : null}
 
       <DeleteConfirmModal
-        open={deleteInvoice != null}
+        open={canManageInvoices && deleteInvoice != null}
         title="Delete Invoice"
         message="This will permanently delete the invoice record and file."
         confirmLabel="Delete"
         cancelLabel="Cancel"
         onCancel={() => setDeleteInvoice(null)}
         onConfirm={async () => {
-          if (!deleteInvoice) return;
+          if (!canManageInvoices || !deleteInvoice) return;
           const url = deleteInvoice.file_url ?? "";
           const idx = url.indexOf("/invoices/");
           if (idx >= 0) {
