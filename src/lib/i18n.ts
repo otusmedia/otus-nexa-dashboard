@@ -32,9 +32,15 @@ const platformPtBR: Record<string, string> = {
   "Remove light logo": "Remover logo claro",
 
   // Dashboard
-  "Dashboard cards": "Cards do dashboard",
+  "Dashboard cards": "Cards do dashboard (visível ao cliente)",
   "Choose which cards appear on this client's dashboard. Uncheck to hide.":
-    "Escolha quais cards aparecem no dashboard deste cliente. Desmarque para ocultar.",
+    "Controle da agência: desmarque canais ainda não conectados ou em setup para o cliente não ver blocos vazios ou com erro.",
+  "Customize dashboard cards": "Personalizar cards do dashboard",
+  "Visible to client": "Visível para o cliente",
+  "Uncheck cards to hide them from this client's dashboard.":
+    "Desmarque para ocultar do dashboard deste cliente (incluindo KPIs de tarefas e projetos).",
+  "Select a client to customize dashboard cards.":
+    "Selecione um cliente para personalizar os cards do dashboard.",
   "Overview KPIs": "KPIs gerais",
   "KPI overview and multi-channel activity summary": "Visão geral de KPIs e resumo multicanal",
   "Active Tasks": "Tarefas Ativas",

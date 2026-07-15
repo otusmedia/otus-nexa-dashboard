@@ -23,7 +23,7 @@ export function ClientDashboardCardsFields({ value, onChange }: Props) {
   return (
     <div>
       <label className="mb-1 block text-xs text-[var(--muted)]">{lt("Dashboard cards")}</label>
-      <p className="mb-2 text-[0.7rem] text-[var(--muted)]">
+      <p className="mb-2 text-[0.7rem] leading-relaxed text-[var(--muted)]">
         {lt("Choose which cards appear on this client's dashboard. Uncheck to hide.")}
       </p>
       <div className="grid gap-2 sm:grid-cols-2">

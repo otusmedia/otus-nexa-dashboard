@@ -12,7 +12,14 @@ import { useLanguage } from "@/context/language-context";
 import { useMetaAds } from "@/context/meta-ads-context";
 import { apiUrlWithClient } from "@/lib/client-api-credentials";
 import { canImportData } from "@/lib/can-import-data";
-import { isDashboardCardVisible } from "@/lib/client-dashboard-cards";
+import {
+  DEFAULT_CLIENT_DASHBOARD_CARDS,
+  hasAnyVisibleOverviewKpi,
+  isDashboardCardVisible,
+  type ClientDashboardCards,
+} from "@/lib/client-dashboard-cards";
+import { isAgencyAdmin } from "@/lib/client-utils";
+import { DashboardCardsVisibilityMenu } from "@/modules/dashboard/dashboard-cards-visibility-menu";
 import {
   clearInstagramCsvForClient,
   readInstagramCsvForClient,
@@ -666,14 +673,24 @@ export function DashboardModule() {
     dataClientSlug,
     projectsLoading,
     updateBoardProjectTask,
+    updateClient,
   } = useAppContext();
   const { t: lt } = useLanguage();
   const canSeeActivity = currentUser?.company === "nexa" || currentUser?.company === "otus";
-  const dashboardCards = useMemo(() => {
-    if (!dataClientSlug) return null;
-    return clients.find((c) => c.slug === dataClientSlug)?.dashboardCards ?? null;
-  }, [clients, dataClientSlug]);
-  const showOverviewKpis = isDashboardCardVisible(dashboardCards, "overviewKpis");
+  const canCustomizeCards = isAgencyAdmin(currentUser);
+  const activeClient = useMemo(
+    () => (dataClientSlug ? clients.find((c) => c.slug === dataClientSlug) ?? null : null),
+    [clients, dataClientSlug],
+  );
+  const dashboardCards = useMemo((): ClientDashboardCards => {
+    return activeClient?.dashboardCards ?? { ...DEFAULT_CLIENT_DASHBOARD_CARDS };
+  }, [activeClient]);
+  const [cardsSaving, setCardsSaving] = useState(false);
+  const showKpiActiveTasks = isDashboardCardVisible(dashboardCards, "kpiActiveTasks");
+  const showKpiCompletedProjects = isDashboardCardVisible(dashboardCards, "kpiCompletedProjects");
+  const showKpiCompletedTasks = isDashboardCardVisible(dashboardCards, "kpiCompletedTasks");
+  const showKpiPostsPublished = isDashboardCardVisible(dashboardCards, "kpiPostsPublished");
+  const showOverviewKpis = hasAnyVisibleOverviewKpi(dashboardCards);
   const showHighlights = isDashboardCardVisible(dashboardCards, "highlights");
   const showInstagramPerformance = isDashboardCardVisible(dashboardCards, "instagramPerformance");
   const showMetaAds = isDashboardCardVisible(dashboardCards, "metaAds");
@@ -1740,11 +1757,38 @@ export function DashboardModule() {
     customDraftEnd < customDraftStart ||
     ymdUtcToUnixRange(customDraftStart, customDraftEnd) === null;
 
+  const handleDashboardCardsChange = async (next: ClientDashboardCards) => {
+    if (!activeClient) return;
+    setCardsSaving(true);
+    try {
+      await updateClient(activeClient.id, { dashboardCards: next });
+    } finally {
+      setCardsSaving(false);
+    }
+  };
+
+  const overviewKpiCount =
+    Number(showKpiActiveTasks) +
+    Number(showKpiCompletedProjects) +
+    Number(showKpiCompletedTasks) +
+    Number(showKpiPostsPublished);
+
   return (
     <ModuleGuard module="dashboard">
       <PageHeader
         title={t("dashboard")}
         subtitle={lt("KPI overview and multi-channel activity summary")}
+        titleExtra={
+          canCustomizeCards ? (
+            <DashboardCardsVisibilityMenu
+              value={dashboardCards}
+              saving={cardsSaving}
+              disabled={!activeClient}
+              disabledReason={lt("Select a client to customize dashboard cards.")}
+              onChange={handleDashboardCardsChange}
+            />
+          ) : null
+        }
         action={
           <div
             className="relative inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-1"
@@ -1837,7 +1881,19 @@ export function DashboardModule() {
         }
       />
       {showOverviewKpis ? (
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div
+        className={cn(
+          "grid gap-3",
+          overviewKpiCount >= 4
+            ? "md:grid-cols-2 xl:grid-cols-4"
+            : overviewKpiCount === 3
+              ? "md:grid-cols-2 xl:grid-cols-3"
+              : overviewKpiCount === 2
+                ? "md:grid-cols-2"
+                : "md:grid-cols-1 max-w-md",
+        )}
+      >
+        {showKpiActiveTasks ? (
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div className="flex min-w-0 items-center gap-1">
@@ -1872,7 +1928,9 @@ export function DashboardModule() {
           )}
           <DashboardVsComparisonBlock primaryRaw="+0.0%" invert={false} dateRange={dateRange} lt={lt} />
         </Card>
+        ) : null}
 
+        {showKpiCompletedProjects ? (
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div className="flex min-w-0 items-center gap-1">
@@ -1907,7 +1965,9 @@ export function DashboardModule() {
           )}
           <DashboardVsComparisonBlock primaryRaw="+0.0%" invert={false} dateRange={dateRange} lt={lt} />
         </Card>
+        ) : null}
 
+        {showKpiCompletedTasks ? (
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div className="flex min-w-0 items-center gap-1">
@@ -1942,7 +2002,9 @@ export function DashboardModule() {
           )}
           <DashboardVsComparisonBlock primaryRaw="+0.0%" invert={false} dateRange={dateRange} lt={lt} />
         </Card>
+        ) : null}
 
+        {showKpiPostsPublished ? (
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div className="flex min-w-0 items-center gap-1">
@@ -1966,6 +2028,7 @@ export function DashboardModule() {
           )}
           <DashboardVsComparisonBlock primaryRaw="+0.0%" invert={false} dateRange={dateRange} lt={lt} />
         </Card>
+        ) : null}
       </div>
       ) : null}
 
