@@ -1020,7 +1020,9 @@ export function DashboardModule() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!clientApis.instagramFeed) {
+    // Manual feed must load even when Instagram API toggle is off for the client
+    // (Biotecc etc. often keep api_config.instagramFeed=false while using Manage Posts).
+    if (!showInstagramFeed) {
       setInstagramFeedPosts(null);
       setInstagramFeedSource(null);
       setInstagramFeedError(null);
@@ -1032,13 +1034,15 @@ export function DashboardModule() {
     setInstagramFeedError(null);
     setInstagramFeedLoading(true);
     setInstagramFeedPosts(null);
+    const wantsLiveApi = clientApis.instagramFeed;
 
     const loadManual = async (): Promise<InstagramFeedPostStored[] | null> => {
-      let query = supabase.from("instagram_posts").select("*").order("created_at", { ascending: false });
-      if (dataClientSlug) {
-        query = query.eq("client_slug", dataClientSlug);
-      }
-      const postsRes = await query;
+      if (!dataClientSlug) return null;
+      const postsRes = await supabase
+        .from("instagram_posts")
+        .select("*")
+        .eq("client_slug", dataClientSlug)
+        .order("created_at", { ascending: false });
       if (postsRes.error) {
         console.error("[supabase] instagram_posts fetch failed:", postsRes.error.message);
         return null;
@@ -1063,12 +1067,42 @@ export function DashboardModule() {
       return backup.length > 0 ? backup : null;
     };
 
-    void Promise.all([
-      loadManual(),
-      fetch(apiUrlWithClient("/api/instagram-feed", dataClientSlug)).then((r) => r.json()),
-    ])
-      .then(([manualPosts, json]) => {
+    const applyManual = (manualPosts: InstagramFeedPostStored[] | null, err: string | null = null) => {
+      instagramFeedManualBackup.current = manualPosts;
+      if (manualPosts && manualPosts.length > 0) {
+        setInstagramFeedPosts(manualPosts);
+        setInstagramFeedSource("manual");
+      } else {
+        setInstagramFeedPosts(null);
+        setInstagramFeedSource("manual");
+      }
+      setInstagramFeedError(err);
+    };
+
+    void (async () => {
+      try {
+        const manualPosts = await loadManual();
         if (cancelled) return;
+
+        if (!wantsLiveApi) {
+          applyManual(manualPosts);
+          return;
+        }
+
+        let json: { error?: string; posts?: unknown } = {};
+        try {
+          json = (await fetch(apiUrlWithClient("/api/instagram-feed", dataClientSlug)).then((r) => r.json())) as {
+            error?: string;
+            posts?: unknown;
+          };
+        } catch (e) {
+          console.error("[dashboard] Instagram feed fetch:", e);
+          if (cancelled) return;
+          applyManual(manualPosts, "Network error");
+          return;
+        }
+        if (cancelled) return;
+
         instagramFeedManualBackup.current = manualPosts;
         const err = typeof json.error === "string" ? json.error : null;
         const posts = json.posts;
@@ -1097,48 +1131,20 @@ export function DashboardModule() {
             setInstagramFeedError(null);
             return;
           }
-          if (manualPosts && manualPosts.length > 0) {
-            setInstagramFeedPosts(manualPosts);
-            setInstagramFeedSource("manual");
-            setInstagramFeedError(null);
-            return;
-          }
-          setInstagramFeedPosts([]);
-          setInstagramFeedSource("live");
-          setInstagramFeedError(null);
+          applyManual(manualPosts);
           return;
         }
-        if (manualPosts && manualPosts.length > 0) {
-          setInstagramFeedPosts(manualPosts);
-          setInstagramFeedSource("manual");
-        } else {
-          setInstagramFeedPosts(null);
-          setInstagramFeedSource("manual");
-        }
-        setInstagramFeedError(err ?? "Feed unavailable");
+        applyManual(manualPosts, err ?? "Feed unavailable");
         if (err) console.error("[dashboard] Instagram feed API:", err);
-      })
-      .catch((e) => {
-        console.error("[dashboard] Instagram feed fetch:", e);
-        if (cancelled) return;
-        const restore = instagramFeedManualBackup.current;
-        if (restore && restore.length > 0) {
-          setInstagramFeedPosts(restore);
-          setInstagramFeedSource("manual");
-        } else {
-          setInstagramFeedPosts(null);
-          setInstagramFeedSource(null);
-        }
-        setInstagramFeedError("Network error");
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setInstagramFeedLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [clientApis.instagramFeed, dataClientSlug]);
+  }, [showInstagramFeed, clientApis.instagramFeed, dataClientSlug]);
 
   const openCreativesModal = () => {
     const base = topCreativesDisplay.slice(0, 6);
