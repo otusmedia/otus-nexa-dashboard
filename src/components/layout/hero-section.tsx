@@ -1,9 +1,17 @@
 "use client";
 
-import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Clock, Eye, EyeOff, Maximize2, Minimize2, Watch } from "lucide-react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { Clock, Eye, EyeOff, Maximize2, Minimize2, Settings2, Watch } from "lucide-react";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
+import {
+  HERO_CLOCK_CITIES,
+  parseHeroClocks,
+  resolveHeroClockCities,
+  type HeroClockCityId,
+  type HeroClocksPreference,
+} from "@/lib/hero-clocks";
 import { formatLongDate, localeTag, timeOfDayGreeting } from "@/lib/locale-format";
 import { cn } from "@/lib/utils";
 
@@ -137,8 +145,204 @@ function HeroAnalogClock({
   );
 }
 
+function HeroClocksSettings({
+  value,
+  onImage,
+  onChange,
+}: {
+  value: HeroClocksPreference;
+  onImage: boolean;
+  onChange: (next: HeroClocksPreference) => void;
+}) {
+  const { t: lt } = useLanguage();
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
+  const pref = parseHeroClocks(value);
+  const count = pref.cityIds.length === 1 ? 1 : 2;
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) {
+      setPanelPos(null);
+      return;
+    }
+    const place = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.min(window.innerWidth - 16, 260);
+      const estimatedHeight = count === 2 ? 260 : 210;
+      const spaceBelow = window.innerHeight - rect.bottom - 12;
+      const openUp = spaceBelow < estimatedHeight && rect.top > estimatedHeight + 12;
+      const top = openUp ? Math.max(8, rect.top - estimatedHeight - 8) : rect.bottom + 8;
+      const left = Math.min(Math.max(8, rect.right - width), window.innerWidth - width - 8);
+      setPanelPos({ top, left });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, count]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const setCount = (nextCount: 1 | 2) => {
+    if (nextCount === 1) {
+      onChange({ cityIds: [pref.cityIds[0]!] });
+      return;
+    }
+    const second =
+      pref.cityIds[1] ??
+      HERO_CLOCK_CITIES.find((c) => c.id !== pref.cityIds[0])?.id ??
+      "curitiba";
+    onChange({ cityIds: [pref.cityIds[0]!, second] });
+  };
+
+  const setSlot = (index: 0 | 1, cityId: HeroClockCityId) => {
+    if (count === 1) {
+      onChange({ cityIds: [cityId] });
+      return;
+    }
+    const next: [HeroClockCityId, HeroClockCityId] = [pref.cityIds[0]!, pref.cityIds[1] ?? "curitiba"];
+    next[index] = cityId;
+    if (next[0] === next[1]) {
+      const alt = HERO_CLOCK_CITIES.find((c) => c.id !== cityId)?.id;
+      if (alt) next[index === 0 ? 1 : 0] = alt;
+    }
+    onChange({ cityIds: next });
+  };
+
+  return (
+    <div className="relative inline-flex">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={lt("Configure hero clocks")}
+        aria-expanded={open}
+        className={cn(
+          "inline-flex items-center justify-center rounded-[16px] bg-transparent text-[var(--hero-muted)]",
+          open && "text-[var(--hero-fg)]",
+        )}
+        style={{ padding: "4px 10px" }}
+      >
+        <Settings2 className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
+      </button>
+      {open && panelPos
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="dialog"
+              aria-label={lt("Configure hero clocks")}
+              className="w-[min(calc(100vw-2rem),260px)] rounded-lg p-3 shadow-none"
+              style={{
+                position: "fixed",
+                top: panelPos.top,
+                left: panelPos.left,
+                zIndex: 9999,
+                ...(onImage
+                  ? {
+                      ...heroGlassOnImage,
+                      background: "rgba(18, 18, 18, 0.96)",
+                    }
+                  : {
+                      background: "#1a1a1a",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                    }),
+              }}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <p className="mb-2 text-[0.65rem] font-normal uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                {lt("Clocks on hero")}
+              </p>
+              <div className="mb-3 inline-flex rounded-md border border-[rgba(255,255,255,0.1)] p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setCount(1)}
+                  className={cn(
+                    "rounded px-2.5 py-1 text-xs",
+                    count === 1 ? "bg-[rgba(255,69,0,0.2)] text-[#FF4500]" : "text-[rgba(255,255,255,0.5)]",
+                  )}
+                >
+                  {lt("One clock")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCount(2)}
+                  className={cn(
+                    "rounded px-2.5 py-1 text-xs",
+                    count === 2 ? "bg-[rgba(255,69,0,0.2)] text-[#FF4500]" : "text-[rgba(255,255,255,0.5)]",
+                  )}
+                >
+                  {lt("Two clocks")}
+                </button>
+              </div>
+              <label className="mb-2 block space-y-1">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                  {count === 1 ? lt("City") : lt("First city")}
+                </span>
+                <select
+                  value={pref.cityIds[0]}
+                  onChange={(e) => setSlot(0, e.target.value as HeroClockCityId)}
+                  className="w-full rounded-md border border-[rgba(255,255,255,0.12)] bg-[#0d0d0d] px-2 py-1.5 text-xs text-white"
+                >
+                  {HERO_CLOCK_CITIES.map((city) => (
+                    <option key={city.id} value={city.id}>
+                      {city.city}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {count === 2 ? (
+                <label className="block space-y-1">
+                  <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                    {lt("Second city")}
+                  </span>
+                  <select
+                    value={pref.cityIds[1] ?? "curitiba"}
+                    onChange={(e) => setSlot(1, e.target.value as HeroClockCityId)}
+                    className="w-full rounded-md border border-[rgba(255,255,255,0.12)] bg-[#0d0d0d] px-2 py-1.5 text-xs text-white"
+                  >
+                    {HERO_CLOCK_CITIES.map((city) => (
+                      <option key={city.id} value={city.id}>
+                        {city.city}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <p className="mt-3 text-[0.65rem] leading-relaxed text-[rgba(255,255,255,0.35)]">
+                {lt("Saved for your user account.")}
+              </p>
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
 function HeroSection() {
-  const { currentUser, heroImageUrl, language } = useAppContext();
+  const { currentUser, heroImageUrl, language, saveHeroClocks } = useAppContext();
   const { t: lt } = useLanguage();
   const [, setTick] = useState(0);
   const sectionRef = useRef<HTMLElement>(null);
@@ -190,6 +394,11 @@ function HeroSection() {
       /* ignore */
     }
   };
+
+  const clockCities = useMemo(
+    () => resolveHeroClockCities(currentUser.heroClocks),
+    [currentUser.heroClocks],
+  );
 
   const [isHeroFullscreen, setIsHeroFullscreen] = useState(false);
 
@@ -406,7 +615,7 @@ function HeroSection() {
         <div className="flex shrink-0 flex-col items-start justify-start">
           <div className="flex flex-col items-center">
             <div
-              className="mb-4 inline-flex shrink-0"
+              className="relative z-30 mb-4 inline-flex shrink-0 items-center"
               style={heroClockToggleShellStyle(onImage)}
               role="group"
               aria-label={lt("Clock display mode")}
@@ -439,38 +648,32 @@ function HeroSection() {
               >
                 <Watch className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
               </button>
+              <HeroClocksSettings
+                value={currentUser.heroClocks}
+                onImage={onImage}
+                onChange={(next) => void saveHeroClocks(next)}
+              />
             </div>
             <div className="flex flex-row flex-wrap items-stretch justify-center gap-4">
-              <div
-                className="flex min-h-0 w-[200px] min-w-[200px] max-w-[200px] shrink-0 flex-col"
-                style={heroClockCardStyle(onImage)}
-              >
-                <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center gap-2 p-[24px] text-center">
-                  <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[var(--hero-muted)]">
-                    San Francisco
-                  </p>
-                  {clockMode === "digital" ? (
-                    <HeroDigitalClockTime date={now} timeZone="America/Los_Angeles" lang={language} />
-                  ) : (
-                    <HeroAnalogClock date={now} timeZone="America/Los_Angeles" onImage={onImage} />
-                  )}
-                  <p className="text-[0.7rem] font-light text-[var(--hero-faint)]">PT</p>
+              {clockCities.map((city) => (
+                <div
+                  key={city.id}
+                  className="flex min-h-0 w-[200px] min-w-[200px] max-w-[200px] shrink-0 flex-col"
+                  style={heroClockCardStyle(onImage)}
+                >
+                  <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center gap-2 p-[24px] text-center">
+                    <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[var(--hero-muted)]">
+                      {city.city}
+                    </p>
+                    {clockMode === "digital" ? (
+                      <HeroDigitalClockTime date={now} timeZone={city.timeZone} lang={language} />
+                    ) : (
+                      <HeroAnalogClock date={now} timeZone={city.timeZone} onImage={onImage} />
+                    )}
+                    <p className="text-[0.7rem] font-light text-[var(--hero-faint)]">{city.abbrev}</p>
+                  </div>
                 </div>
-              </div>
-              <div
-                className="flex min-h-0 w-[200px] min-w-[200px] max-w-[200px] shrink-0 flex-col"
-                style={heroClockCardStyle(onImage)}
-              >
-                <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center gap-2 p-[24px] text-center">
-                  <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[var(--hero-muted)]">Curitiba</p>
-                  {clockMode === "digital" ? (
-                    <HeroDigitalClockTime date={now} timeZone="America/Sao_Paulo" lang={language} />
-                  ) : (
-                    <HeroAnalogClock date={now} timeZone="America/Sao_Paulo" onImage={onImage} />
-                  )}
-                  <p className="text-[0.7rem] font-light text-[var(--hero-faint)]">BRT</p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>

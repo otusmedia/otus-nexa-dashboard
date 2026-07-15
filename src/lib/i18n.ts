@@ -149,6 +149,10 @@ const platformPtBR: Record<string, string> = {
   "MANAGE INSTAGRAM POSTS": "GERENCIAR POSTS DO INSTAGRAM",
   "Add posts manually until Instagram API is connected":
     "Adicione posts manualmente até a API do Instagram ser conectada",
+  "Select a client before saving Instagram posts.":
+    "Selecione um cliente antes de salvar os posts do Instagram.",
+  "Instagram feed migration required. Run supabase/instagram-posts-client.sql in Supabase.":
+    "Migration do feed Instagram pendente. Execute supabase/instagram-posts-client.sql no Supabase (SQL Editor).",
   Upload: "Enviar",
   "Add Post": "Adicionar post",
   "Website metrics from Google Analytics 4": "Métricas do site no Google Analytics 4",
@@ -833,6 +837,14 @@ const platformPtBR: Record<string, string> = {
   "Clock display mode": "Modo de exibição do relógio",
   "Digital clock": "Relógio digital",
   "Analog clock": "Relógio analógico",
+  "Configure hero clocks": "Configurar relógios do hero",
+  "Clocks on hero": "Relógios no hero",
+  "One clock": "Um relógio",
+  "Two clocks": "Dois relógios",
+  "City": "Cidade",
+  "First city": "Primeira cidade",
+  "Second city": "Segunda cidade",
+  "Saved for your user account.": "Salvo na sua conta de usuário.",
   "Resize hero height": "Redimensionar altura do hero",
 
   // AI Studio / Content Management

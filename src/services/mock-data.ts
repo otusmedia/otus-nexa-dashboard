@@ -21,6 +21,7 @@ export const users: AppUser[] = [
     clientSlug: null,
     localePreference: null,
     avatarUrl: null,
+    heroClocks: { cityIds: ["san-francisco", "curitiba"] },
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -31,6 +32,7 @@ export const users: AppUser[] = [
     clientSlug: null,
     localePreference: null,
     avatarUrl: null,
+    heroClocks: { cityIds: ["san-francisco", "curitiba"] },
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -41,6 +43,7 @@ export const users: AppUser[] = [
     clientSlug: "rocketride",
     localePreference: null,
     avatarUrl: null,
+    heroClocks: { cityIds: ["san-francisco", "curitiba"] },
     modules: ["dashboard", "projects", "financial", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -51,6 +54,7 @@ export const users: AppUser[] = [
     clientSlug: null,
     localePreference: null,
     avatarUrl: null,
+    heroClocks: { cityIds: ["san-francisco", "curitiba"] },
     modules: ["dashboard", "projects", "financial", "marketing", "calendar", "crm", "files", "contracts"],
   },
   {
@@ -61,6 +65,7 @@ export const users: AppUser[] = [
     clientSlug: null,
     localePreference: null,
     avatarUrl: null,
+    heroClocks: { cityIds: ["san-francisco", "curitiba"] },
     modules: ["projects", "marketing", "files"],
   },
   {
@@ -71,6 +76,7 @@ export const users: AppUser[] = [
     clientSlug: null,
     localePreference: null,
     avatarUrl: null,
+    heroClocks: { cityIds: ["san-francisco", "curitiba"] },
     modules: ["projects", "marketing", "files"],
   },
 ];

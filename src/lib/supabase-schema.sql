@@ -137,9 +137,11 @@ create table if not exists creatives (
 
 create table if not exists instagram_posts (
   id uuid default gen_random_uuid() primary key,
+  client_slug text,
   image_url text,
   likes integer default 0,
   comments integer default 0,
+  shares integer default 0,
   caption text,
   created_at timestamptz default now()
 );

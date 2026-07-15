@@ -29,7 +29,7 @@ import {
 import { cn } from "@/lib/utils";
 import { isClientCompany } from "@/lib/client-utils";
 import { createPortal } from "react-dom";
-import type { Project, ProjectStatus, ProjectTaskRow, TaskRowStatus } from "../data";
+import type { Project, ProjectStatus, ProjectTaskRow, ProjectType, TaskRowStatus } from "../data";
 import {
   COLUMN_TO_STATUS,
   formatDisplayDate,
@@ -38,6 +38,8 @@ import {
   PROJECT_TEAM_MEMBERS,
   TASK_STATUS_OPTIONS,
 } from "../data";
+
+const PROJECT_TYPE_OPTIONS: ProjectType[] = ["Website", "Monthly Content", "Paid Traffic"];
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
@@ -439,6 +441,8 @@ export function ProjectDetailView({ project }: { project: Project }) {
   const [savedDescription, setSavedDescription] = useState(project.description);
   const [projectDescriptionSavedHint, setProjectDescriptionSavedHint] = useState(false);
   const [projectDescriptionError, setProjectDescriptionError] = useState("");
+  const [nameDraft, setNameDraft] = useState(project.name);
+  const [nameError, setNameError] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
   const [tasks, setTasks] = useState<LocalTask[]>([]);
   const [taskFormMode, setTaskFormMode] = useState<"create" | "edit" | null>(null);
@@ -599,7 +603,9 @@ export function ProjectDetailView({ project }: { project: Project }) {
     setSavedDescription(project.description);
     setProjectDescriptionSavedHint(false);
     setProjectDescriptionError("");
-  }, [project.id, project.description]);
+    setNameDraft(project.name);
+    setNameError("");
+  }, [project.id, project.description, project.name]);
 
   useEffect(() => {
     let mounted = true;
@@ -1230,17 +1236,24 @@ export function ProjectDetailView({ project }: { project: Project }) {
     void updateTask(activeTaskId, { coverImage: null });
   };
 
-  const saveProjectDescription = async () => {
-    setProjectDescriptionError("");
-    const { error } = await supabase
-      .from("projects")
-      .update({ description })
-      .eq("id", project.id);
-    if (error) {
-      console.error("[supabase] project description update failed:", error.message);
-      setProjectDescriptionError("Failed to save. Try again.");
+  const commitProjectName = () => {
+    if (isRocketRideClient) return;
+    const trimmed = nameDraft.trim();
+    if (!trimmed) {
+      setNameError("Project name is required.");
+      setNameDraft(project.name);
       return;
     }
+    setNameError("");
+    if (trimmed !== project.name) {
+      updateBoardProject(project.id, { name: trimmed });
+    }
+  };
+
+  const saveProjectDescription = () => {
+    if (isRocketRideClient) return;
+    setProjectDescriptionError("");
+    updateBoardProject(project.id, { description });
     setSavedDescription(description);
     setProjectDescriptionSavedHint(true);
     window.setTimeout(() => setProjectDescriptionSavedHint(false), 2000);
@@ -1699,7 +1712,29 @@ export function ProjectDetailView({ project }: { project: Project }) {
           <Target className="h-6 w-6 text-[var(--muted)]" strokeWidth={1.25} />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="text-3xl font-light tracking-tight text-white md:text-4xl">{project.name}</h1>
+          {isRocketRideClient ? (
+            <h1 className="text-3xl font-light tracking-tight text-white md:text-4xl">{project.name}</h1>
+          ) : (
+            <div>
+              <input
+                value={nameDraft}
+                onChange={(e) => {
+                  setNameDraft(e.target.value);
+                  if (nameError) setNameError("");
+                }}
+                onBlur={commitProjectName}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    (e.currentTarget as HTMLInputElement).blur();
+                  }
+                }}
+                aria-label={lt("Project name")}
+                className="w-full rounded-[6px] border border-transparent bg-transparent px-1 -mx-1 text-3xl font-light tracking-tight text-white outline-none transition-colors hover:border-[var(--border)] focus:border-[var(--border-strong)] focus:bg-[var(--surface-elevated)] md:text-4xl"
+              />
+              {nameError ? <p className="mt-1 text-xs text-[#f87171]">{lt(nameError)}</p> : null}
+            </div>
+          )}
           <div className="mt-2">
             <ProjectStatusBadge status={project.status} />
           </div>
@@ -1834,8 +1869,36 @@ export function ProjectDetailView({ project }: { project: Project }) {
             )}
           </PropRow>
           <PropRow label={lt("Project type")}>
-            <ProjectTypeBadge type={project.type} />
+            {isRocketRideClient ? (
+              <ProjectTypeBadge type={project.type} />
+            ) : (
+              <select
+                value={project.type}
+                onChange={(e) =>
+                  updateBoardProject(project.id, { type: e.target.value as ProjectType })
+                }
+                className="max-w-[14rem] rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light text-white outline-none"
+              >
+                {PROJECT_TYPE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            )}
           </PropRow>
+          {!isRocketRideClient ? (
+            <PropRow label={lt("Start date")}>
+              <input
+                type="date"
+                value={project.startDate ?? ""}
+                onChange={(event) =>
+                  updateBoardProject(project.id, { startDate: event.target.value || null })
+                }
+                className="mono-num max-w-[12rem] rounded-[6px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-sm font-light text-white outline-none"
+              />
+            </PropRow>
+          ) : null}
         </div>
 
         {isRocketRideClient ? (
@@ -1874,19 +1937,18 @@ export function ProjectDetailView({ project }: { project: Project }) {
             </button>
             {moreOpen ? (
               <div className="mt-3 rounded-[8px] border border-[var(--border)] bg-[#101010] px-3 py-2">
-                <PropRow label={lt("Start date")}>
-                  <span className="mono-num text-[rgba(255,255,255,0.4)]">{formatDisplayDate(project.startDate)}</span>
-                </PropRow>
                 <PropRow label={lt("Team members")}>
-                  {project.teamMembers.length ? (
-                    <span className="text-[rgba(255,255,255,0.4)]">{project.teamMembers.join(", ")}</span>
+                  {project.teamMembers.length || project.owners.length ? (
+                    <span className="text-[rgba(255,255,255,0.55)]">
+                      {(project.teamMembers.length ? project.teamMembers : project.owners).join(", ")}
+                    </span>
                   ) : (
                     <span className="text-[rgba(255,255,255,0.4)]">—</span>
                   )}
                 </PropRow>
                 <PropRow label={lt("Linked invoices")}>
                   {project.linkedInvoices.length ? (
-                    <ul className="list-inside list-disc text-[rgba(255,255,255,0.4)]">
+                    <ul className="list-inside list-disc text-[rgba(255,255,255,0.55)]">
                       {project.linkedInvoices.map((inv) => (
                         <li key={inv}>{inv}</li>
                       ))}

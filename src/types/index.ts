@@ -1,6 +1,8 @@
 import type { ClientDashboardCards } from "@/lib/client-dashboard-cards";
+import type { HeroClocksPreference } from "@/lib/hero-clocks";
 
 export type { ClientDashboardCards, DashboardCardKey } from "@/lib/client-dashboard-cards";
+export type { HeroClocksPreference, HeroClockCityId } from "@/lib/hero-clocks";
 
 export type Role = "admin" | "manager" | "contributor" | "client";
 
@@ -210,6 +212,8 @@ export interface AppUser {
   /** When set, overrides client matrix locale until session toggle. */
   localePreference: AppLanguage | null;
   avatarUrl: string | null;
+  /** Hero world clocks: 1 or 2 cities per user. */
+  heroClocks: HeroClocksPreference;
 }
 
 export interface IdeaItem {

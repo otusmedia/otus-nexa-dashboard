@@ -7,6 +7,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/context/auth-context";
 import type { AppUser, ModuleKey, Role, UserCompany } from "@/types";
 import { ALL_MODULE_KEYS } from "@/lib/modules";
+import { parseHeroClocks } from "@/lib/hero-clocks";
 import { resolveDefaultLandingPathForUser } from "@/lib/default-landing-path";
 import { LoginEntrance } from "@/components/login/login-entrance";
 import { supabase } from "@/lib/supabase";
@@ -24,6 +25,7 @@ type AppUserDbRow = {
   client_slug?: string | null;
   locale_preference?: string | null;
   avatar_url?: string | null;
+  hero_clocks?: unknown;
 };
 
 const LOGIN_SEED: Array<{
@@ -126,6 +128,7 @@ function rowToAppUser(row: AppUserDbRow): AppUser {
       row.avatar_url != null && String(row.avatar_url).trim() !== ""
         ? String(row.avatar_url).trim()
         : null,
+    heroClocks: parseHeroClocks(row.hero_clocks),
   };
 }
 
@@ -141,6 +144,7 @@ function mapRecordToRow(r: Record<string, unknown>): AppUserDbRow {
     client_slug: r.client_slug != null ? String(r.client_slug) : null,
     locale_preference: r.locale_preference != null ? String(r.locale_preference) : null,
     avatar_url: r.avatar_url != null ? String(r.avatar_url) : null,
+    hero_clocks: r.hero_clocks,
   };
 }
 

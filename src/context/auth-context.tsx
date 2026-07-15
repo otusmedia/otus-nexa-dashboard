@@ -1,10 +1,18 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { parseHeroClocks } from "@/lib/hero-clocks";
 import type { AppUser } from "@/types";
 
 const STORAGE_KEY = "rr-auth-user-id";
 const CURRENT_USER_KEY = "currentUser";
+
+function normalizePersistedUser(parsed: AppUser): AppUser {
+  return {
+    ...parsed,
+    heroClocks: parseHeroClocks(parsed.heroClocks),
+  };
+}
 
 function readPersistedUserForSession(sessionId: string | null): AppUser | null {
   if (!sessionId) return null;
@@ -13,7 +21,7 @@ function readPersistedUserForSession(sessionId: string | null): AppUser | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AppUser;
     if (parsed && typeof parsed.id === "string" && parsed.id === sessionId) {
-      return parsed;
+      return normalizePersistedUser(parsed);
     }
     localStorage.removeItem(CURRENT_USER_KEY);
   } catch {

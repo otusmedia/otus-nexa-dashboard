@@ -104,6 +104,7 @@ import {
   DEFAULT_CLIENT_DASHBOARD_CARDS,
   parseClientDashboardCards,
 } from "@/lib/client-dashboard-cards";
+import { heroClocksToDb, parseHeroClocks } from "@/lib/hero-clocks";
 
 function filterProjectsByColumn(
   board: ProjectsByColumn,
@@ -131,6 +132,7 @@ interface AppContextValue {
   language: AppLanguage;
   setLanguage: (lang: AppLanguage) => void;
   saveLocalePreference: (lang: AppLanguage | null) => Promise<void>;
+  saveHeroClocks: (pref: AppUser["heroClocks"]) => Promise<void>;
   t: (key: TranslationKey) => string;
   td: (content: string) => string;
   ts: (status: string) => string;
@@ -290,7 +292,15 @@ interface AppContextValue {
   moveProjectInKanban: (result: DropResult) => void;
   updateBoardProject: (
     projectId: string,
-    patch: Partial<{ status: ProjectStatus; owners: string[]; dueDate: string | null }>,
+    patch: Partial<{
+      name: string;
+      status: ProjectStatus;
+      owners: string[];
+      dueDate: string | null;
+      startDate: string | null;
+      type: Project["type"];
+      description: string;
+    }>,
   ) => void;
 }
 
@@ -305,6 +315,7 @@ const GUEST_USER: AppUser = {
   clientSlug: null,
   localePreference: null,
   avatarUrl: null,
+  heroClocks: { cityIds: ["san-francisco", "curitiba"] },
 };
 
 const APP_USERS_SEED: Array<{
@@ -411,6 +422,7 @@ function appUserFromAppUsersRow(row: Record<string, unknown>): AppUser {
     clientSlug,
     localePreference,
     avatarUrl,
+    heroClocks: parseHeroClocks(row.hero_clocks),
   };
 }
 
@@ -830,6 +842,30 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       } catch {
         /* ignore */
       }
+    },
+    [sessionUserId, currentUser.id],
+  );
+
+  const saveHeroClocks = useCallback(
+    async (pref: AppUser["heroClocks"]) => {
+      if (!sessionUserId || currentUser.id === GUEST_USER.id) return;
+      const next = heroClocksToDb(pref);
+      const { error } = await supabase
+        .from("app_users")
+        .update({ hero_clocks: next })
+        .eq("id", sessionUserId);
+      if (error) {
+        console.error("[supabase] hero_clocks update failed:", error.message);
+        if (error.message.includes("hero_clocks")) {
+          console.error(
+            "[supabase] Run supabase/app-users-hero-clocks.sql in Supabase SQL Editor to add the column.",
+          );
+        }
+        return;
+      }
+      setUsers((prev) =>
+        prev.map((u) => (u.id === sessionUserId ? { ...u, heroClocks: next } : u)),
+      );
     },
     [sessionUserId, currentUser.id],
   );
@@ -1429,6 +1465,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       language,
       setLanguage,
       saveLocalePreference,
+      saveHeroClocks,
       t,
       td,
       ts,
@@ -2309,11 +2346,23 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           if (!base || sourceCol === null) return prev;
 
           let nextProject: Project = { ...base };
+          if (patch.name !== undefined) {
+            nextProject = { ...nextProject, name: patch.name };
+          }
           if (patch.owners !== undefined) {
             nextProject = { ...nextProject, owners: [...patch.owners], teamMembers: [...patch.owners] };
           }
           if (patch.dueDate !== undefined) {
             nextProject = { ...nextProject, dueDate: patch.dueDate };
+          }
+          if (patch.startDate !== undefined) {
+            nextProject = { ...nextProject, startDate: patch.startDate };
+          }
+          if (patch.type !== undefined) {
+            nextProject = { ...nextProject, type: patch.type };
+          }
+          if (patch.description !== undefined) {
+            nextProject = { ...nextProject, description: patch.description };
           }
           if (patch.status !== undefined) {
             const destCol = STATUS_TO_COLUMN[patch.status];
@@ -2340,6 +2389,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         });
 
         const dbPayload: Record<string, unknown> = {};
+        if (patch.name !== undefined) dbPayload.name = patch.name;
         if (patch.status !== undefined) dbPayload.status = patch.status;
         if (patch.owners !== undefined) {
           const joined = patch.owners.join(",");
@@ -2347,6 +2397,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           dbPayload.owners = joined;
         }
         if (patch.dueDate !== undefined) dbPayload.end_date = patch.dueDate;
+        if (patch.startDate !== undefined) dbPayload.start_date = patch.startDate;
+        if (patch.type !== undefined) dbPayload.type = patch.type;
+        if (patch.description !== undefined) dbPayload.description = patch.description;
         if (Object.keys(dbPayload).length === 0) return;
         void supabase
           .from("projects")
@@ -2361,6 +2414,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       language,
       setLanguage,
       saveLocalePreference,
+      saveHeroClocks,
       tLine,
       currentUser,
       localeSessionOverride,

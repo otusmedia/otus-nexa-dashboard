@@ -19,6 +19,7 @@ import {
   type ClientDashboardCards,
 } from "@/lib/client-dashboard-cards";
 import { isAgencyAdmin } from "@/lib/client-utils";
+import { resolveInstagramFeedImageUrl } from "@/lib/instagram-feed-upload";
 import { DashboardCardsVisibilityMenu } from "@/modules/dashboard/dashboard-cards-visibility-menu";
 import {
   clearInstagramCsvForClient,
@@ -763,6 +764,8 @@ export function DashboardModule() {
   const [instagramFeedExpanded, setInstagramFeedExpanded] = useState(false);
   const [instagramFeedModalOpen, setInstagramFeedModalOpen] = useState(false);
   const [instagramFeedDraft, setInstagramFeedDraft] = useState<InstagramFeedDraftSlot[]>([]);
+  const [instagramFeedSaving, setInstagramFeedSaving] = useState(false);
+  const [instagramFeedSaveError, setInstagramFeedSaveError] = useState<string | null>(null);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [kpiActiveTasks, setKpiActiveTasks] = useState(0);
   const [kpiTotalTasks, setKpiTotalTasks] = useState(0);
@@ -1030,33 +1033,43 @@ export function DashboardModule() {
     setInstagramFeedLoading(true);
     setInstagramFeedPosts(null);
 
+    const loadManual = async (): Promise<InstagramFeedPostStored[] | null> => {
+      let query = supabase.from("instagram_posts").select("*").order("created_at", { ascending: false });
+      if (dataClientSlug) {
+        query = query.eq("client_slug", dataClientSlug);
+      }
+      const postsRes = await query;
+      if (postsRes.error) {
+        console.error("[supabase] instagram_posts fetch failed:", postsRes.error.message);
+        return null;
+      }
+      const backup: InstagramFeedPostStored[] = ((postsRes.data as Array<Record<string, unknown>> | null) ?? []).map(
+        (row) => {
+          const sharesRaw = row.shares;
+          const sharesNum =
+            typeof sharesRaw === "number" && Number.isFinite(sharesRaw)
+              ? Math.max(0, Math.round(sharesRaw))
+              : undefined;
+          return {
+            id: String(row.id ?? ""),
+            imageUrl: String(row.image_url ?? ""),
+            likes: Number(row.likes ?? 0) || 0,
+            comments: Number(row.comments ?? 0) || 0,
+            caption: String(row.caption ?? ""),
+            ...(sharesNum !== undefined ? { shares: sharesNum } : {}),
+          };
+        },
+      );
+      return backup.length > 0 ? backup : null;
+    };
+
     void Promise.all([
-      supabase.from("instagram_posts").select("*").order("created_at", { ascending: false }),
+      loadManual(),
       fetch(apiUrlWithClient("/api/instagram-feed", dataClientSlug)).then((r) => r.json()),
     ])
-      .then(([postsRes, json]) => {
+      .then(([manualPosts, json]) => {
         if (cancelled) return;
-        if (postsRes.error) {
-          console.error("[supabase] instagram_posts fetch failed:", postsRes.error.message);
-          instagramFeedManualBackup.current = null;
-        } else {
-          const backup: InstagramFeedPostStored[] = ((postsRes.data as Array<Record<string, unknown>> | null) ?? []).map((row) => {
-            const sharesRaw = row.shares;
-            const sharesNum =
-              typeof sharesRaw === "number" && Number.isFinite(sharesRaw)
-                ? Math.max(0, Math.round(sharesRaw))
-                : undefined;
-            return {
-              id: String(row.id ?? ""),
-              imageUrl: String(row.image_url ?? ""),
-              likes: Number(row.likes ?? 0) || 0,
-              comments: Number(row.comments ?? 0) || 0,
-              caption: String(row.caption ?? ""),
-              ...(sharesNum !== undefined ? { shares: sharesNum } : {}),
-            };
-          });
-          instagramFeedManualBackup.current = backup.length > 0 ? backup : null;
-        }
+        instagramFeedManualBackup.current = manualPosts;
         const err = typeof json.error === "string" ? json.error : null;
         const posts = json.posts;
         if (!err && Array.isArray(posts)) {
@@ -1077,13 +1090,26 @@ export function DashboardModule() {
               isVideo: p.isVideo === true,
             };
           });
-          setInstagramFeedPosts(normalized.length > 0 ? normalized : []);
+          // Live API wins when it returns posts; otherwise keep saved manual feed.
+          if (normalized.length > 0) {
+            setInstagramFeedPosts(normalized);
+            setInstagramFeedSource("live");
+            setInstagramFeedError(null);
+            return;
+          }
+          if (manualPosts && manualPosts.length > 0) {
+            setInstagramFeedPosts(manualPosts);
+            setInstagramFeedSource("manual");
+            setInstagramFeedError(null);
+            return;
+          }
+          setInstagramFeedPosts([]);
           setInstagramFeedSource("live");
+          setInstagramFeedError(null);
           return;
         }
-        const restore = instagramFeedManualBackup.current;
-        if (restore && restore.length > 0) {
-          setInstagramFeedPosts(restore);
+        if (manualPosts && manualPosts.length > 0) {
+          setInstagramFeedPosts(manualPosts);
           setInstagramFeedSource("manual");
         } else {
           setInstagramFeedPosts(null);
@@ -1187,11 +1213,14 @@ export function DashboardModule() {
         ? storedPostsToDraftSlots(instagramFeedPosts)
         : [newInstagramFeedDraftSlot()];
     setInstagramFeedDraft(base);
+    setInstagramFeedSaveError(null);
     setInstagramFeedModalOpen(true);
   };
 
   const closeInstagramFeedModal = () => {
+    if (instagramFeedSaving) return;
     setInstagramFeedModalOpen(false);
+    setInstagramFeedSaveError(null);
   };
 
   const parseIgFeedIntInput = (s: string) => {
@@ -1199,45 +1228,89 @@ export function DashboardModule() {
     return Number.isFinite(n) ? Math.max(0, n) : 0;
   };
 
-  const saveInstagramFeedFromModal = () => {
-    const saved: InstagramFeedPostStored[] = instagramFeedDraft
-      .slice(0, 9)
-      .map((slot) => ({
-        id: slot.id,
-        imageUrl: slot.imageUrl.trim(),
-        likes: parseIgFeedIntInput(slot.likes),
-        comments: parseIgFeedIntInput(slot.comments),
-        caption: slot.caption.slice(0, 200),
-      }))
-      .filter(
-        (p) => p.imageUrl.length > 0 || p.caption.trim().length > 0 || p.likes > 0 || p.comments > 0,
-      );
-    if (saved.length === 0) {
-      setInstagramFeedPosts(null);
-      void supabase.from("instagram_posts").delete().not("id", "is", null).then(({ error }) => {
-        if (error) console.error("[supabase] instagram_posts clear failed:", error.message);
-      });
-    } else {
-      setInstagramFeedPosts(saved);
-      void supabase.from("instagram_posts").delete().not("id", "is", null).then(({ error }) => {
-        if (error) console.error("[supabase] instagram_posts reset failed:", error.message);
-      });
-      void supabase
-        .from("instagram_posts")
-        .insert(
-          saved.map((post) => ({
-            id: post.id,
-            image_url: post.imageUrl,
-            likes: post.likes,
-            comments: post.comments,
-            caption: post.caption,
-          })),
-        )
-        .then(({ error }) => {
-          if (error) console.error("[supabase] instagram_posts insert failed:", error.message);
-        });
+  const saveInstagramFeedFromModal = async () => {
+    if (!dataClientSlug) {
+      setInstagramFeedSaveError(lt("Select a client before saving Instagram posts."));
+      return;
     }
-    setInstagramFeedModalOpen(false);
+    setInstagramFeedSaving(true);
+    setInstagramFeedSaveError(null);
+
+    try {
+      const draftPosts = instagramFeedDraft
+        .slice(0, 9)
+        .map((slot) => ({
+          id: slot.id,
+          imageUrl: slot.imageUrl.trim(),
+          likes: parseIgFeedIntInput(slot.likes),
+          comments: parseIgFeedIntInput(slot.comments),
+          caption: slot.caption.slice(0, 200),
+        }))
+        .filter(
+          (p) => p.imageUrl.length > 0 || p.caption.trim().length > 0 || p.likes > 0 || p.comments > 0,
+        );
+
+      const saved: InstagramFeedPostStored[] = [];
+      for (const post of draftPosts) {
+        if (!post.imageUrl) {
+          saved.push(post);
+          continue;
+        }
+        const uploaded = await resolveInstagramFeedImageUrl(post.imageUrl, dataClientSlug, post.id);
+        if (!uploaded.url) {
+          throw new Error(uploaded.error || "Image upload failed.");
+        }
+        saved.push({ ...post, imageUrl: uploaded.url });
+      }
+
+      const { error: clearError } = await supabase
+        .from("instagram_posts")
+        .delete()
+        .eq("client_slug", dataClientSlug);
+      if (clearError) {
+        throw new Error(clearError.message);
+      }
+
+      if (saved.length === 0) {
+        setInstagramFeedPosts(null);
+        instagramFeedManualBackup.current = null;
+        setInstagramFeedSource("manual");
+        setInstagramFeedModalOpen(false);
+        return;
+      }
+
+      const { error: insertError } = await supabase.from("instagram_posts").insert(
+        saved.map((post) => ({
+          id: post.id,
+          client_slug: dataClientSlug,
+          image_url: post.imageUrl,
+          likes: post.likes,
+          comments: post.comments,
+          caption: post.caption,
+        })),
+      );
+      if (insertError) {
+        throw new Error(insertError.message);
+      }
+
+      setInstagramFeedPosts(saved);
+      instagramFeedManualBackup.current = saved;
+      setInstagramFeedSource("manual");
+      setInstagramFeedError(null);
+      setInstagramFeedModalOpen(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[supabase] instagram_posts save failed:", message);
+      if (message.includes("client_slug") || message.includes("instagram-feed")) {
+        setInstagramFeedSaveError(
+          lt("Instagram feed migration required. Run supabase/instagram-posts-client.sql in Supabase."),
+        );
+      } else {
+        setInstagramFeedSaveError(message);
+      }
+    } finally {
+      setInstagramFeedSaving(false);
+    }
   };
 
   const addInstagramFeedDraftSlot = () => {
@@ -1250,14 +1323,20 @@ export function DashboardModule() {
       if (!prev) return null;
       const next = prev.filter((p) => p.id !== postId);
       if (next.length === 0) {
-        void supabase.from("instagram_posts").delete().not("id", "is", null).then(({ error }) => {
+        let clearQuery = supabase.from("instagram_posts").delete();
+        clearQuery = dataClientSlug
+          ? clearQuery.eq("client_slug", dataClientSlug)
+          : clearQuery.not("id", "is", null);
+        void clearQuery.then(({ error }) => {
           if (error) console.error("[supabase] instagram_posts clear failed:", error.message);
         });
+        instagramFeedManualBackup.current = null;
         return null;
       }
       void supabase.from("instagram_posts").delete().eq("id", postId).then(({ error }) => {
         if (error) console.error("[supabase] instagram_posts delete failed:", error.message);
       });
+      instagramFeedManualBackup.current = next;
       return next;
     });
   };
@@ -3273,12 +3352,25 @@ export function DashboardModule() {
             <Plus className="h-4 w-4" strokeWidth={1.75} />
             {lt("Add Post")}
           </button>
+          {instagramFeedSaveError ? (
+            <p className="mt-3 text-xs text-[#f87171]">{instagramFeedSaveError}</p>
+          ) : null}
           <div className="mt-6 flex justify-end gap-2">
-            <button type="button" className="btn-ghost rounded-lg px-3 py-2 text-xs" onClick={closeInstagramFeedModal}>
+            <button
+              type="button"
+              className="btn-ghost rounded-lg px-3 py-2 text-xs"
+              onClick={closeInstagramFeedModal}
+              disabled={instagramFeedSaving}
+            >
               {lt("Cancel")}
             </button>
-            <button type="button" className="btn-primary rounded-lg px-3 py-2 text-xs" onClick={saveInstagramFeedFromModal}>
-              {lt("Save")}
+            <button
+              type="button"
+              className="btn-primary rounded-lg px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void saveInstagramFeedFromModal()}
+              disabled={instagramFeedSaving}
+            >
+              {instagramFeedSaving ? lt("Saving…") : lt("Save")}
             </button>
           </div>
         </Modal>
