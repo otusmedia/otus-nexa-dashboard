@@ -19,6 +19,9 @@ const platformPtBR: Record<string, string> = {
   Contracts: "Contratos",
   Settings: "Configurações",
   "Users & RBAC": "Usuários e RBAC",
+  Theme: "Tema",
+  "Dark theme": "Tema escuro",
+  "Light theme": "Tema claro",
 
   // Dashboard
   "Dashboard cards": "Cards do dashboard",

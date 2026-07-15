@@ -7,6 +7,7 @@ import type { Client } from "@/types";
 import type { ModuleKey } from "@/types";
 import { SidebarClientPicker } from "@/components/layout/sidebar-client-picker";
 import { SidebarNav, type SidebarNavLink } from "@/components/layout/sidebar-nav";
+import { SidebarThemeSwitch } from "@/components/layout/sidebar-theme-switch";
 import { ClientLogo } from "@/components/ui/client-logo";
 import { cn } from "@/lib/utils";
 
@@ -118,7 +119,7 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
           <img
             src="/frame-1.svg"
             alt="RocketRide logo"
-            className="h-[36.8px] w-auto max-w-[93.15px] object-contain object-left"
+            className="sidebar-brand-logo h-[36.8px] w-auto max-w-[93.15px] object-contain object-left"
           />
         </div>
         {showCollapse ? (
@@ -186,7 +187,8 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
         </nav>
       </div>
 
-      <div className="shrink-0 space-y-3 border-t border-[rgba(255,255,255,0.06)] px-3 pb-8 pt-3">
+      <div className="shrink-0 space-y-3 border-t border-[var(--border)] px-3 pb-8 pt-3">
+        <SidebarThemeSwitch lt={lt} />
         {agencyAdmin ? (
           <SidebarClientPicker
             clients={clients}

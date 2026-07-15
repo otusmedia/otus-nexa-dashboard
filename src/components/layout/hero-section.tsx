@@ -22,32 +22,43 @@ function clampHeroHeightPx(px: number): number {
   return Math.round(Math.min(max, Math.max(HERO_HEIGHT_MIN_PX, px)));
 }
 
-const heroBgToggleButtonStyle: CSSProperties = {
+const heroGlassOnImage: CSSProperties = {
   background: "rgba(255, 255, 255, 0.05)",
   backdropFilter: "blur(11px) saturate(110%)",
   WebkitBackdropFilter: "blur(11px) saturate(110%)",
   border: "1px solid rgba(255, 255, 255, 0.08)",
-  borderRadius: 8,
-  padding: 8,
 };
 
-const heroClockCardGlassStyle: CSSProperties = {
-  background: "rgba(255, 255, 255, 0.05)",
-  backdropFilter: "blur(11px) saturate(110%)",
-  WebkitBackdropFilter: "blur(11px) saturate(110%)",
-  border: "1px solid rgba(255, 255, 255, 0.08)",
-  borderRadius: 8,
-  boxSizing: "border-box",
+const heroGlassOnSurface: CSSProperties = {
+  background: "var(--surface-elevated)",
+  backdropFilter: "none",
+  WebkitBackdropFilter: "none",
+  border: "1px solid var(--border-strong)",
 };
 
-const heroClockToggleShellStyle: CSSProperties = {
-  background: "rgba(255, 255, 255, 0.05)",
-  backdropFilter: "blur(11px) saturate(110%)",
-  WebkitBackdropFilter: "blur(11px) saturate(110%)",
-  border: "1px solid rgba(255, 255, 255, 0.08)",
-  borderRadius: 20,
-  padding: 4,
-};
+function heroControlButtonStyle(onImage: boolean): CSSProperties {
+  return {
+    ...(onImage ? heroGlassOnImage : heroGlassOnSurface),
+    borderRadius: 8,
+    padding: 8,
+  };
+}
+
+function heroClockCardStyle(onImage: boolean): CSSProperties {
+  return {
+    ...(onImage ? heroGlassOnImage : heroGlassOnSurface),
+    borderRadius: 8,
+    boxSizing: "border-box",
+  };
+}
+
+function heroClockToggleShellStyle(onImage: boolean): CSSProperties {
+  return {
+    ...(onImage ? heroGlassOnImage : heroGlassOnSurface),
+    borderRadius: 20,
+    padding: 4,
+  };
+}
 
 type HeroClockMode = "digital" | "analog";
 
@@ -60,7 +71,12 @@ function HeroDigitalClockTime({ date, timeZone, lang }: { date: Date; timeZone: 
   }).formatToParts(date);
 
   return (
-    <p className="whitespace-nowrap font-[family-name:var(--font-mono)] text-[1.75rem] font-light tabular-nums leading-none text-white">
+    <p
+      className={cn(
+        "whitespace-nowrap font-[family-name:var(--font-mono)] text-[1.75rem] font-light tabular-nums leading-none",
+        "text-[var(--hero-fg)]",
+      )}
+    >
       {parts.map((part, i) =>
         part.type === "dayPeriod" ? (
           <span key={i} className="ml-0.5 align-baseline text-[0.55em] font-normal uppercase leading-none tracking-wide">
@@ -87,26 +103,36 @@ function getHMSInZone(date: Date, timeZone: string): { hour: number; minute: num
   return { hour: n("hour"), minute: n("minute"), second: n("second") };
 }
 
-function HeroAnalogClock({ date, timeZone }: { date: Date; timeZone: string }) {
+function HeroAnalogClock({
+  date,
+  timeZone,
+  onImage,
+}: {
+  date: Date;
+  timeZone: string;
+  onImage: boolean;
+}) {
   const { hour, minute, second } = getHMSInZone(date, timeZone);
   const h12 = hour % 12;
   const hourDeg = (h12 + minute / 60) * 30;
   const minuteDeg = (minute + second / 60) * 6;
   const secondDeg = second * 6;
+  const hand = onImage ? "#ffffff" : "var(--text)";
+  const face = onImage ? "rgba(0, 0, 0, 0.45)" : "var(--surface)";
 
   return (
     <svg width="100" height="100" viewBox="0 0 100 100" className="block shrink-0" aria-hidden>
-      <circle cx="50" cy="50" r="49" fill="rgba(0, 0, 0, 0.45)" />
+      <circle cx="50" cy="50" r="49" fill={face} stroke="var(--border-strong)" strokeWidth="1" />
       <g transform={`rotate(${hourDeg} 50 50)`}>
-        <line x1="50" y1="50" x2="50" y2="32" stroke="white" strokeWidth="4" strokeLinecap="round" />
+        <line x1="50" y1="50" x2="50" y2="32" stroke={hand} strokeWidth="4" strokeLinecap="round" />
       </g>
       <g transform={`rotate(${minuteDeg} 50 50)`}>
-        <line x1="50" y1="50" x2="50" y2="22" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="50" y1="50" x2="50" y2="22" stroke={hand} strokeWidth="2.5" strokeLinecap="round" />
       </g>
       <g transform={`rotate(${secondDeg} 50 50)`}>
         <line x1="50" y1="50" x2="50" y2="16" stroke="#FF4500" strokeWidth="1.5" strokeLinecap="round" />
       </g>
-      <circle cx="50" cy="50" r="4" fill="white" />
+      <circle cx="50" cy="50" r="4" fill={hand} />
     </svg>
   );
 }
@@ -283,22 +309,34 @@ function HeroSection() {
 
   const now = new Date();
   const firstName = currentUser.name.trim().split(/\s+/)[0] ?? "";
+  const onImage = heroBgVisible;
+
+  const heroToneStyle = {
+    height: isHeroFullscreen ? "100dvh" : heroHeightPx,
+    ["--hero-fg" as string]: onImage ? "#ffffff" : "var(--text)",
+    ["--hero-muted" as string]: onImage ? "rgba(255, 255, 255, 0.4)" : "var(--muted)",
+    ["--hero-faint" as string]: onImage ? "rgba(255, 255, 255, 0.3)" : "var(--muted)",
+    ["--hero-handle" as string]: onImage ? "rgba(255, 255, 255, 0.2)" : "var(--border-strong)",
+    ["--hero-active-bg" as string]: onImage ? "#ffffff" : "var(--text)",
+    ["--hero-active-fg" as string]: onImage ? "#111111" : "var(--background)",
+  } as CSSProperties;
 
   return (
     <section
       ref={sectionRef}
       suppressHydrationWarning
       className={cn(
-        "relative box-border flex min-h-0 max-w-none flex-col items-start justify-start overflow-hidden",
+        "dashboard-hero relative box-border flex min-h-0 max-w-none flex-col items-start justify-start overflow-hidden",
+        onImage && "dashboard-hero--on-image",
         isHeroFullscreen
           ? cn("mx-0 mb-0 mt-0 min-h-[100dvh] w-full", HERO_FS_PAD)
           : "mb-0 w-full -mt-6 px-6 lg:px-8",
-        !heroBgVisible && "bg-transparent",
+        !onImage && "bg-transparent",
       )}
-      style={{ height: isHeroFullscreen ? "100dvh" : heroHeightPx }}
+      style={heroToneStyle}
       aria-label={lt("Dashboard hero")}
     >
-      {heroBgVisible ? (
+      {onImage ? (
         <>
           <img
             src={heroImageUrl}
@@ -322,11 +360,11 @@ function HeroSection() {
         <button
           type="button"
           onClick={toggleHeroBgVisible}
-          aria-label={heroBgVisible ? lt("Hide hero background") : lt("Show hero background")}
-          className="text-[rgba(255,255,255,0.4)]"
-          style={heroBgToggleButtonStyle}
+          aria-label={onImage ? lt("Hide hero background") : lt("Show hero background")}
+          className="text-[var(--hero-muted)]"
+          style={heroControlButtonStyle(onImage)}
         >
-          {heroBgVisible ? (
+          {onImage ? (
             <Eye className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
           ) : (
             <EyeOff className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
@@ -336,8 +374,8 @@ function HeroSection() {
           type="button"
           onClick={() => void handleScreensaverFullscreenClick()}
           aria-label={isHeroFullscreen ? lt("Exit hero fullscreen") : lt("Enter hero fullscreen")}
-          className="text-[rgba(255,255,255,0.4)]"
-          style={heroBgToggleButtonStyle}
+          className="text-[var(--hero-muted)]"
+          style={heroControlButtonStyle(onImage)}
         >
           {isHeroFullscreen ? (
             <Minimize2 className="h-[14px] w-[14px]" strokeWidth={1.75} aria-hidden />
@@ -353,28 +391,35 @@ function HeroSection() {
         )}
       >
         <div className="flex min-w-0 flex-col">
-          <p className="text-[0.8rem] font-light tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+          <p className="text-[0.8rem] font-light tracking-[0.08em] text-[var(--hero-muted)]">
             {formatLongDate(now, language)}
           </p>
           <h1 className="mt-2 font-light">
-            <span className="block text-[clamp(3rem,6vw,5rem)] leading-none text-white opacity-[0.64]">
+            <span className="block text-[clamp(3rem,6vw,5rem)] leading-none text-[var(--hero-fg)] opacity-[0.64]">
               {timeOfDayGreeting(language)}
             </span>
-            <span className="mt-1 block text-[clamp(3rem,6vw,5rem)] leading-none text-white opacity-100">
+            <span className="mt-1 block text-[clamp(3rem,6vw,5rem)] leading-none text-[var(--hero-fg)] opacity-100">
               {firstName}
             </span>
           </h1>
         </div>
         <div className="flex shrink-0 flex-col items-start justify-start">
           <div className="flex flex-col items-center">
-            <div className="mb-4 inline-flex shrink-0" style={heroClockToggleShellStyle} role="group" aria-label={lt("Clock display mode")}>
+            <div
+              className="mb-4 inline-flex shrink-0"
+              style={heroClockToggleShellStyle(onImage)}
+              role="group"
+              aria-label={lt("Clock display mode")}
+            >
               <button
                 type="button"
                 onClick={() => setClockModePersist("digital")}
                 aria-label={lt("Digital clock")}
                 className={cn(
                   "inline-flex items-center justify-center rounded-[16px]",
-                  clockMode === "digital" ? "bg-white text-[#111111]" : "bg-transparent text-[rgba(255,255,255,0.4)]",
+                  clockMode === "digital"
+                    ? "bg-[var(--hero-active-bg)] text-[var(--hero-active-fg)]"
+                    : "bg-transparent text-[var(--hero-muted)]",
                 )}
                 style={{ padding: "4px 12px" }}
               >
@@ -386,7 +431,9 @@ function HeroSection() {
                 aria-label={lt("Analog clock")}
                 className={cn(
                   "inline-flex items-center justify-center rounded-[16px]",
-                  clockMode === "analog" ? "bg-white text-[#111111]" : "bg-transparent text-[rgba(255,255,255,0.4)]",
+                  clockMode === "analog"
+                    ? "bg-[var(--hero-active-bg)] text-[var(--hero-active-fg)]"
+                    : "bg-transparent text-[var(--hero-muted)]",
                 )}
                 style={{ padding: "4px 12px" }}
               >
@@ -394,28 +441,34 @@ function HeroSection() {
               </button>
             </div>
             <div className="flex flex-row flex-wrap items-stretch justify-center gap-4">
-              <div className="flex min-h-0 w-[200px] min-w-[200px] max-w-[200px] shrink-0 flex-col" style={heroClockCardGlassStyle}>
+              <div
+                className="flex min-h-0 w-[200px] min-w-[200px] max-w-[200px] shrink-0 flex-col"
+                style={heroClockCardStyle(onImage)}
+              >
                 <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center gap-2 p-[24px] text-center">
-                  <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">
+                  <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[var(--hero-muted)]">
                     San Francisco
                   </p>
                   {clockMode === "digital" ? (
                     <HeroDigitalClockTime date={now} timeZone="America/Los_Angeles" lang={language} />
                   ) : (
-                    <HeroAnalogClock date={now} timeZone="America/Los_Angeles" />
+                    <HeroAnalogClock date={now} timeZone="America/Los_Angeles" onImage={onImage} />
                   )}
-                  <p className="text-[0.7rem] font-light text-[rgba(255,255,255,0.3)]">PT</p>
+                  <p className="text-[0.7rem] font-light text-[var(--hero-faint)]">PT</p>
                 </div>
               </div>
-              <div className="flex min-h-0 w-[200px] min-w-[200px] max-w-[200px] shrink-0 flex-col" style={heroClockCardGlassStyle}>
+              <div
+                className="flex min-h-0 w-[200px] min-w-[200px] max-w-[200px] shrink-0 flex-col"
+                style={heroClockCardStyle(onImage)}
+              >
                 <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center gap-2 p-[24px] text-center">
-                  <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[rgba(255,255,255,0.4)]">Curitiba</p>
+                  <p className="text-[0.7rem] font-light uppercase tracking-[0.1em] text-[var(--hero-muted)]">Curitiba</p>
                   {clockMode === "digital" ? (
                     <HeroDigitalClockTime date={now} timeZone="America/Sao_Paulo" lang={language} />
                   ) : (
-                    <HeroAnalogClock date={now} timeZone="America/Sao_Paulo" />
+                    <HeroAnalogClock date={now} timeZone="America/Sao_Paulo" onImage={onImage} />
                   )}
-                  <p className="text-[0.7rem] font-light text-[rgba(255,255,255,0.3)]">BRT</p>
+                  <p className="text-[0.7rem] font-light text-[var(--hero-faint)]">BRT</p>
                 </div>
               </div>
             </div>
@@ -432,7 +485,7 @@ function HeroSection() {
           aria-orientation="horizontal"
           aria-label={lt("Resize hero height")}
         >
-          <div className="pointer-events-none h-0.5 w-10 rounded-sm bg-[rgba(255,255,255,0.2)] opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100" />
+          <div className="pointer-events-none h-0.5 w-10 rounded-sm bg-[var(--hero-handle)] opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100" />
         </div>
       ) : null}
     </section>

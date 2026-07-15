@@ -2,20 +2,144 @@
 @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap");
 @import "tailwindcss";
 
-:root {
+:root,
+[data-theme="dark"] {
   color-scheme: dark;
   --font-sans: "Plus Jakarta Sans", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
   --background: #111111;
   --surface: #050505;
   --surface-elevated: #121212;
+  --card: #161616;
+  --sidebar: #000000;
   --primary: #ff4500;
   --accent: #ff4500;
   --text: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.65);
   --muted: rgba(255, 255, 255, 0.4);
   --border: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.08);
   --kpi-active-border: rgba(255, 255, 255, 0.06);
+  --hover-fill: rgba(255, 255, 255, 0.04);
+  --overlay: rgba(0, 0, 0, 0.7);
+  --ghost-btn-bg: #101010;
+  --on-primary: #ffffff;
+  --section-title: rgba(255, 255, 255, 0.4);
+  --source-label: rgba(255, 255, 255, 0.25);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --background: #f4f4f5;
+  --surface: #ffffff;
+  --surface-elevated: #f0f0f2;
+  --card: #ffffff;
+  --sidebar: #ffffff;
+  --primary: #ff4500;
+  --accent: #ff4500;
+  --text: #141416;
+  --text-secondary: rgba(20, 20, 22, 0.72);
+  --muted: rgba(20, 20, 22, 0.48);
+  --border: rgba(20, 20, 22, 0.1);
+  --border-strong: rgba(20, 20, 22, 0.16);
+  --kpi-active-border: rgba(20, 20, 22, 0.12);
+  --hover-fill: rgba(20, 20, 22, 0.04);
+  --overlay: rgba(15, 15, 18, 0.45);
+  --ghost-btn-bg: #ececee;
+  --on-primary: #ffffff;
+  --section-title: rgba(20, 20, 22, 0.45);
+  --source-label: rgba(20, 20, 22, 0.35);
+}
+
+/*
+ * Compatibility bridge: many screens still hardcode white/dark hex utilities.
+ * Remap them under light theme so the toggle is usable while modules migrate.
+ */
+[data-theme="light"] .text-white {
+  color: var(--text) !important;
+}
+
+[data-theme="light"] .btn-primary,
+[data-theme="light"] .btn-primary.text-white,
+[data-theme="light"] [class*="bg-[var(--primary)]"].text-white,
+[data-theme="light"] [class*="bg-[#FF4500]"].text-white,
+[data-theme="light"] [class*="bg-[#ff4500]"].text-white,
+[data-theme="light"] [class*="bg-[rgba(255,69,0"].text-white,
+[data-theme="light"] [class*="bg-[#ef4444]"].text-white,
+[data-theme="light"] [class*="bg-[#dc2626]"].text-white {
+  color: var(--on-primary) !important;
+}
+
+[data-theme="light"] .hover\:text-white:hover {
+  color: var(--text) !important;
+}
+
+[data-theme="light"] [class*="text-[rgba(255,255,255"] {
+  color: var(--muted) !important;
+}
+
+[data-theme="light"] [class*="text-[rgba(255,255,255,0.65"],
+[data-theme="light"] [class*="text-[rgba(255,255,255,0.7"],
+[data-theme="light"] [class*="text-[rgba(255,255,255,0.75"],
+[data-theme="light"] [class*="text-[rgba(255,255,255,0.8"],
+[data-theme="light"] [class*="text-[rgba(255,255,255,0.85"],
+[data-theme="light"] [class*="text-[rgba(255,255,255,0.9"] {
+  color: var(--text-secondary) !important;
+}
+
+[data-theme="light"] .bg-black,
+[data-theme="light"] .bg-\[\#000000\] {
+  background-color: var(--sidebar) !important;
+}
+
+[data-theme="light"] [class*="bg-[#161616]"],
+[data-theme="light"] [class*="bg-[#131313]"],
+[data-theme="light"] [class*="bg-[#121212]"],
+[data-theme="light"] [class*="bg-[#101010]"],
+[data-theme="light"] [class*="bg-[#0d0d0d]"],
+[data-theme="light"] [class*="bg-[#0a0a0a]"],
+[data-theme="light"] [class*="bg-[#1a1a1a]"],
+[data-theme="light"] [class*="bg-[#1f1f1f]"] {
+  background-color: var(--card) !important;
+}
+
+[data-theme="light"] [class*="hover:bg-[rgba(255,255,255"]:hover,
+[data-theme="light"] [class*="hover:bg-white/"]:hover {
+  background-color: var(--hover-fill) !important;
+}
+
+[data-theme="light"] [class*="border-[rgba(255,255,255"],
+[data-theme="light"] [class*="border-white/"] {
+  border-color: var(--border) !important;
+}
+
+[data-theme="light"] .\[color-scheme\:dark\] {
+  color-scheme: light !important;
+}
+
+[data-theme="light"] .sidebar-brand-logo {
+  filter: invert(1) brightness(0.12);
+}
+
+/* Hero with photo: keep white/glass chrome readable on the image (ignore light remaps). */
+[data-theme="light"] .dashboard-hero--on-image .text-white {
+  color: #ffffff !important;
+}
+
+[data-theme="light"] .dashboard-hero--on-image .hover\:text-white:hover {
+  color: #ffffff !important;
+}
+
+[data-theme="light"] .dashboard-hero--on-image [class*="text-[rgba(255,255,255,0.3"] {
+  color: rgba(255, 255, 255, 0.3) !important;
+}
+
+[data-theme="light"] .dashboard-hero--on-image [class*="text-[rgba(255,255,255,0.4"] {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+[data-theme="light"] .dashboard-hero--on-image [class*="text-[rgba(255,255,255,0.2"] {
+  color: rgba(255, 255, 255, 0.2) !important;
 }
 
 body {
@@ -82,7 +206,7 @@ td {
 
 .btn-ghost {
   border: 1px solid var(--border-strong);
-  background: #101010;
+  background: var(--ghost-btn-bg);
   color: var(--text);
   font-weight: 500;
 }
@@ -131,7 +255,7 @@ td {
   font-weight: 400;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--section-title);
 }
 
 .metric-value {
@@ -154,7 +278,7 @@ td {
 
 .source-label {
   font-size: 0.65rem;
-  color: rgba(255, 255, 255, 0.25);
+  color: var(--source-label);
   font-weight: 300;
 }
 

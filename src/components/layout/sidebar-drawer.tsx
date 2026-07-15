@@ -45,7 +45,7 @@ export function SidebarDrawer({ open, onClose, ...panelProps }: SidebarDrawerPro
       />
       <div
         ref={panelRef}
-        className="relative flex h-full w-64 max-w-[85vw] flex-col border-r border-[var(--border)] bg-black shadow-2xl"
+        className="relative flex h-full w-64 max-w-[85vw] flex-col border-r border-[var(--border)] bg-[var(--sidebar)] shadow-2xl"
       >
         <SidebarPanelContent {...panelProps} variant="drawer" onCloseDrawer={onClose} />
       </div>

@@ -466,7 +466,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-[var(--background)] text-[var(--text)]">
       <div className="flex min-w-0 flex-row">
         {showDesktopAside ? (
-          <aside className="sticky top-0 hidden h-screen w-64 min-w-64 shrink-0 flex-col overflow-hidden border-r border-[var(--border)] bg-black lg:flex">
+          <aside className="sticky top-0 hidden h-screen w-64 min-w-64 shrink-0 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--sidebar)] lg:flex">
             <SidebarPanelContent
               {...sidebarPanelProps}
               variant="aside"
