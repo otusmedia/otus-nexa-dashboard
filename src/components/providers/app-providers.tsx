@@ -105,6 +105,15 @@ import {
   parseClientDashboardCards,
 } from "@/lib/client-dashboard-cards";
 import { heroClocksToDb, parseHeroClocks } from "@/lib/hero-clocks";
+import {
+  dismissId,
+  isNotificationDismissed,
+  isNotificationRead,
+  loadNotificationPrefs,
+  markIdsRead,
+  saveNotificationPrefs,
+  type NotificationPrefs,
+} from "@/lib/notification-prefs";
 
 function filterProjectsByColumn(
   board: ProjectsByColumn,
@@ -618,6 +627,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [appUsersReady, setAppUsersReady] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const notificationPrefsRef = useRef<NotificationPrefs>(loadNotificationPrefs(null));
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [events, setEvents] = useState<EventItem[]>(eventsSeed);
@@ -907,12 +917,48 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       });
   };
   const pushNotification = useCallback((message: string, type: NotificationItem["type"], stableId?: string) => {
+    const prefs = notificationPrefsRef.current;
+    if (stableId && isNotificationDismissed(prefs, stableId)) return;
     setNotifications((prev) => {
       if (stableId && prev.some((n) => n.id === stableId)) return prev;
       const id = stableId ?? crypto.randomUUID();
-      return [{ id, message, type, read: false }, ...prev].slice(0, 50);
+      const read = isNotificationRead(prefs, id);
+      return [{ id, message, type, read }, ...prev].slice(0, 50);
     });
   }, []);
+
+  const markAllAsRead = useCallback(() => {
+    setNotifications((prev) => {
+      const next = prev.map((item) => ({ ...item, read: true }));
+      const prefs = markIdsRead(
+        notificationPrefsRef.current,
+        next.map((n) => n.id),
+      );
+      notificationPrefsRef.current = prefs;
+      saveNotificationPrefs(sessionUserId, prefs);
+      return next;
+    });
+  }, [sessionUserId]);
+
+  const markNotificationRead = useCallback(
+    (id: string) => {
+      setNotifications((prev) => prev.map((item) => (item.id === id ? { ...item, read: true } : item)));
+      const prefs = markIdsRead(notificationPrefsRef.current, [id]);
+      notificationPrefsRef.current = prefs;
+      saveNotificationPrefs(sessionUserId, prefs);
+    },
+    [sessionUserId],
+  );
+
+  const dismissNotification = useCallback(
+    (id: string) => {
+      setNotifications((prev) => prev.filter((item) => item.id !== id));
+      const prefs = dismissId(notificationPrefsRef.current, id);
+      notificationPrefsRef.current = prefs;
+      saveNotificationPrefs(sessionUserId, prefs);
+    },
+    [sessionUserId],
+  );
   const notifyProjectComment = useCallback(
     (input: { commentId: string; authorName: string; projectName: string; ownerNames: string[] }) => {
       if (!sessionUserId || currentUser.id === GUEST_USER.id) return;
@@ -988,6 +1034,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    notificationPrefsRef.current = loadNotificationPrefs(sessionUserId);
     if (!sessionUserId) {
       setNotifications([]);
     }
@@ -1002,6 +1049,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     const me = currentUser.name.trim();
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const prefs = notificationPrefsRef.current;
 
     const parseYmdTime = (s: string | null | undefined): number | null => {
       if (!s) return null;
@@ -1022,6 +1070,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           if (dueT === null) continue;
           if (dueT > todayStart) continue;
           const id = `board-due:${task.id}`;
+          if (isNotificationDismissed(prefs, id)) continue;
           desired.set(id, {
             message: dueT === todayStart ? `Task due today: ${task.name}` : `Overdue task: ${task.name}`,
           });
@@ -1036,6 +1085,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       if (dueT === null) continue;
       if (dueT > todayStart) continue;
       const id = `platform-due:${task.id}`;
+      if (isNotificationDismissed(prefs, id)) continue;
       desired.set(id, {
         message: dueT === todayStart ? `Task due today: ${task.title}` : `Overdue task: ${task.title}`,
       });
@@ -1052,7 +1102,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           id,
           message,
           type: "task",
-          read: prevMatch?.read ?? false,
+          read: prevMatch?.read ?? isNotificationRead(prefs, id),
         });
       }
       return [...dueItems, ...withoutDue].slice(0, 50);
@@ -1096,21 +1146,23 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (cancelled) return;
+      const prefs = notificationPrefsRef.current;
       setNotifications((prev) => {
         const desiredById = new Map<string, NotificationItem>();
         for (const row of rows) {
           const reviewId = String(row.id ?? "");
           if (!reviewId) continue;
+          const id = `task-review:${reviewId}`;
+          if (isNotificationDismissed(prefs, id)) continue;
           const reviewer = String(row.reviewer_name ?? "").trim() || "A RocketRide reviewer";
           const taskName = taskNameById.get(String(row.task_id ?? "")) || "a task";
           const status = String(row.status ?? "").trim() || "Updated";
-          const id = `task-review:${reviewId}`;
           const prior = prev.find((item) => item.id === id);
           desiredById.set(id, {
             id,
             type: "task",
             message: `${reviewer} left feedback on ${taskName}: ${status}`,
-            read: prior?.read ?? false,
+            read: prior?.read ?? isNotificationRead(prefs, id),
           });
         }
         const withoutTaskReviews = prev.filter((item) => !item.id.startsWith("task-review:"));
@@ -1142,6 +1194,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           const rows =
             (data as Array<{ id?: string; title?: string | null; reminder_note?: string | null }> | null) ?? [];
           setNotifications((prev) => {
+            const prefs = notificationPrefsRef.current;
             const wantIds = new Set(
               rows
                 .map((r) => `mkt-reminder:${String(r.id ?? "")}`)
@@ -1149,20 +1202,21 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             );
             const base = prev.filter((n) => {
               if (!n.id.startsWith("mkt-reminder:")) return true;
-              return wantIds.has(n.id);
+              return wantIds.has(n.id) && !isNotificationDismissed(prefs, n.id);
             });
             const existing = new Set(base.map((n) => n.id));
             const additions: NotificationItem[] = [];
             for (const row of rows) {
               const id = `mkt-reminder:${String(row.id ?? "")}`;
               if (id === "mkt-reminder:" || existing.has(id)) continue;
+              if (isNotificationDismissed(prefs, id)) continue;
               const title = String(row.title ?? "");
               const note = String(row.reminder_note ?? "");
               additions.push({
                 id,
                 message: `Reminder: ${title} — ${note}`,
                 type: "task",
-                read: false,
+                read: isNotificationRead(prefs, id),
               });
             }
             return [...additions, ...base].slice(0, 50);
@@ -1936,10 +1990,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       activityLoading,
       notifications,
       unreadCount,
-      markAllAsRead: () => setNotifications((prev) => prev.map((item) => ({ ...item, read: true }))),
-      markNotificationRead: (id) =>
-        setNotifications((prev) => prev.map((item) => (item.id === id ? { ...item, read: true } : item))),
-      dismissNotification: (id) => setNotifications((prev) => prev.filter((item) => item.id !== id)),
+      markAllAsRead,
+      markNotificationRead,
+      dismissNotification,
       pushNotification,
       notifyProjectComment,
       logTaskReviewActivity,
@@ -2445,6 +2498,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       notifications,
       unreadCount,
       pushNotification,
+      markAllAsRead,
+      markNotificationRead,
+      dismissNotification,
       notifyProjectComment,
       logTaskReviewActivity,
       logTaskPublishedToActivity,
