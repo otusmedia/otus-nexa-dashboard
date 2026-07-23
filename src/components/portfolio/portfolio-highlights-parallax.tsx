@@ -1,29 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { PortfolioMediaFill } from "@/components/portfolio/portfolio-media";
+import gsap from "gsap";
 import type { PortfolioItemContent } from "@/lib/portfolio";
 import { cn } from "@/lib/utils";
 
 type PortfolioSiteMode = "edit" | "view";
 
-type CardPose = {
-  x: string;
-  y: string;
-  rotate: number;
-  depth: number;
-  width: number;
+const CONFIG = {
+  distanceThreshold: 100,
+  maxImages: 10,
+  cooldownDuration: 600,
+  maxRotation: 4,
+  rotationDriftMultiplier: 0.5,
+  inertiaMultiplier: 0.15,
+  driftMultiplier: 0.12,
+  totalDuration: 1.4,
+  entryDuration: 0.5,
+  blurStartDelay: 0.3,
+  exitDuration: 0.75,
+  cardWidth: 168,
 };
-
-/** Cascade poses — center-right stack like the Journey reference */
-const CARD_POSES: CardPose[] = [
-  { x: "42%", y: "18%", rotate: -6, depth: 0.55, width: 168 },
-  { x: "52%", y: "22%", rotate: -2, depth: 0.4, width: 158 },
-  { x: "61%", y: "28%", rotate: 3, depth: 0.28, width: 148 },
-  { x: "48%", y: "38%", rotate: -4, depth: 0.7, width: 176 },
-  { x: "58%", y: "44%", rotate: 5, depth: 0.35, width: 152 },
-  { x: "68%", y: "36%", rotate: 8, depth: 0.22, width: 140 },
-];
 
 function GridBackdrop() {
   return (
@@ -58,6 +55,11 @@ function GridBackdrop() {
   );
 }
 
+/**
+ * Journey-style mouse trail: spawn project covers along the cursor path,
+ * fade/rotate in quickly, then blur + fade out (GSAP).
+ * @see https://journey-creative.webflow.io/ (data-journey-trail)
+ */
 export function HighlightsParallaxHero({
   mode,
   title,
@@ -74,9 +76,8 @@ export function HighlightsParallaxHero({
   onChangeTagline?: (next: string) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const [mouse, setMouse] = useState({ x: 0, y: 0 });
-  const [visible, setVisible] = useState(false);
-  const idleTimer = useRef<number | null>(null);
+  const trailLayerRef = useRef<HTMLDivElement>(null);
+  const templatesRef = useRef<HTMLDivElement>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingTagline, setEditingTagline] = useState(false);
   const [titleDraft, setTitleDraft] = useState(title);
@@ -85,31 +86,193 @@ export function HighlightsParallaxHero({
   useEffect(() => setTitleDraft(title), [title]);
   useEffect(() => setTaglineDraft(tagline), [tagline]);
 
+  const trailSources = projects.filter((p) => p.coverMediaUrl).slice(0, 8);
+
   useEffect(() => {
-    return () => {
-      if (idleTimer.current != null) window.clearTimeout(idleTimer.current);
+    const container = rootRef.current;
+    const trailLayer = trailLayerRef.current;
+    const templatesRoot = templatesRef.current;
+    if (!container || !trailLayer || !templatesRoot) return;
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) return;
+
+    const templates = Array.from(
+      templatesRoot.querySelectorAll<HTMLElement>("[data-portfolio-trail-img]"),
+    );
+    if (!templates.length) return;
+
+    gsap.set(templates, { autoAlpha: 0, display: "none" });
+
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+    let imgIndex = 0;
+    let isFirstMove = true;
+    let imagesSpawnedThisCycle = 0;
+    let isCooldown = false;
+    let pendingEvent: PointerEvent | null = null;
+    let ticking = false;
+    let cooldownTimer: number | null = null;
+    const activeTimelines: gsap.core.Timeline[] = [];
+
+    const getRandomRotation = () => (Math.random() * 2 - 1) * CONFIG.maxRotation;
+
+    const getRelativePosition = (clientX: number, clientY: number) => {
+      const rect = container.getBoundingClientRect();
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top,
+        inside:
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom,
+      };
     };
-  }, []);
 
-  const cards = projects.filter((p) => p.coverMediaUrl).slice(0, CARD_POSES.length);
-  const reduceMotion =
-    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const handleMouseMoveCore = (e: PointerEvent) => {
+      const relativePos = getRelativePosition(e.clientX, e.clientY);
 
-  const onMove = (clientX: number, clientY: number) => {
-    if (reduceMotion) {
-      setVisible(true);
-      return;
-    }
-    const el = rootRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const ny = ((clientY - rect.top) / rect.height) * 2 - 1;
-    setMouse({ x: Math.max(-1, Math.min(1, nx)), y: Math.max(-1, Math.min(1, ny)) });
-    setVisible(true);
-    if (idleTimer.current != null) window.clearTimeout(idleTimer.current);
-    idleTimer.current = window.setTimeout(() => setVisible(false), 900);
-  };
+      if (!relativePos.inside) {
+        lastMouseX = relativePos.x;
+        lastMouseY = relativePos.y;
+        isFirstMove = true;
+        return;
+      }
+
+      if (isFirstMove) {
+        lastMouseX = relativePos.x;
+        lastMouseY = relativePos.y;
+        isFirstMove = false;
+        return;
+      }
+
+      if (isCooldown) {
+        lastMouseX = relativePos.x;
+        lastMouseY = relativePos.y;
+        return;
+      }
+
+      const xDistance = relativePos.x - lastMouseX;
+      const yDistance = relativePos.y - lastMouseY;
+      const totalDistance = Math.hypot(xDistance, yDistance);
+
+      if (totalDistance > CONFIG.distanceThreshold) {
+        if (imagesSpawnedThisCycle >= CONFIG.maxImages) {
+          isCooldown = true;
+          cooldownTimer = window.setTimeout(() => {
+            isCooldown = false;
+            imagesSpawnedThisCycle = 0;
+          }, CONFIG.cooldownDuration);
+          lastMouseX = relativePos.x;
+          lastMouseY = relativePos.y;
+          return;
+        }
+
+        const currentTemplate = templates[imgIndex % templates.length]!;
+        const clone = currentTemplate.cloneNode(true) as HTMLElement;
+        clone.removeAttribute("data-portfolio-trail-img");
+        clone.style.pointerEvents = "none";
+        trailLayer.appendChild(clone);
+        imagesSpawnedThisCycle++;
+
+        const randomRotation = getRandomRotation();
+        const rotationDrift = randomRotation * CONFIG.rotationDriftMultiplier;
+        const inertiaX = xDistance * CONFIG.inertiaMultiplier;
+        const inertiaY = yDistance * CONFIG.inertiaMultiplier;
+        const driftX = xDistance * CONFIG.driftMultiplier;
+        const driftY = yDistance * CONFIG.driftMultiplier;
+        const driftDuration = CONFIG.totalDuration - CONFIG.blurStartDelay;
+        const blurDuration = CONFIG.totalDuration - CONFIG.blurStartDelay;
+
+        const tl = gsap.timeline({
+          onComplete: () => {
+            clone.remove();
+            const idx = activeTimelines.indexOf(tl);
+            if (idx >= 0) activeTimelines.splice(idx, 1);
+          },
+        });
+        activeTimelines.push(tl);
+
+        tl.fromTo(
+          clone,
+          {
+            x: lastMouseX,
+            y: lastMouseY,
+            xPercent: -50,
+            yPercent: -50,
+            autoAlpha: 0,
+            display: "block",
+            scale: 1,
+            rotation: 0,
+            filter: "blur(0px)",
+          },
+          {
+            x: relativePos.x + inertiaX,
+            y: relativePos.y + inertiaY,
+            autoAlpha: 1,
+            rotation: randomRotation,
+            duration: CONFIG.entryDuration,
+            ease: "power4.out",
+          },
+        )
+          .to(
+            clone,
+            {
+              x: "+=" + driftX,
+              y: "+=" + driftY,
+              rotation: "+=" + rotationDrift,
+              duration: driftDuration,
+              ease: "power1.out",
+            },
+            CONFIG.blurStartDelay,
+          )
+          .to(
+            clone,
+            {
+              filter: "blur(20px)",
+              duration: blurDuration,
+              ease: "power2.in",
+            },
+            CONFIG.blurStartDelay,
+          )
+          .to(
+            clone,
+            {
+              scale: 0.9,
+              autoAlpha: 0,
+              duration: CONFIG.exitDuration,
+              ease: "power2.in",
+            },
+            CONFIG.totalDuration - CONFIG.exitDuration,
+          );
+
+        lastMouseX = relativePos.x;
+        lastMouseY = relativePos.y;
+        imgIndex++;
+      }
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      pendingEvent = e;
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(() => {
+          if (pendingEvent) handleMouseMoveCore(pendingEvent);
+          ticking = false;
+        });
+      }
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      if (cooldownTimer != null) window.clearTimeout(cooldownTimer);
+      activeTimelines.forEach((tl) => tl.kill());
+      trailLayer.replaceChildren();
+    };
+  }, [trailSources.map((p) => p.id).join("|")]);
 
   const displayTitle = title.trim() || "Studio.";
   const displayTagline =
@@ -120,58 +283,37 @@ export function HighlightsParallaxHero({
     <div
       ref={rootRef}
       className="relative mb-12 min-h-[min(72vh,640px)] w-full overflow-hidden rounded-[8px] border border-black/[0.04] bg-[#fbfbfb]"
-      onMouseMove={(e) => onMove(e.clientX, e.clientY)}
-      onMouseLeave={() => {
-        if (idleTimer.current != null) window.clearTimeout(idleTimer.current);
-        setVisible(false);
-      }}
-      onTouchMove={(e) => {
-        const t = e.touches[0];
-        if (t) onMove(t.clientX, t.clientY);
-      }}
     >
       <GridBackdrop />
 
-      {/* Parallax project cards — decorative, not clickable */}
-      <div className="pointer-events-none absolute inset-0 z-[1]">
-        {cards.map((project, index) => {
-          const pose = CARD_POSES[index] ?? CARD_POSES[0]!;
-          const parallaxX = mouse.x * 28 * pose.depth;
-          const parallaxY = mouse.y * 22 * pose.depth;
-          const stackBlur = index * 2.2;
-          const blur = visible ? stackBlur : 18 + stackBlur;
-          const opacity = visible ? Math.max(0.35, 1 - index * 0.1) : 0;
-
-          return (
-            <div
-              key={project.id}
-              className="absolute overflow-hidden rounded-[8px] bg-[#e8e8e8] shadow-[0_18px_40px_rgba(0,0,0,0.12)]"
-              style={{
-                left: pose.x,
-                top: pose.y,
-                width: pose.width,
-                aspectRatio: "3 / 4",
-                transform: `translate3d(calc(-50% + ${parallaxX}px), calc(-50% + ${parallaxY}px), 0) rotate(${pose.rotate}deg)`,
-                opacity,
-                filter: `blur(${blur}px)`,
-                transition: visible
-                  ? "opacity 220ms ease-out, filter 220ms ease-out, transform 120ms linear"
-                  : "opacity 700ms ease-in, filter 700ms ease-in, transform 400ms ease-out",
-                willChange: "transform, opacity, filter",
-              }}
-            >
-              <PortfolioMediaFill
-                type={project.coverMediaType}
-                url={project.coverMediaUrl}
-                loopVideo
-                className="absolute inset-0"
-              />
-            </div>
-          );
-        })}
+      {/* Hidden templates (cloned into the trail) */}
+      <div ref={templatesRef} className="pointer-events-none absolute left-0 top-0" aria-hidden>
+        {trailSources.map((project) => (
+          <div
+            key={project.id}
+            data-portfolio-trail-img=""
+            className="absolute left-0 top-0 overflow-hidden rounded-[8px] bg-[#e8e8e8] shadow-[0_18px_40px_rgba(0,0,0,0.14)]"
+            style={{ width: CONFIG.cardWidth, aspectRatio: "3 / 4" }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={project.coverMediaUrl!}
+              alt=""
+              className="h-full w-full object-cover"
+              draggable={false}
+            />
+          </div>
+        ))}
       </div>
 
-      {/* Static copy */}
+      {/* Live trail clones */}
+      <div
+        ref={trailLayerRef}
+        className="pointer-events-none absolute inset-0 z-[1] overflow-hidden"
+        aria-hidden
+      />
+
+      {/* Static copy above trail */}
       <div className="relative z-[2] flex h-full min-h-[min(72vh,640px)] flex-col justify-between p-6 sm:p-8 lg:p-10">
         <div className="flex justify-end">
           {mode === "edit" && editingTagline ? (
