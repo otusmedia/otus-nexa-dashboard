@@ -42,6 +42,8 @@ export type PortfolioPageContent = {
   heroSecondaryCta: PortfolioHeroCta;
   heroStats: PortfolioHeroStat[];
   highlights: PortfolioHighlight[];
+  bandTitle: string;
+  bandTagline: string;
   aboutText: string;
   aboutImageUrl: string | null;
 };
@@ -205,6 +207,18 @@ function pageFromRow(row: Record<string, unknown>, version: "draft" | "live"): P
     heroSecondaryCta: parseCta(row[`${p}_hero_secondary_cta`], DEFAULT_SECONDARY_CTA),
     heroStats: parseStats(row[`${p}_hero_stats`]),
     highlights: parseHighlights(row[`${p}_highlights`]),
+    bandTitle:
+      row[`${p}_band_title`] != null && String(row[`${p}_band_title`]).trim()
+        ? String(row[`${p}_band_title`]).trim()
+        : version === "draft"
+          ? "Studio."
+          : "",
+    bandTagline:
+      row[`${p}_band_tagline`] != null && String(row[`${p}_band_tagline`]).trim()
+        ? String(row[`${p}_band_tagline`]).trim()
+        : version === "draft"
+          ? "Films and visual stories for brands that want work that looks good and feels effortless."
+          : "",
     aboutText: String(row[`${p}_about_text`] ?? ""),
     aboutImageUrl:
       row[`${p}_about_image_url`] != null && String(row[`${p}_about_image_url`]).trim()
@@ -379,6 +393,8 @@ export async function updatePortfolioPageDraft(
   if (patch.heroSecondaryCta !== undefined) db.draft_hero_secondary_cta = patch.heroSecondaryCta;
   if (patch.heroStats !== undefined) db.draft_hero_stats = patch.heroStats;
   if (patch.highlights !== undefined) db.draft_highlights = patch.highlights;
+  if (patch.bandTitle !== undefined) db.draft_band_title = patch.bandTitle;
+  if (patch.bandTagline !== undefined) db.draft_band_tagline = patch.bandTagline;
   if (patch.aboutText !== undefined) db.draft_about_text = patch.aboutText;
   if (patch.aboutImageUrl !== undefined) db.draft_about_image_url = patch.aboutImageUrl;
 
@@ -491,6 +507,10 @@ export async function publishPortfolio(accountId: string): Promise<void> {
       live_hero_secondary_cta: pageRow.draft_hero_secondary_cta ?? DEFAULT_SECONDARY_CTA,
       live_hero_stats: pageRow.draft_hero_stats ?? DEFAULT_STATS,
       live_highlights: pageRow.draft_highlights ?? [],
+      live_band_title: pageRow.draft_band_title ?? "Studio.",
+      live_band_tagline:
+        pageRow.draft_band_tagline ??
+        "Films and visual stories for brands that want work that looks good and feels effortless.",
       live_about_text: pageRow.draft_about_text ?? "",
       live_about_image_url: pageRow.draft_about_image_url ?? null,
       published_at: now,

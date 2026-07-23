@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ImagePlus, Plus, X } from "lucide-react";
 import { PortfolioMediaFill } from "@/components/portfolio/portfolio-media";
+import { HighlightsParallaxHero } from "@/components/portfolio/portfolio-highlights-parallax";
 import { PortfolioProjectView } from "@/components/portfolio/portfolio-project-view";
 import { cn } from "@/lib/utils";
 import type {
@@ -828,9 +829,18 @@ export function PortfolioSite({
         </div>
       </section>
 
-      {/* Highlights — Nexa-style slider on light band */}
+      {/* Highlights — light band: parallax hero + slider */}
       <section id="highlights" className="scroll-mt-20 bg-[#fbfbfb] py-16">
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
+          <HighlightsParallaxHero
+            mode={mode}
+            title={page.bandTitle}
+            tagline={page.bandTagline}
+            projects={galleryItems}
+            onChangeTitle={(bandTitle) => void onChangePage?.({ bandTitle })}
+            onChangeTagline={(bandTagline) => void onChangePage?.({ bandTagline })}
+          />
+
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-[0.7rem] uppercase tracking-[0.1em] text-black/40">Highlights</h2>
             {mode === "edit" && !usingSampleHighlights ? (
