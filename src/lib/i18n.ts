@@ -227,6 +227,18 @@ const platformPtBR: Record<string, string> = {
   "Reorder column": "Reordenar coluna",
   "No projects match this filter.": "Nenhum projeto corresponde a este filtro.",
   "All statuses": "Todos os status",
+  "Edit statuses": "Editar status",
+  Statuses: "Status",
+  "Add status": "Adicionar status",
+  "Status name": "Nome do status",
+  "Remove status": "Remover status",
+  "Add at least one status.": "Adicione pelo menos um status.",
+  "Could not update statuses. Try again.": "Não foi possível atualizar os status. Tente novamente.",
+  "Removed statuses move their projects to the first status.":
+    "Status removidos movem os projetos para o primeiro status.",
+  "Add, rename, or remove project board columns.":
+    "Adicione, renomeie ou remova colunas do quadro de projetos.",
+  "Select a client to edit board statuses.": "Selecione um cliente para editar os status do quadro.",
   Owners: "Responsáveis",
   "Add task": "Adicionar tarefa",
   "Task name": "Nome da tarefa",

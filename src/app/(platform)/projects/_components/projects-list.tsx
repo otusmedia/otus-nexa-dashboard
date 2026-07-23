@@ -4,25 +4,29 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
-import { isAgencyCompany } from "@/lib/client-utils";
+import { effectiveUserClientSlug, isAgencyCompany } from "@/lib/client-utils";
 import { ProgressInline } from "./progress-inline";
 import { ProjectStatusBadge } from "./project-status-badge";
-import {
-  KANBAN_COLUMNS,
-  formatDisplayDate,
-  mergeProjectsByColumn,
-  type ProjectStatus,
-} from "../data";
+import { useProjectBoardStatuses } from "./use-project-board-statuses";
+import { formatDisplayDate, mergeProjectsByColumn, type ProjectStatus } from "../data";
 
 export function ProjectsList() {
   const {
     projectsByColumn,
     clients,
     projectsClientFilter,
-    setProjectsClientFilter,
     currentUser,
   } = useAppContext();
   const { t: lt } = useLanguage();
+
+  const boardClientSlug = useMemo(() => {
+    if (isAgencyCompany(currentUser.company)) {
+      return projectsClientFilter !== "all" ? projectsClientFilter : null;
+    }
+    return effectiveUserClientSlug(currentUser);
+  }, [currentUser, projectsClientFilter]);
+
+  const { statuses } = useProjectBoardStatuses(boardClientSlug, currentUser);
   const [statusFilter, setStatusFilter] = useState<"all" | ProjectStatus>("all");
 
   const projects = useMemo(() => {
@@ -47,30 +51,13 @@ export function ProjectsList() {
               className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm text-white"
             >
               <option value="all">{lt("All statuses")}</option>
-              {KANBAN_COLUMNS.map((col) => (
-                <option key={col.id} value={col.label}>
-                  {lt(col.label)}
+              {statuses.map((col) => (
+                <option key={col.id} value={col.name}>
+                  {lt(col.name)}
                 </option>
               ))}
             </select>
           </label>
-          {isAgencyCompany(currentUser.company) ? (
-            <label className="flex items-center gap-2 text-xs text-[rgba(255,255,255,0.5)]">
-              <span className="uppercase tracking-[0.08em]">{lt("Client")}</span>
-              <select
-                value={projectsClientFilter}
-                onChange={(e) => setProjectsClientFilter(e.target.value)}
-                className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm text-white"
-              >
-                <option value="all">{lt("All Clients")}</option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.slug}>
-                    {client.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
         </div>
       </div>
 
@@ -102,6 +89,7 @@ export function ProjectsList() {
               projects.map((project) => {
                 const clientName =
                   clients.find((c) => c.slug === project.clientSlug)?.name ?? project.clientSlug ?? "—";
+                const statusDef = statuses.find((s) => s.name === project.status);
                 return (
                   <tr
                     key={project.id}
@@ -114,7 +102,7 @@ export function ProjectsList() {
                       <p className="mt-0.5 text-[0.7rem] text-[rgba(255,255,255,0.35)]">{lt(project.type)}</p>
                     </td>
                     <td className="px-3 py-3">
-                      <ProjectStatusBadge status={project.status} />
+                      <ProjectStatusBadge status={project.status} dotClass={statusDef?.dotClass} />
                     </td>
                     <td className="px-3 py-3 text-[rgba(255,255,255,0.65)]">
                       {project.owners.length ? project.owners.join(", ") : "—"}

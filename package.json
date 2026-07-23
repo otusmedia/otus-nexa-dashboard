@@ -19,7 +19,8 @@
     "crm:migrate:service-product": "tsx scripts/apply-crm-service-product-migration.ts",
     "chat:migrate": "tsx scripts/apply-team-chat-migration.ts",
     "clients:migrate:dashboard-cards": "tsx scripts/apply-client-dashboard-cards-migration.ts",
-    "accounts:migrate": "tsx scripts/apply-accounts-foundation-migration.ts"
+    "accounts:migrate": "tsx scripts/apply-accounts-foundation-migration.ts",
+    "projects:migrate:board-statuses": "tsx scripts/apply-project-board-statuses-migration.ts"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",

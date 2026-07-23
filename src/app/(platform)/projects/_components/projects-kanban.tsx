@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
-import { KANBAN_COLUMNS, type KanbanColumnId, type ProjectType } from "../data";
+import { Settings2 } from "lucide-react";
+import { emptyProjectsByColumn, type KanbanColumnId, type ProjectType } from "../data";
 import { KanbanColumn } from "./kanban-column";
+import { EditProjectStatusesModal } from "./edit-project-statuses-modal";
+import { useProjectBoardStatuses } from "./use-project-board-statuses";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
-import { isAgencyCompany } from "@/lib/client-utils";
+import { effectiveUserClientSlug, isAgencyCompany } from "@/lib/client-utils";
+import { matchStatusToBoard } from "@/lib/project-board-statuses";
 import {
   defaultProjectsBoardPrefs,
   readProjectsBoardPrefs,
@@ -19,14 +23,24 @@ export function ProjectsKanban() {
     projectsByColumn,
     moveProjectInKanban,
     addProject,
-    clients,
     projectsClientFilter,
-    setProjectsClientFilter,
     currentUser,
+    reloadProjects,
   } = useAppContext();
   const { t: lt } = useLanguage();
+
+  const boardClientSlug = useMemo(() => {
+    if (isAgencyCompany(currentUser.company)) {
+      return projectsClientFilter !== "all" ? projectsClientFilter : null;
+    }
+    return effectiveUserClientSlug(currentUser);
+  }, [currentUser, projectsClientFilter]);
+
+  const { statuses, canManage, save } = useProjectBoardStatuses(boardClientSlug, currentUser);
+
   const [modalOpen, setModalOpen] = useState(false);
-  const [targetColumn, setTargetColumn] = useState<KanbanColumnId>("planning");
+  const [editStatusesOpen, setEditStatusesOpen] = useState(false);
+  const [targetColumn, setTargetColumn] = useState<KanbanColumnId>("Planning");
   const [name, setName] = useState("");
   const [type, setType] = useState<ProjectType>("Website");
   const [owner, setOwner] = useState("Matheus Canci");
@@ -36,9 +50,11 @@ export function ProjectsKanban() {
   const [nameError, setNameError] = useState("");
   const [boardPrefs, setBoardPrefs] = useState<ProjectsBoardPrefs>(() => defaultProjectsBoardPrefs());
 
+  const statusNames = useMemo(() => statuses.map((s) => s.name), [statuses]);
+
   useEffect(() => {
-    setBoardPrefs(readProjectsBoardPrefs(currentUser.id));
-  }, [currentUser.id]);
+    setBoardPrefs(readProjectsBoardPrefs(currentUser.id, statusNames));
+  }, [currentUser.id, statusNames]);
 
   const persistPrefs = useCallback(
     (next: ProjectsBoardPrefs) => {
@@ -49,17 +65,29 @@ export function ProjectsKanban() {
   );
 
   const orderedColumns = useMemo(() => {
-    const byId = new Map(KANBAN_COLUMNS.map((col) => [col.id, col]));
+    const byName = new Map(statuses.map((s) => [s.name, s]));
     return boardPrefs.columnOrder
-      .map((id) => byId.get(id))
-      .filter((col): col is (typeof KANBAN_COLUMNS)[number] => Boolean(col));
-  }, [boardPrefs.columnOrder]);
+      .map((name) => byName.get(name))
+      .filter((s): s is (typeof statuses)[number] => Boolean(s));
+  }, [boardPrefs.columnOrder, statuses]);
 
   const minimizedSet = useMemo(() => new Set(boardPrefs.minimized), [boardPrefs.minimized]);
 
+  const groupedByStatus = useMemo(() => {
+    const board = emptyProjectsByColumn(statusNames);
+    for (const list of Object.values(projectsByColumn)) {
+      for (const project of list) {
+        const key = matchStatusToBoard(project.status, statuses);
+        board[key] = board[key] ?? [];
+        board[key].push({ ...project, column: key, status: key });
+      }
+    }
+    return board;
+  }, [projectsByColumn, statuses, statusNames]);
+
   const projectCount = useMemo(
-    () => Object.values(projectsByColumn).reduce((total, list) => total + list.length, 0),
-    [projectsByColumn],
+    () => Object.values(groupedByStatus).reduce((total, list) => total + list.length, 0),
+    [groupedByStatus],
   );
 
   const ownerOptions = [
@@ -137,23 +165,22 @@ export function ProjectsKanban() {
           <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">
             {projectCount} {lt("projects")}
           </span>
-          {isAgencyCompany(currentUser.company) ? (
-            <label className="flex items-center gap-2 text-xs text-[rgba(255,255,255,0.5)]">
-              <span className="uppercase tracking-[0.08em]">{lt("Client")}</span>
-              <select
-                value={projectsClientFilter}
-                onChange={(e) => setProjectsClientFilter(e.target.value)}
-                className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm text-white"
+          <div className="flex flex-wrap items-center gap-3">
+            {canManage ? (
+              <button
+                type="button"
+                onClick={() => setEditStatusesOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-[8px] border border-[rgba(255,255,255,0.08)] px-2.5 py-1.5 text-xs text-[rgba(255,255,255,0.55)] transition-colors hover:border-[rgba(255,255,255,0.16)] hover:text-white"
               >
-                <option value="all">{lt("All Clients")}</option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.slug}>
-                    {client.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
+                <Settings2 className="h-3.5 w-3.5" />
+                {lt("Edit statuses")}
+              </button>
+            ) : isAgencyCompany(currentUser.company) && projectsClientFilter === "all" ? (
+              <span className="text-[0.7rem] text-[rgba(255,255,255,0.35)]">
+                {lt("Select a client to edit board statuses.")}
+              </span>
+            ) : null}
+          </div>
         </div>
         <div className="h-[80vh] w-max overflow-hidden">
           <Droppable droppableId="projects-board-columns" direction="horizontal" type="COLUMN">
@@ -164,16 +191,16 @@ export function ProjectsKanban() {
                 className="flex h-full min-h-0 w-max flex-row gap-4 px-1 pb-4"
               >
                 {orderedColumns.map((col, index) => (
-                  <Draggable key={col.id} draggableId={`column:${col.id}`} index={index}>
+                  <Draggable key={col.name} draggableId={`column:${col.name}`} index={index}>
                     {(colProvided) => (
                       <div ref={colProvided.innerRef} {...colProvided.draggableProps}>
                         <KanbanColumn
-                          columnId={col.id}
-                          label={col.label}
+                          columnId={col.name}
+                          label={col.name}
                           dotClass={col.dotClass}
-                          projects={projectsByColumn[col.id] ?? []}
+                          projects={groupedByStatus[col.name] ?? []}
                           onAddProject={openAddProjectModal}
-                          minimized={minimizedSet.has(col.id)}
+                          minimized={minimizedSet.has(col.name)}
                           onToggleMinimize={toggleMinimize}
                           dragHandleProps={colProvided.dragHandleProps}
                         />
@@ -187,6 +214,18 @@ export function ProjectsKanban() {
           </Droppable>
         </div>
       </DragDropContext>
+
+      <EditProjectStatusesModal
+        open={editStatusesOpen}
+        statuses={statuses}
+        onClose={() => setEditStatusesOpen(false)}
+        onSave={async (input) => {
+          const saved = await save(input);
+          if (saved) reloadProjects();
+          return saved;
+        }}
+      />
+
       {modalOpen ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4">
           <form

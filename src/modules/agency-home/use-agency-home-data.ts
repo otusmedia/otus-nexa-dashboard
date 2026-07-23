@@ -94,7 +94,7 @@ type UpdateRow = {
   created_at: string;
 };
 
-const ACTIVE_PROJECT_COLUMNS: KanbanColumnId[] = ["planning", "in_progress", "scheduled", "paused"];
+const ACTIVE_PROJECT_COLUMNS: KanbanColumnId[] = ["Planning", "In Progress", "Scheduled", "Paused"];
 
 function emptySlugCounts(): Record<string, number> {
   return {};

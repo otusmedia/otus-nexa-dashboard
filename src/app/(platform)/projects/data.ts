@@ -1,20 +1,13 @@
 import type { TaskHighlightAttachment } from "@/lib/task-highlight-cover";
+import {
+  canonicalizeProjectStatus,
+  DEFAULT_PROJECT_BOARD_STATUSES,
+} from "@/lib/project-board-statuses";
 
-export type KanbanColumnId =
-  | "planning"
-  | "in_progress"
-  | "scheduled"
-  | "done"
-  | "cancelled"
-  | "paused";
+/** Kanban column key = project status name (e.g. "Planning", custom names). */
+export type KanbanColumnId = string;
 
-export type ProjectStatus =
-  | "Planning"
-  | "In Progress"
-  | "Scheduled"
-  | "Done"
-  | "Cancelled"
-  | "Paused";
+export type ProjectStatus = string;
 
 export type ProjectType = "Website" | "Monthly Content" | "Paid Traffic";
 
@@ -68,44 +61,47 @@ export interface Project {
   clientSlug: string | null;
 }
 
-export type ProjectsByColumn = Record<KanbanColumnId, Project[]>;
+export type ProjectsByColumn = Record<string, Project[]>;
 
-/** Default left→right order (Paused last). Users can reorder via board prefs. */
-export const ALL_KANBAN_COLUMN_IDS: KanbanColumnId[] = [
-  "planning",
-  "in_progress",
-  "scheduled",
-  "done",
-  "cancelled",
-  "paused",
-];
+/** Default left→right order (Paused last). */
+export const ALL_KANBAN_COLUMN_IDS: KanbanColumnId[] = DEFAULT_PROJECT_BOARD_STATUSES.map((s) => s.name);
 
-export function emptyProjectsByColumn(): ProjectsByColumn {
-  return {
-    planning: [],
-    in_progress: [],
-    scheduled: [],
-    done: [],
-    cancelled: [],
-    paused: [],
-  };
+export function emptyProjectsByColumn(columnIds: readonly string[] = ALL_KANBAN_COLUMN_IDS): ProjectsByColumn {
+  const board: ProjectsByColumn = {};
+  for (const id of columnIds) {
+    board[id] = [];
+  }
+  return board;
 }
 
-export function splitProjectsByColumn(projects: Project[]): ProjectsByColumn {
-  const board = emptyProjectsByColumn();
+export function splitProjectsByColumn(
+  projects: Project[],
+  columnIds: readonly string[] = ALL_KANBAN_COLUMN_IDS,
+): ProjectsByColumn {
+  const board = emptyProjectsByColumn(columnIds);
+  const fallback = columnIds[0] ?? "Planning";
   for (const project of projects) {
-    board[project.column].push(project);
+    const key = columnIds.includes(project.column)
+      ? project.column
+      : columnIds.find((id) => id.toLowerCase() === project.column.toLowerCase()) ?? fallback;
+    board[key] = board[key] ?? [];
+    board[key].push({ ...project, column: key, status: key });
   }
   return board;
 }
 
 export function mergeProjectsByColumn(board: ProjectsByColumn): Project[] {
-  return ALL_KANBAN_COLUMN_IDS.flatMap((id) => board[id]);
+  const keys = Object.keys(board);
+  const ordered = [
+    ...ALL_KANBAN_COLUMN_IDS.filter((id) => keys.includes(id)),
+    ...keys.filter((id) => !ALL_KANBAN_COLUMN_IDS.includes(id)),
+  ];
+  return ordered.flatMap((id) => board[id] ?? []);
 }
 
 export function cloneProjectsByColumn(board: ProjectsByColumn): ProjectsByColumn {
-  const next = emptyProjectsByColumn();
-  for (const id of ALL_KANBAN_COLUMN_IDS) {
+  const next: ProjectsByColumn = {};
+  for (const id of Object.keys(board)) {
     next[id] = [...(board[id] ?? [])];
   }
   return next;
@@ -115,8 +111,8 @@ export function mapAllProjectColumns(
   board: ProjectsByColumn,
   mapProject: (project: Project) => Project,
 ): ProjectsByColumn {
-  const next = emptyProjectsByColumn();
-  for (const id of ALL_KANBAN_COLUMN_IDS) {
+  const next: ProjectsByColumn = {};
+  for (const id of Object.keys(board)) {
     next[id] = (board[id] ?? []).map(mapProject);
   }
   return next;
@@ -126,8 +122,8 @@ export function mapAllProjectColumnLists(
   board: ProjectsByColumn,
   mapList: (list: Project[]) => Project[],
 ): ProjectsByColumn {
-  const next = emptyProjectsByColumn();
-  for (const id of ALL_KANBAN_COLUMN_IDS) {
+  const next: ProjectsByColumn = {};
+  for (const id of Object.keys(board)) {
     next[id] = mapList(board[id] ?? []);
   }
   return next;
@@ -149,33 +145,28 @@ export const KANBAN_COLUMNS: Array<{
   id: KanbanColumnId;
   label: string;
   dotClass: string;
-}> = [
-  { id: "planning", label: "Planning", dotClass: "bg-[#3b82f6]" },
-  { id: "in_progress", label: "In Progress", dotClass: "bg-[#ff4500]" },
-  { id: "scheduled", label: "Scheduled", dotClass: "bg-[#06b6d4]" },
-  { id: "done", label: "Done", dotClass: "bg-[#22c55e]" },
-  { id: "cancelled", label: "Cancelled", dotClass: "bg-[#ef4444]" },
-  { id: "paused", label: "Paused", dotClass: "bg-[#a855f7]" },
-];
+}> = DEFAULT_PROJECT_BOARD_STATUSES.map((s) => ({
+  id: s.name,
+  label: s.name,
+  dotClass: s.dotClass,
+}));
 
-export const COLUMN_TO_STATUS: Record<KanbanColumnId, ProjectStatus> = {
-  planning: "Planning",
-  in_progress: "In Progress",
-  scheduled: "Scheduled",
-  done: "Done",
-  cancelled: "Cancelled",
-  paused: "Paused",
-};
+/** Identity map — column id and stored status are the same string. */
+export const COLUMN_TO_STATUS: Record<string, ProjectStatus> = Object.fromEntries(
+  ALL_KANBAN_COLUMN_IDS.map((id) => [id, id]),
+);
 
-/** Kanban column for each project status (detail panel + board moves). */
-export const STATUS_TO_COLUMN: Record<ProjectStatus, KanbanColumnId> = {
-  Planning: "planning",
-  "In Progress": "in_progress",
-  Scheduled: "scheduled",
-  Done: "done",
-  Cancelled: "cancelled",
-  Paused: "paused",
-};
+export const STATUS_TO_COLUMN: Record<string, KanbanColumnId> = Object.fromEntries(
+  ALL_KANBAN_COLUMN_IDS.map((id) => [id, id]),
+);
+
+export function columnIdForStatus(status: string | null | undefined): KanbanColumnId {
+  return canonicalizeProjectStatus(status);
+}
+
+export function statusForColumn(columnId: string): ProjectStatus {
+  return columnId;
+}
 
 /** Team members available as project owners (Properties multi-select). */
 export const PROJECT_TEAM_MEMBERS = [

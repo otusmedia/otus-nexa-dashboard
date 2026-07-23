@@ -31,14 +31,13 @@ import { isClientCompany } from "@/lib/client-utils";
 import { createPortal } from "react-dom";
 import type { Project, ProjectStatus, ProjectTaskRow, ProjectType, TaskRowStatus } from "../data";
 import {
-  COLUMN_TO_STATUS,
   computeProjectProgressFromTasks,
   formatDisplayDate,
-  KANBAN_COLUMNS,
   OWNER_OPTIONS,
   PROJECT_TEAM_MEMBERS,
   TASK_STATUS_OPTIONS,
 } from "../data";
+import { useProjectBoardStatuses } from "./use-project-board-statuses";
 
 const PROJECT_TYPE_OPTIONS: ProjectType[] = ["Website", "Monthly Content", "Paid Traffic"];
 import { useAppContext } from "@/components/providers/app-providers";
@@ -435,6 +434,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
     logTaskPublishedToActivity,
   } = useAppContext();
   const { t: lt, language } = useLanguage();
+  const { statuses: boardStatuses } = useProjectBoardStatuses(project.clientSlug, currentUser);
   const isRocketRideClient = isClientCompany(currentUser.company);
   const canSetReviewStatus = isRocketRideClient;
   const canRespondToClientFeedback = Boolean(currentUser.id) && currentUser.id !== "__guest__";
@@ -1755,8 +1755,8 @@ export function ProjectDetailView({ project }: { project: Project }) {
                 </button>
                 {projectStatusDropdownOpen ? (
                   <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-[8px] border border-[var(--border)] bg-[#131313] p-2 shadow-lg">
-                    {KANBAN_COLUMNS.map((col) => {
-                      const status = COLUMN_TO_STATUS[col.id];
+                    {boardStatuses.map((col) => {
+                      const status = col.name;
                       return (
                         <button
                           key={col.id}

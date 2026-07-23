@@ -28,6 +28,7 @@ import {
   type ProjectTaskRow,
   type ProjectsByColumn,
 } from "@/app/(platform)/projects/data";
+import { canonicalizeProjectStatus } from "@/lib/project-board-statuses";
 import {
   groupTaskAttachmentsByTaskId,
   mergeTaskHighlightAttachments,
@@ -288,6 +289,8 @@ interface AppContextValue {
   setQuery: (value: string) => void;
   projectsByColumn: ProjectsByColumn;
   projectsLoading: boolean;
+  /** Re-fetch projects + tasks from Supabase (e.g. after board status remap). */
+  reloadProjects: () => void;
   addProject: (input: {
     name: string;
     type: Project["type"];
@@ -534,13 +537,7 @@ function mapDbTaskToTask(row: DbTaskRow): Task {
 }
 
 function statusToColumn(status: string | null | undefined): KanbanColumnId {
-  const normalized = String(status ?? "").toLowerCase();
-  if (normalized === "in progress") return "in_progress";
-  if (normalized === "scheduled") return "scheduled";
-  if (normalized === "paused") return "paused";
-  if (normalized === "done") return "done";
-  if (normalized === "cancelled") return "cancelled";
-  return "planning";
+  return canonicalizeProjectStatus(status);
 }
 
 async function enrichFeaturedTasksWithAttachments(taskRows: DbTaskRow[]): Promise<DbTaskRow[]> {
@@ -604,7 +601,7 @@ function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTask
       owners: ownersList,
       progress: computeProjectProgressFromTasks(projectTasks),
       dueDate: row.end_date,
-      status: COLUMN_TO_STATUS[column],
+      status: column,
       type: row.type === "Website" || row.type === "Monthly Content" || row.type === "Paid Traffic" ? row.type : "Website",
       startDate: row.start_date,
       teamMembers: ownersList,
@@ -614,7 +611,10 @@ function mapRowsToProjectsByColumn(projectRows: DbProjectRow[], taskRows: DbTask
       clientSlug: row.client_slug?.trim() ? String(row.client_slug).trim() : null,
     };
   });
-  return splitProjectsByColumn(projects);
+  return splitProjectsByColumn(projects, [
+    ...ALL_KANBAN_COLUMN_IDS,
+    ...Array.from(new Set(projects.map((p) => p.column).filter((c) => !ALL_KANBAN_COLUMN_IDS.includes(c)))),
+  ]);
 }
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
@@ -650,6 +650,8 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [embedConfig, setEmbedConfig] = useState<EmbedConfig>({ title: "Performance Embed", url: "https://example.com" });
   const [query, setQuery] = useState("");
   const [allProjectsByColumn, setAllProjectsByColumn] = useState<ProjectsByColumn>(() => splitProjectsByColumn([]));
+  const [projectsReloadKey, setProjectsReloadKey] = useState(0);
+  const reloadProjects = useCallback(() => setProjectsReloadKey((k) => k + 1), []);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsClientFilter, setProjectsClientFilterState] = useState("all");
 
@@ -1065,9 +1067,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
 
     const desired = new Map<string, { message: string }>();
 
-    const cols: KanbanColumnId[] = [...ALL_KANBAN_COLUMN_IDS];
+    const cols = Object.keys(projectsByColumn);
     for (const col of cols) {
-      for (const p of projectsByColumn[col]) {
+      for (const p of projectsByColumn[col] ?? []) {
         for (const task of p.tasks) {
           if ((task.owner ?? "").trim() !== me) continue;
           if (task.status === "Done" || task.status === "Published") continue;
@@ -1339,7 +1341,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [dataClientSlug]);
+  }, [dataClientSlug, projectsReloadKey]);
 
   useEffect(() => {
     let mounted = true;
@@ -2006,6 +2008,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       setQuery,
       projectsByColumn,
       projectsLoading,
+      reloadProjects,
       projectsClientFilter,
       setProjectsClientFilter,
       clients,
@@ -2184,7 +2187,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
           owners: owner ? [owner] : [],
           progress: 0,
           dueDate: endDate,
-          status: COLUMN_TO_STATUS[column],
+          status: COLUMN_TO_STATUS[column] ?? column,
           type,
           startDate,
           teamMembers: owner ? [owner] : [],
@@ -2195,7 +2198,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         };
         setAllProjectsByColumn((prev) => ({
           ...prev,
-          [column]: [newProject, ...prev[column]],
+          [column]: [newProject, ...(prev[column] ?? [])],
         }));
         void supabase
           .from("projects")
@@ -2203,7 +2206,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             id,
             name,
             type,
-            status: COLUMN_TO_STATUS[column],
+            status: COLUMN_TO_STATUS[column] ?? column,
             progress: 0,
             owner,
             start_date: startDate,
@@ -2217,10 +2220,10 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         registerActivity(`New project created: ${name}`);
       },
       updateBoardProjectTask: (projectId, taskId, updates) => {
-        const cols: KanbanColumnId[] = [...ALL_KANBAN_COLUMN_IDS];
+        const cols = Object.keys(allProjectsByColumn);
         let prevTask: ProjectTaskRow | undefined;
         outer: for (const col of cols) {
-          for (const p of allProjectsByColumn[col]) {
+          for (const p of allProjectsByColumn[col] ?? []) {
             if (p.id === projectId) {
               prevTask = p.tasks.find((t) => t.id === taskId);
               break outer;
@@ -2332,21 +2335,21 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (source.droppableId === destination.droppableId && source.index === destination.index) return;
         const sourceColumn = source.droppableId as KanbanColumnId;
         const destinationColumn = destination.droppableId as KanbanColumnId;
-        if (!ALL_KANBAN_COLUMN_IDS.includes(sourceColumn) || !ALL_KANBAN_COLUMN_IDS.includes(destinationColumn)) {
-          return;
-        }
+        if (!sourceColumn || !destinationColumn) return;
         setAllProjectsByColumn((prev) => {
           const next: ProjectsByColumn = cloneProjectsByColumn(prev);
+          if (!next[sourceColumn]) next[sourceColumn] = [];
+          if (!next[destinationColumn]) next[destinationColumn] = [];
           const [movedProject] = next[sourceColumn].splice(source.index, 1);
           if (!movedProject) return prev;
           next[destinationColumn].splice(destination.index, 0, {
             ...movedProject,
             column: destinationColumn,
-            status: COLUMN_TO_STATUS[destinationColumn],
+            status: COLUMN_TO_STATUS[destinationColumn] ?? destinationColumn,
           });
           void supabase
             .from("projects")
-            .update({ status: COLUMN_TO_STATUS[destinationColumn] })
+            .update({ status: COLUMN_TO_STATUS[destinationColumn] ?? destinationColumn })
             .eq("id", movedProject.id)
             .then(({ error }) => {
               if (error) console.error("[supabase] project status update failed:", error.message);
@@ -2355,13 +2358,13 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         });
       },
       updateBoardProject: (projectId, patch) => {
-        const cols: KanbanColumnId[] = [...ALL_KANBAN_COLUMN_IDS];
         setAllProjectsByColumn((prev) => {
+          const cols = Object.keys(prev);
           let sourceCol: KanbanColumnId | null = null;
           let sourceIdx = -1;
           let base: Project | null = null;
           for (const col of cols) {
-            const i = prev[col].findIndex((p) => p.id === projectId);
+            const i = (prev[col] ?? []).findIndex((p) => p.id === projectId);
             if (i !== -1) {
               sourceCol = col;
               sourceIdx = i;
@@ -2391,13 +2394,14 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             nextProject = { ...nextProject, description: patch.description };
           }
           if (patch.status !== undefined) {
-            const destCol = STATUS_TO_COLUMN[patch.status];
+            const destCol = patch.status;
             nextProject = { ...nextProject, status: patch.status, column: destCol };
           }
 
           const destCol = nextProject.column;
           if (destCol !== sourceCol) {
             const next: ProjectsByColumn = cloneProjectsByColumn(prev);
+            if (!next[destCol]) next[destCol] = [];
             next[sourceCol].splice(sourceIdx, 1);
             next[destCol].unshift(nextProject);
             return next;
@@ -2475,6 +2479,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
       projectsByColumn,
       allProjectsByColumn,
       projectsLoading,
+      reloadProjects,
       projectsClientFilter,
       clients,
       clientsLoading,
