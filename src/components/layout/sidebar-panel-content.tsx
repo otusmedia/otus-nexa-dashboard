@@ -8,7 +8,7 @@ import type { ModuleKey } from "@/types";
 import { SidebarClientPicker } from "@/components/layout/sidebar-client-picker";
 import { SidebarNav, type SidebarNavLink } from "@/components/layout/sidebar-nav";
 import { SidebarThemeSwitch } from "@/components/layout/sidebar-theme-switch";
-import { ClientLogo } from "@/components/ui/client-logo";
+import { ClientLogo, SIDEBAR_BRAND_LOGO_HEIGHT_PX, SIDEBAR_BRAND_LOGO_MAX_WIDTH_PX } from "@/components/ui/client-logo";
 import { cn } from "@/lib/utils";
 
 export type SidebarPanelContentProps = {
@@ -189,7 +189,15 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
 
       {sidebarClient && (sidebarClient.logoUrl || sidebarClient.logoLightUrl) ? (
         <div className="shrink-0 px-3 pb-3">
-          <ClientLogo client={sidebarClient} size="sidebar" className="object-left" />
+          <div
+            className="flex min-w-0 items-center justify-start overflow-hidden"
+            style={{
+              height: SIDEBAR_BRAND_LOGO_HEIGHT_PX,
+              maxWidth: SIDEBAR_BRAND_LOGO_MAX_WIDTH_PX,
+            }}
+          >
+            <ClientLogo client={sidebarClient} size="sidebar" className="object-left" />
+          </div>
         </div>
       ) : null}
 
