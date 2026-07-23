@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { PortfolioSite } from "@/components/portfolio/portfolio-site";
-import { loadPublicPortfolioBySlug, type PortfolioSiteData } from "@/lib/portfolio";
+import { fetchAccountByClientSlug } from "@/lib/accounts";
+import { loadPortfolioSite, type PortfolioSiteData } from "@/lib/portfolio";
 
-export default function PublicPortfolioPage({
+/** Live portfolio for agency-linked clients (visitor-only, no editor chrome). */
+export default function PublicClientPortfolioPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
@@ -21,14 +23,16 @@ export default function PublicPortfolioPage({
       if (!mounted) return;
       setSlug(s);
       try {
-        const data = await loadPublicPortfolioBySlug(s);
+        const account = await fetchAccountByClientSlug(s);
         if (!mounted) return;
-        if (!data) {
+        if (!account) {
           setError("Portfolio not found.");
           setSite(null);
-        } else {
-          setSite(data);
+          return;
         }
+        const data = await loadPortfolioSite(account.id, "live");
+        if (!mounted) return;
+        setSite(data);
       } catch (err) {
         if (!mounted) return;
         setError(err instanceof Error ? err.message : "Failed to load portfolio.");
@@ -79,7 +83,7 @@ export default function PublicPortfolioPage({
     <PortfolioSite
       mode="view"
       data={site}
-      projectHrefForItem={(item) => `/p/${slug}/w/${item.id}`}
+      projectHrefForItem={(item) => `/p/c/${slug}/w/${item.id}`}
     />
   );
 }

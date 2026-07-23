@@ -239,6 +239,18 @@ const platformPtBR: Record<string, string> = {
   "Add, rename, or remove project board columns.":
     "Adicione, renomeie ou remova colunas do quadro de projetos.",
   "Select a client to edit board statuses.": "Selecione um cliente para editar os status do quadro.",
+  "Select a client in the sidebar to edit their portfolio.":
+    "Selecione um cliente na barra lateral para editar o portfólio.",
+  "No account found for this session.": "Nenhuma conta encontrada para esta sessão.",
+  "Could not load portfolio.": "Não foi possível carregar o portfólio.",
+  "Could not publish.": "Não foi possível publicar.",
+  "Published successfully": "Publicado com sucesso",
+  "Open live page": "Abrir página ao vivo",
+  "Public link needs a filmmaker public slug.":
+    "O link público precisa de um slug público de filmmaker.",
+  "Back to edit": "Voltar à edição",
+  "Preview as visitor": "Pré-visualizar como visitante",
+  "Could not save.": "Não foi possível salvar.",
   Owners: "Responsáveis",
   "Add task": "Adicionar tarefa",
   "Task name": "Nome da tarefa",

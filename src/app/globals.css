@@ -527,4 +527,27 @@ html.sidebar-nav-dragging .platform-route-content {
     animation: none;
     width: 100%;
   }
+
+  .portfolio-marquee-track {
+    animation: none !important;
+  }
 }
+
+/* Portfolio hero project marquee (Savee-style) */
+@keyframes portfolio-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.portfolio-marquee-track {
+  animation: portfolio-marquee 55s linear infinite;
+}
+
+.portfolio-marquee:hover .portfolio-marquee-track {
+  animation-play-state: paused;
+}
+

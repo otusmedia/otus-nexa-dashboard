@@ -257,6 +257,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   })();
 
   const onUpdatesPage = pathname.startsWith("/updates");
+  const hideSystemHero = pathname === "/portfolio" || pathname.startsWith("/portfolio/");
   let updatesLastSeen: string | null = null;
   if (typeof window !== "undefined") {
     try {
@@ -507,13 +508,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         />
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
-          <div className="shrink-0">
-            <HeroSection />
-          </div>
+          {hideSystemHero ? null : (
+            <div className="shrink-0">
+              <HeroSection />
+            </div>
+          )}
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div
               key={pathname}
-              className="platform-route-content min-h-0 flex-1 px-6 pt-6 pb-6 lg:px-8"
+              className={
+                hideSystemHero
+                  ? "platform-route-content min-h-0 flex-1 p-0"
+                  : "platform-route-content min-h-0 flex-1 px-6 pt-6 pb-6 lg:px-8"
+              }
             >
               {children}
             </div>
