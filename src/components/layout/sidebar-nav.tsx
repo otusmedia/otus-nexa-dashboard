@@ -17,17 +17,7 @@ import { cn } from "@/lib/utils";
 
 export type SidebarNavLink = {
   key: ModuleKey;
-  labelKey:
-    | "dashboard"
-    | "projects"
-    | "financial"
-    | "updates"
-    | "marketing"
-    | "content-management"
-    | "calendar"
-    | "crm"
-    | "files"
-    | "contracts";
+  labelKey: ModuleKey;
   href: string;
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
 };

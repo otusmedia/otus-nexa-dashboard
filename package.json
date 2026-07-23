@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "next lint && tsx scripts/lint-account-id.ts",
+    "lint:account-id": "tsx scripts/lint-account-id.ts",
     "ghl:import": "tsx scripts/ghl-import.ts",
     "ghl:import:dry": "tsx scripts/ghl-import.ts --dry-run",
     "ghl:test-api": "tsx scripts/ghl-test-api.ts",
@@ -17,7 +18,8 @@
     "ghl:backups": "tsx scripts/ghl-check-backups.ts",
     "crm:migrate:service-product": "tsx scripts/apply-crm-service-product-migration.ts",
     "chat:migrate": "tsx scripts/apply-team-chat-migration.ts",
-    "clients:migrate:dashboard-cards": "tsx scripts/apply-client-dashboard-cards-migration.ts"
+    "clients:migrate:dashboard-cards": "tsx scripts/apply-client-dashboard-cards-migration.ts",
+    "accounts:migrate": "tsx scripts/apply-accounts-foundation-migration.ts"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",

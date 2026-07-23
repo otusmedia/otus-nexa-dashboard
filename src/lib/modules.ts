@@ -18,6 +18,8 @@ export const ASSIGNABLE_MODULE_KEYS: ModuleKey[] = [
   "crm",
   "files",
   "contracts",
+  "portfolio",
+  "deliveries",
 ];
 
 export const ALL_MODULE_KEYS: ModuleKey[] = [
@@ -31,6 +33,8 @@ export const ALL_MODULE_KEYS: ModuleKey[] = [
   "crm",
   "files",
   "contracts",
+  "portfolio",
+  "deliveries",
 ];
 
 /** Modules RocketRide admins may assign (Dashboard, Projects, Financial, Files, Contracts). */
@@ -54,6 +58,8 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   crm: "CRM",
   files: "Files",
   contracts: "Contracts",
+  portfolio: "Portfolio",
+  deliveries: "Deliveries",
 };
 
 /** Legacy `publishing` module access maps to Studio → Compose. */

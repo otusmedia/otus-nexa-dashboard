@@ -1,12 +1,18 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
-import { DragDropContext } from "@hello-pangea/dnd";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
 import { KANBAN_COLUMNS, type KanbanColumnId, type ProjectType } from "../data";
 import { KanbanColumn } from "./kanban-column";
 import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { isAgencyCompany } from "@/lib/client-utils";
+import {
+  defaultProjectsBoardPrefs,
+  readProjectsBoardPrefs,
+  writeProjectsBoardPrefs,
+  type ProjectsBoardPrefs,
+} from "@/lib/projects-board-prefs";
 
 export function ProjectsKanban() {
   const {
@@ -28,6 +34,28 @@ export function ProjectsKanban() {
   const [endDate, setEndDate] = useState("");
   const [description, setDescription] = useState("");
   const [nameError, setNameError] = useState("");
+  const [boardPrefs, setBoardPrefs] = useState<ProjectsBoardPrefs>(() => defaultProjectsBoardPrefs());
+
+  useEffect(() => {
+    setBoardPrefs(readProjectsBoardPrefs(currentUser.id));
+  }, [currentUser.id]);
+
+  const persistPrefs = useCallback(
+    (next: ProjectsBoardPrefs) => {
+      setBoardPrefs(next);
+      writeProjectsBoardPrefs(currentUser.id, next);
+    },
+    [currentUser.id],
+  );
+
+  const orderedColumns = useMemo(() => {
+    const byId = new Map(KANBAN_COLUMNS.map((col) => [col.id, col]));
+    return boardPrefs.columnOrder
+      .map((id) => byId.get(id))
+      .filter((col): col is (typeof KANBAN_COLUMNS)[number] => Boolean(col));
+  }, [boardPrefs.columnOrder]);
+
+  const minimizedSet = useMemo(() => new Set(boardPrefs.minimized), [boardPrefs.minimized]);
 
   const projectCount = useMemo(
     () => Object.values(projectsByColumn).reduce((total, list) => total + list.length, 0),
@@ -78,9 +106,33 @@ export function ProjectsKanban() {
     closeAddProjectModal();
   };
 
+  const toggleMinimize = (columnId: KanbanColumnId) => {
+    const minimized = minimizedSet.has(columnId)
+      ? boardPrefs.minimized.filter((id) => id !== columnId)
+      : [...boardPrefs.minimized, columnId];
+    persistPrefs({ ...boardPrefs, minimized });
+  };
+
+  const onDragEnd = (result: DropResult) => {
+    const { destination, source, type } = result;
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+
+    if (type === "COLUMN") {
+      const nextOrder = [...boardPrefs.columnOrder];
+      const [moved] = nextOrder.splice(source.index, 1);
+      if (!moved) return;
+      nextOrder.splice(destination.index, 0, moved);
+      persistPrefs({ ...boardPrefs, columnOrder: nextOrder });
+      return;
+    }
+
+    moveProjectInKanban(result);
+  };
+
   return (
     <div className="w-full min-w-0 overflow-x-auto">
-      <DragDropContext onDragEnd={moveProjectInKanban}>
+      <DragDropContext onDragEnd={onDragEnd}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
           <span className="text-xs font-light text-[rgba(255,255,255,0.4)]">
             {projectCount} {lt("projects")}
@@ -104,18 +156,35 @@ export function ProjectsKanban() {
           ) : null}
         </div>
         <div className="h-[80vh] w-max overflow-hidden">
-          <div className="flex h-full min-h-0 w-max flex-row gap-4 px-1 pb-4">
-            {KANBAN_COLUMNS.map((col) => (
-              <KanbanColumn
-                key={col.id}
-                columnId={col.id}
-                label={col.label}
-                dotClass={col.dotClass}
-                projects={projectsByColumn[col.id]}
-                onAddProject={openAddProjectModal}
-              />
-            ))}
-          </div>
+          <Droppable droppableId="projects-board-columns" direction="horizontal" type="COLUMN">
+            {(boardProvided) => (
+              <div
+                ref={boardProvided.innerRef}
+                {...boardProvided.droppableProps}
+                className="flex h-full min-h-0 w-max flex-row gap-4 px-1 pb-4"
+              >
+                {orderedColumns.map((col, index) => (
+                  <Draggable key={col.id} draggableId={`column:${col.id}`} index={index}>
+                    {(colProvided) => (
+                      <div ref={colProvided.innerRef} {...colProvided.draggableProps}>
+                        <KanbanColumn
+                          columnId={col.id}
+                          label={col.label}
+                          dotClass={col.dotClass}
+                          projects={projectsByColumn[col.id] ?? []}
+                          onAddProject={openAddProjectModal}
+                          minimized={minimizedSet.has(col.id)}
+                          onToggleMinimize={toggleMinimize}
+                          dragHandleProps={colProvided.dragHandleProps}
+                        />
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {boardProvided.placeholder}
+              </div>
+            )}
+          </Droppable>
         </div>
       </DragDropContext>
       {modalOpen ? (

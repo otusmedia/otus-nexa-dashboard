@@ -32,6 +32,7 @@ import { createPortal } from "react-dom";
 import type { Project, ProjectStatus, ProjectTaskRow, ProjectType, TaskRowStatus } from "../data";
 import {
   COLUMN_TO_STATUS,
+  computeProjectProgressFromTasks,
   formatDisplayDate,
   KANBAN_COLUMNS,
   OWNER_OPTIONS,
@@ -985,12 +986,7 @@ export function ProjectDetailView({ project }: { project: Project }) {
   };
 
   const syncProjectProgressFromLocalTasks = async (nextTasks: LocalTask[]) => {
-    const nextProgress = Math.round(
-      nextTasks.length === 0
-        ? 0
-        : (nextTasks.filter((task) => task.status === "Done" || task.status === "Published").length / nextTasks.length) *
-            100,
-    );
+    const nextProgress = computeProjectProgressFromTasks(nextTasks);
     const { error } = await supabase.from("projects").update({ progress: nextProgress }).eq("id", project.id);
     if (error) {
       console.error("[supabase] project progress update failed:", error.message);

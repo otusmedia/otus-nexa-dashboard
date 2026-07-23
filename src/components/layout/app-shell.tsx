@@ -7,12 +7,14 @@ import {
   BarChart3,
   Briefcase,
   Calendar,
+  Clapperboard,
   FileText,
   FileUp,
   LayoutDashboard,
   LogOut,
   Megaphone,
   MessageSquare,
+  Package,
   Settings,
   Sparkles,
   Wallet,
@@ -60,6 +62,8 @@ const moduleLinks: SidebarNavLink[] = [
   { key: "crm", labelKey: "crm", href: "/crm", icon: Briefcase },
   { key: "files", labelKey: "files", href: "/files", icon: FileUp },
   { key: "contracts", labelKey: "contracts", href: "/contracts", icon: FileText },
+  { key: "portfolio", labelKey: "portfolio", href: "/portfolio", icon: Clapperboard },
+  { key: "deliveries", labelKey: "deliveries", href: "/deliveries", icon: Package },
 ];
 
 const GUEST_USER_ID = "__guest__";

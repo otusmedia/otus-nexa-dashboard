@@ -20,7 +20,9 @@ export type ModuleKey =
   | "calendar"
   | "crm"
   | "files"
-  | "contracts";
+  | "contracts"
+  | "portfolio"
+  | "deliveries";
 
 export type ApprovalStatus = "draft" | "pending" | "approved" | "rejected";
 export type TaskStatus = "backlog" | "in_progress" | "in_review" | "completed";
@@ -198,6 +200,8 @@ export interface Client {
   dashboardCards: ClientDashboardCards;
   /** When set, client admins may assign only these modules to users in this account. */
   enabledModules: ModuleKey[] | null;
+  /** Linked SaaS account (Phase 0); null until accounts migration is applied. */
+  accountId: string | null;
   createdAt: string;
 }
 

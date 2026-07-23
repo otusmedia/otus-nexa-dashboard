@@ -7,9 +7,10 @@ import type { ProjectStatus } from "../data";
 const styles: Record<ProjectStatus, string> = {
   Planning: "border-[#3b82f6]/40 bg-[#3b82f6]/15 text-[#93c5fd]",
   "In Progress": "border-[#ff4500]/40 bg-[#ff4500]/15 text-[#ffb79e]",
-  Paused: "border-[#a855f7]/40 bg-[#a855f7]/15 text-[#d8b4fe]",
+  Scheduled: "border-[#06b6d4]/40 bg-[#06b6d4]/15 text-[#67e8f9]",
   Done: "border-[#22c55e]/40 bg-[#22c55e]/15 text-[#86efac]",
   Cancelled: "border-[#ef4444]/40 bg-[#ef4444]/15 text-[#fca5a5]",
+  Paused: "border-[#a855f7]/40 bg-[#a855f7]/15 text-[#d8b4fe]",
 };
 
 export function ProjectStatusBadge({ status, className }: { status: ProjectStatus; className?: string }) {

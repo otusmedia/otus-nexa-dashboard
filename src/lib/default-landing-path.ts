@@ -25,6 +25,8 @@ export const MODULE_ENTRY_PATHS: Record<ModuleKey, string> = {
   crm: CRM_MODULE_PATHS[0],
   files: "/files",
   contracts: "/contracts",
+  portfolio: "/portfolio",
+  deliveries: "/deliveries",
 };
 
 export type LandingPathOptions = {

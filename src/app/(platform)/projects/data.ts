@@ -1,8 +1,20 @@
 import type { TaskHighlightAttachment } from "@/lib/task-highlight-cover";
 
-export type KanbanColumnId = "planning" | "in_progress" | "paused" | "done" | "cancelled";
+export type KanbanColumnId =
+  | "planning"
+  | "in_progress"
+  | "scheduled"
+  | "done"
+  | "cancelled"
+  | "paused";
 
-export type ProjectStatus = "Planning" | "In Progress" | "Paused" | "Done" | "Cancelled";
+export type ProjectStatus =
+  | "Planning"
+  | "In Progress"
+  | "Scheduled"
+  | "Done"
+  | "Cancelled"
+  | "Paused";
 
 export type ProjectType = "Website" | "Monthly Content" | "Paid Traffic";
 
@@ -58,30 +70,78 @@ export interface Project {
 
 export type ProjectsByColumn = Record<KanbanColumnId, Project[]>;
 
-export function splitProjectsByColumn(projects: Project[]): ProjectsByColumn {
+/** Default left→right order (Paused last). Users can reorder via board prefs. */
+export const ALL_KANBAN_COLUMN_IDS: KanbanColumnId[] = [
+  "planning",
+  "in_progress",
+  "scheduled",
+  "done",
+  "cancelled",
+  "paused",
+];
+
+export function emptyProjectsByColumn(): ProjectsByColumn {
   return {
-    planning: projects.filter((project) => project.column === "planning"),
-    in_progress: projects.filter((project) => project.column === "in_progress"),
-    paused: projects.filter((project) => project.column === "paused"),
-    done: projects.filter((project) => project.column === "done"),
-    cancelled: projects.filter((project) => project.column === "cancelled"),
+    planning: [],
+    in_progress: [],
+    scheduled: [],
+    done: [],
+    cancelled: [],
+    paused: [],
   };
 }
 
-export function mergeProjectsByColumn(board: ProjectsByColumn): Project[] {
-  return [
-    ...board.planning,
-    ...board.in_progress,
-    ...board.paused,
-    ...board.done,
-    ...board.cancelled,
-  ];
+export function splitProjectsByColumn(projects: Project[]): ProjectsByColumn {
+  const board = emptyProjectsByColumn();
+  for (const project of projects) {
+    board[project.column].push(project);
+  }
+  return board;
 }
 
-/** Progress from board task rows (Done + Published), matching project detail view. */
-export function computeProjectProgressFromTasks(tasks: ProjectTaskRow[]): number {
+export function mergeProjectsByColumn(board: ProjectsByColumn): Project[] {
+  return ALL_KANBAN_COLUMN_IDS.flatMap((id) => board[id]);
+}
+
+export function cloneProjectsByColumn(board: ProjectsByColumn): ProjectsByColumn {
+  const next = emptyProjectsByColumn();
+  for (const id of ALL_KANBAN_COLUMN_IDS) {
+    next[id] = [...(board[id] ?? [])];
+  }
+  return next;
+}
+
+export function mapAllProjectColumns(
+  board: ProjectsByColumn,
+  mapProject: (project: Project) => Project,
+): ProjectsByColumn {
+  const next = emptyProjectsByColumn();
+  for (const id of ALL_KANBAN_COLUMN_IDS) {
+    next[id] = (board[id] ?? []).map(mapProject);
+  }
+  return next;
+}
+
+export function mapAllProjectColumnLists(
+  board: ProjectsByColumn,
+  mapList: (list: Project[]) => Project[],
+): ProjectsByColumn {
+  const next = emptyProjectsByColumn();
+  for (const id of ALL_KANBAN_COLUMN_IDS) {
+    next[id] = mapList(board[id] ?? []);
+  }
+  return next;
+}
+
+/** Task statuses that count as production-complete for the progress bar. */
+export function isTaskCountingTowardProgress(status: TaskRowStatus | string): boolean {
+  return status === "Done" || status === "Scheduled" || status === "Published";
+}
+
+/** Progress from board task rows (Done + Scheduled + Published). */
+export function computeProjectProgressFromTasks(tasks: Array<{ status: TaskRowStatus | string }>): number {
   if (tasks.length === 0) return 0;
-  const completed = tasks.filter((task) => task.status === "Done" || task.status === "Published").length;
+  const completed = tasks.filter((task) => isTaskCountingTowardProgress(task.status)).length;
   return Math.round((completed / tasks.length) * 100);
 }
 
@@ -92,26 +152,29 @@ export const KANBAN_COLUMNS: Array<{
 }> = [
   { id: "planning", label: "Planning", dotClass: "bg-[#3b82f6]" },
   { id: "in_progress", label: "In Progress", dotClass: "bg-[#ff4500]" },
-  { id: "paused", label: "Paused", dotClass: "bg-[#a855f7]" },
+  { id: "scheduled", label: "Scheduled", dotClass: "bg-[#06b6d4]" },
   { id: "done", label: "Done", dotClass: "bg-[#22c55e]" },
   { id: "cancelled", label: "Cancelled", dotClass: "bg-[#ef4444]" },
+  { id: "paused", label: "Paused", dotClass: "bg-[#a855f7]" },
 ];
 
 export const COLUMN_TO_STATUS: Record<KanbanColumnId, ProjectStatus> = {
   planning: "Planning",
   in_progress: "In Progress",
-  paused: "Paused",
+  scheduled: "Scheduled",
   done: "Done",
   cancelled: "Cancelled",
+  paused: "Paused",
 };
 
 /** Kanban column for each project status (detail panel + board moves). */
 export const STATUS_TO_COLUMN: Record<ProjectStatus, KanbanColumnId> = {
   Planning: "planning",
   "In Progress": "in_progress",
-  Paused: "paused",
+  Scheduled: "scheduled",
   Done: "done",
   Cancelled: "cancelled",
+  Paused: "paused",
 };
 
 /** Team members available as project owners (Properties multi-select). */
@@ -131,7 +194,7 @@ export const TASK_STATUS_OPTIONS: TaskStatusOption[] = [
   { value: "In Progress", group: "In Progress", dotClass: "bg-[#ff4500]" },
   { value: "Waiting for Approval", group: "In Progress", dotClass: "bg-[#9ca3af]" },
   { value: "Done", group: "Complete", dotClass: "bg-[#22c55e]" },
-  { value: "Scheduled", group: "Complete", dotClass: "bg-[#9ca3af]" },
+  { value: "Scheduled", group: "Complete", dotClass: "bg-[#06b6d4]" },
   { value: "Published", group: "Complete", dotClass: "bg-[#3b82f6]" },
 ];
 

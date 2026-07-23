@@ -13,8 +13,13 @@ import {
   ROCKETRIDE_ALLOWED_MODULE_KEYS,
 } from "@/lib/modules";
 import {
+  ALL_KANBAN_COLUMN_IDS,
   COLUMN_TO_STATUS,
+  cloneProjectsByColumn,
   computeProjectProgressFromTasks,
+  emptyProjectsByColumn,
+  mapAllProjectColumnLists,
+  mapAllProjectColumns,
   splitProjectsByColumn,
   STATUS_TO_COLUMN,
   type KanbanColumnId,
@@ -128,13 +133,11 @@ function filterProjectsByColumn(
     return (slug ?? "") === opts.userClientSlug;
   };
   const filterList = (list: Project[]) => list.filter((p) => matchSlug(p.clientSlug));
-  return {
-    planning: filterList(board.planning),
-    in_progress: filterList(board.in_progress),
-    paused: filterList(board.paused),
-    done: filterList(board.done),
-    cancelled: filterList(board.cancelled),
-  };
+  const next = emptyProjectsByColumn();
+  for (const id of ALL_KANBAN_COLUMN_IDS) {
+    next[id] = filterList(board[id] ?? []);
+  }
+  return next;
 }
 
 interface AppContextValue {
@@ -467,6 +470,7 @@ function clientFromRow(row: Record<string, unknown>): Client {
     whatsappConfig: parseClientWhatsAppConfig(row.whatsapp_config),
     dashboardCards: parseClientDashboardCards(row.dashboard_cards),
     enabledModules: parseClientEnabledModules(row),
+    accountId: row.account_id != null && String(row.account_id).trim() !== "" ? String(row.account_id) : null,
     createdAt: String(row.created_at ?? ""),
   };
 }
@@ -532,6 +536,7 @@ function mapDbTaskToTask(row: DbTaskRow): Task {
 function statusToColumn(status: string | null | undefined): KanbanColumnId {
   const normalized = String(status ?? "").toLowerCase();
   if (normalized === "in progress") return "in_progress";
+  if (normalized === "scheduled") return "scheduled";
   if (normalized === "paused") return "paused";
   if (normalized === "done") return "done";
   if (normalized === "cancelled") return "cancelled";
@@ -1060,7 +1065,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
 
     const desired = new Map<string, { message: string }>();
 
-    const cols: KanbanColumnId[] = ["planning", "in_progress", "paused", "done", "cancelled"];
+    const cols: KanbanColumnId[] = [...ALL_KANBAN_COLUMN_IDS];
     for (const col of cols) {
       for (const p of projectsByColumn[col]) {
         for (const task of p.tasks) {
@@ -2212,7 +2217,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         registerActivity(`New project created: ${name}`);
       },
       updateBoardProjectTask: (projectId, taskId, updates) => {
-        const cols: KanbanColumnId[] = ["planning", "in_progress", "paused", "done", "cancelled"];
+        const cols: KanbanColumnId[] = [...ALL_KANBAN_COLUMN_IDS];
         let prevTask: ProjectTaskRow | undefined;
         outer: for (const col of cols) {
           for (const p of allProjectsByColumn[col]) {
@@ -2238,13 +2243,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             if (p.id !== projectId) return p;
             return { ...p, tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, ...updates } : t)) };
           };
-          return {
-            planning: prev.planning.map(mapProject),
-            in_progress: prev.in_progress.map(mapProject),
-            paused: prev.paused.map(mapProject),
-            done: prev.done.map(mapProject),
-            cancelled: prev.cancelled.map(mapProject),
-          };
+          return mapAllProjectColumns(prev, mapProject);
         });
 
         const needsAttachmentSync =
@@ -2269,13 +2268,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
                     tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, attachments } : t)),
                   };
                 };
-                return {
-                  planning: prev.planning.map(mapProject),
-                  in_progress: prev.in_progress.map(mapProject),
-                  paused: prev.paused.map(mapProject),
-                  done: prev.done.map(mapProject),
-                  cancelled: prev.cancelled.map(mapProject),
-                };
+                return mapAllProjectColumns(prev, mapProject);
               });
             });
         }
@@ -2288,13 +2281,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             if (hit) deletedName = hit.name;
             return list.filter((p) => p.id !== projectId);
           };
-          return {
-            planning: strip(prev.planning),
-            in_progress: strip(prev.in_progress),
-            paused: strip(prev.paused),
-            done: strip(prev.done),
-            cancelled: strip(prev.cancelled),
-          };
+          return mapAllProjectColumnLists(prev, strip);
         });
         void supabase
           .from("projects")
@@ -2316,13 +2303,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
             progressUpdate = computeProjectProgressFromTasks(nextTasks);
             return { ...p, tasks: nextTasks, progress: progressUpdate };
           };
-          return {
-            planning: prev.planning.map(mapProject),
-            in_progress: prev.in_progress.map(mapProject),
-            paused: prev.paused.map(mapProject),
-            done: prev.done.map(mapProject),
-            cancelled: prev.cancelled.map(mapProject),
-          };
+          return mapAllProjectColumns(prev, mapProject);
         });
         if (progressUpdate !== null) {
           void supabase
@@ -2341,29 +2322,21 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         setAllProjectsByColumn((prev) => {
           const mapProject = (p: Project): Project =>
             p.id === projectId ? { ...p, tasks: [...p.tasks, task] } : p;
-          return {
-            planning: prev.planning.map(mapProject),
-            in_progress: prev.in_progress.map(mapProject),
-            paused: prev.paused.map(mapProject),
-            done: prev.done.map(mapProject),
-            cancelled: prev.cancelled.map(mapProject),
-          };
+          return mapAllProjectColumns(prev, mapProject);
         });
       },
       moveProjectInKanban: (result: DropResult) => {
+        if (result.type === "COLUMN") return;
         const { source, destination } = result;
         if (!destination) return;
         if (source.droppableId === destination.droppableId && source.index === destination.index) return;
         const sourceColumn = source.droppableId as KanbanColumnId;
         const destinationColumn = destination.droppableId as KanbanColumnId;
+        if (!ALL_KANBAN_COLUMN_IDS.includes(sourceColumn) || !ALL_KANBAN_COLUMN_IDS.includes(destinationColumn)) {
+          return;
+        }
         setAllProjectsByColumn((prev) => {
-          const next: ProjectsByColumn = {
-            planning: [...prev.planning],
-            in_progress: [...prev.in_progress],
-            paused: [...prev.paused],
-            done: [...prev.done],
-            cancelled: [...prev.cancelled],
-          };
+          const next: ProjectsByColumn = cloneProjectsByColumn(prev);
           const [movedProject] = next[sourceColumn].splice(source.index, 1);
           if (!movedProject) return prev;
           next[destinationColumn].splice(destination.index, 0, {
@@ -2382,7 +2355,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
         });
       },
       updateBoardProject: (projectId, patch) => {
-        const cols: KanbanColumnId[] = ["planning", "in_progress", "paused", "done", "cancelled"];
+        const cols: KanbanColumnId[] = [...ALL_KANBAN_COLUMN_IDS];
         setAllProjectsByColumn((prev) => {
           let sourceCol: KanbanColumnId | null = null;
           let sourceIdx = -1;
@@ -2424,13 +2397,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
 
           const destCol = nextProject.column;
           if (destCol !== sourceCol) {
-            const next: ProjectsByColumn = {
-              planning: [...prev.planning],
-              in_progress: [...prev.in_progress],
-              paused: [...prev.paused],
-              done: [...prev.done],
-              cancelled: [...prev.cancelled],
-            };
+            const next: ProjectsByColumn = cloneProjectsByColumn(prev);
             next[sourceCol].splice(sourceIdx, 1);
             next[destCol].unshift(nextProject);
             return next;
