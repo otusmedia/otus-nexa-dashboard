@@ -37,6 +37,74 @@ export type PortfolioImpactStat = {
   delta?: string;
 };
 
+export type PortfolioAboutBrand = {
+  id: string;
+  name: string;
+  logoUrl: string | null;
+};
+
+export type PortfolioAboutTeamMember = {
+  id: string;
+  name: string;
+  role: string;
+  bio: string;
+  photoUrl: string | null;
+};
+
+export type PortfolioAboutAward = {
+  id: string;
+  org: string;
+  detail: string;
+  count: string;
+};
+
+export type PortfolioAboutTestimonial = {
+  id: string;
+  quote: string;
+  name: string;
+  title: string;
+  photoUrl: string | null;
+};
+
+export type PortfolioAboutInsight = {
+  id: string;
+  title: string;
+  excerpt: string;
+  imageUrl: string | null;
+  meta: string;
+};
+
+export type PortfolioAboutPlan = {
+  id: string;
+  name: string;
+  price: string;
+  description: string;
+  features: string[];
+  ctaLabel: string;
+  featured?: boolean;
+};
+
+export type PortfolioAboutFaq = {
+  id: string;
+  question: string;
+  answer: string;
+};
+
+export type PortfolioAboutBlockKey =
+  | "intro"
+  | "gallery"
+  | "feature"
+  | "impact"
+  | "brands"
+  | "team"
+  | "testimonials"
+  | "cta"
+  | "insights"
+  | "pricing"
+  | "faq";
+
+export type PortfolioAboutBlocks = Record<PortfolioAboutBlockKey, boolean>;
+
 export type PortfolioAboutContent = {
   eyebrow: string;
   title: string;
@@ -48,6 +116,30 @@ export type PortfolioAboutContent = {
   impactHeadline: string;
   impactBody: string;
   impactStats: PortfolioImpactStat[];
+  brandsEyebrow: string;
+  brandsHeadline: string;
+  brandsBody: string;
+  brands: PortfolioAboutBrand[];
+  teamEyebrow: string;
+  teamHeadline: string;
+  teamMembers: PortfolioAboutTeamMember[];
+  awards: PortfolioAboutAward[];
+  teamCtaLabel: string;
+  testimonialsEyebrow: string;
+  testimonialsHeadline: string;
+  testimonials: PortfolioAboutTestimonial[];
+  ctaHeadline: string;
+  ctaLabel: string;
+  insightsEyebrow: string;
+  insightsHeadline: string;
+  insightsBody: string;
+  insights: PortfolioAboutInsight[];
+  pricingEyebrow: string;
+  pricingHeadline: string;
+  pricingBody: string;
+  plans: PortfolioAboutPlan[];
+  faqs: PortfolioAboutFaq[];
+  blocks: PortfolioAboutBlocks;
 };
 
 export type PortfolioSectionKey = "hero" | "work" | "highlights" | "about";
@@ -134,24 +226,208 @@ const DEFAULT_SECTIONS: PortfolioSectionsVisibility = {
   about: true,
 };
 
+const DEFAULT_ABOUT_BLOCKS: PortfolioAboutBlocks = {
+  intro: true,
+  gallery: true,
+  feature: true,
+  impact: true,
+  brands: true,
+  team: true,
+  testimonials: true,
+  cta: true,
+  insights: true,
+  pricing: true,
+  faq: true,
+};
+
 const DEFAULT_ABOUT: PortfolioAboutContent = {
   eyebrow: "Welcome to",
   title: "Studio",
-  lead: "We are a collective of filmmakers and visual storytellers driven by purpose. We transform complex visions into powerful cinematic realities.",
+  lead: "We are a collective of filmmakers and visual storytellers driven by purpose, not just profit. We transform complex visions into powerful cinematic realities, crafting films that are as beautiful as they are impactful.",
   galleryUrls: [],
   featureCaption: "Designing the future, today.",
   featureImageUrl: null,
   impactEyebrow: "Our real impact",
   impactHeadline:
-    "We craft visual pathways that elevate brands, designing films that captivate audiences and secure lasting presence.",
+    "We craft visual pathways that elevate brands, designing films that captivate audiences and secure long-term success.",
   impactBody:
-    "Our methodology sits at the intersection of craft and narrative. We don't just shoot content — we build cinematic systems that move people and grow brands.",
+    "Our methodology is built on the intersection of craft and narrative. We don't just shoot content — we architect comprehensive cinematic ecosystems that drive real brand growth. By combining human-centric storytelling with rigorous production, we empower brands to connect deeply with their audiences.",
   impactStats: [
-    { id: "a1", value: "72+", label: "Projects shipped", delta: "+5%" },
-    { id: "a2", value: "98%", label: "Client satisfaction", delta: "+5%" },
+    { id: "a1", value: "72+", label: "Projects shipped globally", delta: "+5%" },
+    { id: "a2", value: "98%", label: "Client satisfaction score", delta: "+5%" },
     { id: "a3", value: "40+", label: "Brand partners", delta: "+5%" },
     { id: "a4", value: "12", label: "Countries reached", delta: "+5%" },
   ],
+  brandsEyebrow: "/Trusted",
+  brandsHeadline: "Brands.",
+  brandsBody: "From early startups to global enterprises, we help ambitious brands find their own true voice.",
+  brands: [
+    { id: "b1", name: "Revo", logoUrl: null },
+    { id: "b2", name: "Tenxa", logoUrl: null },
+    { id: "b3", name: "Loop", logoUrl: null },
+    { id: "b4", name: "Aries", logoUrl: null },
+    { id: "b5", name: "Bioscale", logoUrl: null },
+    { id: "b6", name: "Northbyte", logoUrl: null },
+    { id: "b7", name: "NextLayer", logoUrl: null },
+    { id: "b8", name: "Silvergrid", logoUrl: null },
+    { id: "b9", name: "Metrion", logoUrl: null },
+    { id: "b10", name: "Horizon", logoUrl: null },
+    { id: "b11", name: "Lumix", logoUrl: null },
+    { id: "b12", name: "Strive", logoUrl: null },
+  ],
+  teamEyebrow: "Meet the creators",
+  teamHeadline: "We are the explorers, the dreamers, and the builders who guide your brand to its next destination.",
+  teamMembers: [
+    {
+      id: "t1",
+      name: "Jonathan Reed",
+      role: "CEO & Founder",
+      bio: "Your film is most likely the first point of contact someone will have with your brand.",
+      photoUrl: null,
+    },
+    {
+      id: "t2",
+      name: "Michael Williams",
+      role: "Creative Director",
+      bio: "Your film is most likely the first point of contact someone will have with your brand.",
+      photoUrl: null,
+    },
+    {
+      id: "t3",
+      name: "Emily Dawson",
+      role: "Producer",
+      bio: "Your film is most likely the first point of contact someone will have with your brand.",
+      photoUrl: null,
+    },
+  ],
+  awards: [
+    { id: "aw1", org: "Awwwards", detail: "Developer Award, Site of the Day", count: "x03 Awards" },
+    { id: "aw2", org: "Behance", detail: "Website of the Day, Special Mention", count: "x07 Awards" },
+    { id: "aw3", org: "One Page Love", detail: "Featured Website, Honorable Mention", count: "x12 Awards" },
+    { id: "aw4", org: "CSS Winner", detail: "Site of the Day", count: "x05 Awards" },
+    { id: "aw5", org: "Site Inspire", detail: "Featured UX/UI and XD Design", count: "x26 Awards" },
+    { id: "aw6", org: "CSS Light", detail: "Site of the Day, Special Mention", count: "x03 Awards" },
+  ],
+  teamCtaLabel: "Be the next one",
+  testimonialsEyebrow: "Voices of partners",
+  testimonialsHeadline:
+    "We build the relationships that empower brands to grow, scaling their impact beyond every boundary.",
+  testimonials: [
+    {
+      id: "tm1",
+      quote:
+        "They transformed our unclear vision into a cohesive brand film, allowing us to communicate with clarity and confidence.",
+      name: "Ethan Carter",
+      title: "Operations Lead — Revo®",
+      photoUrl: null,
+    },
+    {
+      id: "tm2",
+      quote:
+        "The level of visibility we now have was unimaginable before. It fundamentally changed how we present the brand.",
+      name: "Charles Davis",
+      title: "Head of Strategy — Loop®",
+      photoUrl: null,
+    },
+    {
+      id: "tm3",
+      quote:
+        "Collaborating used to be a major challenge. Alignment has become our default mode of operation.",
+      name: "Jhonny Ross",
+      title: "CEO — Aries Studio®",
+      photoUrl: null,
+    },
+  ],
+  ctaHeadline: "Ready to start your new journey?",
+  ctaLabel: "Get in touch",
+  insightsEyebrow: "Our posts",
+  insightsHeadline: "Explore more insights",
+  insightsBody:
+    "The exploration never ends. Dive into more case studies and discover how we help brands navigate the digital landscape.",
+  insights: [
+    {
+      id: "i1",
+      title: "Launching faster: the competitive edge of rapid production.",
+      excerpt: "How speed and craft can coexist without compromise.",
+      imageUrl: null,
+      meta: "Insight",
+    },
+    {
+      id: "i2",
+      title: "Why minimalism still wins in cinematic design.",
+      excerpt: "Less noise, more presence — framing that holds attention.",
+      imageUrl: null,
+      meta: "Insight",
+    },
+    {
+      id: "i3",
+      title: "Motion as strategy: films that move people to act.",
+      excerpt: "Designing experiences that convert attention into action.",
+      imageUrl: null,
+      meta: "Insight",
+    },
+  ],
+  pricingEyebrow: "Start your journey",
+  pricingHeadline: "Pricing for Visionaries",
+  pricingBody:
+    "Every great journey starts with a single step. We provide the map and the gear you need to reach the summit.",
+  plans: [
+    {
+      id: "p1",
+      name: "Project Based",
+      price: "U$ 5,000.00",
+      description: "Ideal for those who need a specific project completed with precision, speed, and high-end aesthetics.",
+      features: [
+        "Custom Strategy & Direction",
+        "High-End Motion Design",
+        "Color & Finishing",
+        "Global Delivery",
+      ],
+      ctaLabel: "Let's work together",
+      featured: true,
+    },
+    {
+      id: "p2",
+      name: "Subscription",
+      price: "U$ 10,000.00",
+      description: "Designed for those who need ongoing support, continuous evolution, and a dedicated creative partner.",
+      features: [
+        "Unlimited Design & Dev Sprints",
+        "Priority Async Support",
+        "Bi-Weekly Sync Meetings",
+        "Pause At Any Time",
+      ],
+      ctaLabel: "Let's work together",
+      featured: false,
+    },
+  ],
+  faqs: [
+    {
+      id: "f1",
+      question: "What is the Design Process?",
+      answer:
+        "The process typically involves research, brainstorming, concept development, production, and revisions. Clear communication throughout ensures the final film meets expectations.",
+    },
+    {
+      id: "f2",
+      question: "How Much Does It Cost to Hire a Film Studio?",
+      answer:
+        "Cost varies by scope, experience, and complexity. Expect anywhere from a few thousand to several tens of thousands depending on the brief.",
+    },
+    {
+      id: "f3",
+      question: "What Services Do You Offer?",
+      answer:
+        "Direction, cinematography, editing, motion design, brand films, campaign content, and ongoing creative partnership.",
+    },
+    {
+      id: "f4",
+      question: "How to Choose a Studio?",
+      answer:
+        "Evaluate portfolio, process, and communication style. Find a partner that aligns with your vision and can deliver the quality you expect.",
+    },
+  ],
+  blocks: { ...DEFAULT_ABOUT_BLOCKS },
 };
 
 function parseSections(raw: unknown): PortfolioSectionsVisibility {
@@ -159,6 +435,16 @@ function parseSections(raw: unknown): PortfolioSectionsVisibility {
   if (!raw || typeof raw !== "object") return base;
   const r = raw as Record<string, unknown>;
   (Object.keys(base) as PortfolioSectionKey[]).forEach((key) => {
+    if (typeof r[key] === "boolean") base[key] = r[key] as boolean;
+  });
+  return base;
+}
+
+function parseAboutBlocks(raw: unknown): PortfolioAboutBlocks {
+  const base = { ...DEFAULT_ABOUT_BLOCKS };
+  if (!raw || typeof raw !== "object") return base;
+  const r = raw as Record<string, unknown>;
+  (Object.keys(base) as PortfolioAboutBlockKey[]).forEach((key) => {
     if (typeof r[key] === "boolean") base[key] = r[key] as boolean;
   });
   return base;
@@ -184,48 +470,212 @@ function parseImpactStats(raw: unknown): PortfolioImpactStat[] {
   return out.length ? out : DEFAULT_ABOUT.impactStats.map((s) => ({ ...s }));
 }
 
+function strOr(raw: unknown, fallback: string): string {
+  return raw != null && String(raw).trim() ? String(raw).trim() : fallback;
+}
+
 function parseAboutContent(
   raw: unknown,
   legacyText: string,
   legacyImage: string | null,
   version: "draft" | "live",
 ): PortfolioAboutContent {
-  const fallback = version === "draft" ? DEFAULT_ABOUT : { ...DEFAULT_ABOUT, title: "", lead: "", eyebrow: "" };
-  const base: PortfolioAboutContent = {
-    ...fallback,
-    lead: legacyText.trim() || fallback.lead,
-    featureImageUrl: legacyImage,
-    galleryUrls: legacyImage ? [legacyImage] : [],
-  };
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
+  const emptyLive = version === "live";
+  const fallback: PortfolioAboutContent = emptyLive
+    ? {
+        ...DEFAULT_ABOUT,
+        eyebrow: "",
+        title: "",
+        lead: legacyText.trim() || "",
+        featureImageUrl: legacyImage,
+        galleryUrls: legacyImage ? [legacyImage] : [],
+        brands: [],
+        teamMembers: [],
+        awards: [],
+        testimonials: [],
+        insights: [],
+        plans: [],
+        faqs: [],
+      }
+    : {
+        ...DEFAULT_ABOUT,
+        lead: legacyText.trim() || DEFAULT_ABOUT.lead,
+        featureImageUrl: legacyImage,
+        galleryUrls: legacyImage ? [legacyImage] : [],
+      };
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallback;
   const r = raw as Record<string, unknown>;
   const gallery = Array.isArray(r.galleryUrls)
     ? r.galleryUrls.map((u) => String(u ?? "").trim()).filter(Boolean).slice(0, 6)
-    : base.galleryUrls;
+    : fallback.galleryUrls;
+
+  const brands: PortfolioAboutBrand[] = Array.isArray(r.brands)
+    ? r.brands
+        .map((row, i) => {
+          if (!row || typeof row !== "object") return null;
+          const b = row as Record<string, unknown>;
+          const name = String(b.name ?? "").trim();
+          if (!name) return null;
+          return {
+            id: String(b.id ?? `b${i}`),
+            name,
+            logoUrl: b.logoUrl != null && String(b.logoUrl).trim() ? String(b.logoUrl).trim() : null,
+          };
+        })
+        .filter((x): x is PortfolioAboutBrand => Boolean(x))
+    : fallback.brands;
+
+  const teamMembers: PortfolioAboutTeamMember[] = Array.isArray(r.teamMembers)
+    ? r.teamMembers
+        .map((row, i) => {
+          if (!row || typeof row !== "object") return null;
+          const t = row as Record<string, unknown>;
+          const name = String(t.name ?? "").trim();
+          if (!name) return null;
+          return {
+            id: String(t.id ?? `t${i}`),
+            name,
+            role: String(t.role ?? ""),
+            bio: String(t.bio ?? ""),
+            photoUrl: t.photoUrl != null && String(t.photoUrl).trim() ? String(t.photoUrl).trim() : null,
+          };
+        })
+        .filter((x): x is PortfolioAboutTeamMember => Boolean(x))
+    : fallback.teamMembers;
+
+  const awards: PortfolioAboutAward[] = Array.isArray(r.awards)
+    ? r.awards
+        .map((row, i) => {
+          if (!row || typeof row !== "object") return null;
+          const a = row as Record<string, unknown>;
+          const org = String(a.org ?? "").trim();
+          if (!org) return null;
+          return {
+            id: String(a.id ?? `aw${i}`),
+            org,
+            detail: String(a.detail ?? ""),
+            count: String(a.count ?? ""),
+          };
+        })
+        .filter((x): x is PortfolioAboutAward => Boolean(x))
+    : fallback.awards;
+
+  const testimonials: PortfolioAboutTestimonial[] = Array.isArray(r.testimonials)
+    ? r.testimonials
+        .map((row, i) => {
+          if (!row || typeof row !== "object") return null;
+          const t = row as Record<string, unknown>;
+          const quote = String(t.quote ?? "").trim();
+          const name = String(t.name ?? "").trim();
+          if (!quote && !name) return null;
+          return {
+            id: String(t.id ?? `tm${i}`),
+            quote: quote || "—",
+            name: name || "—",
+            title: String(t.title ?? ""),
+            photoUrl: t.photoUrl != null && String(t.photoUrl).trim() ? String(t.photoUrl).trim() : null,
+          };
+        })
+        .filter((x): x is PortfolioAboutTestimonial => Boolean(x))
+    : fallback.testimonials;
+
+  const insights: PortfolioAboutInsight[] = Array.isArray(r.insights)
+    ? r.insights
+        .map((row, i) => {
+          if (!row || typeof row !== "object") return null;
+          const item = row as Record<string, unknown>;
+          const title = String(item.title ?? "").trim();
+          if (!title) return null;
+          return {
+            id: String(item.id ?? `i${i}`),
+            title,
+            excerpt: String(item.excerpt ?? ""),
+            imageUrl:
+              item.imageUrl != null && String(item.imageUrl).trim() ? String(item.imageUrl).trim() : null,
+            meta: String(item.meta ?? ""),
+          };
+        })
+        .filter((x): x is PortfolioAboutInsight => Boolean(x))
+    : fallback.insights;
+
+  const plans: PortfolioAboutPlan[] = [];
+  if (Array.isArray(r.plans)) {
+    for (let i = 0; i < r.plans.length; i++) {
+      const row = r.plans[i];
+      if (!row || typeof row !== "object") continue;
+      const p = row as Record<string, unknown>;
+      const name = String(p.name ?? "").trim();
+      if (!name) continue;
+      plans.push({
+        id: String(p.id ?? `p${i}`),
+        name,
+        price: String(p.price ?? ""),
+        description: String(p.description ?? ""),
+        features: Array.isArray(p.features)
+          ? p.features.map((f) => String(f ?? "").trim()).filter(Boolean)
+          : [],
+        ctaLabel: String(p.ctaLabel ?? "Let's work together"),
+        featured: Boolean(p.featured) || undefined,
+      });
+    }
+  }
+  const resolvedPlans = plans.length ? plans : fallback.plans;
+
+  const faqs: PortfolioAboutFaq[] = Array.isArray(r.faqs)
+    ? r.faqs
+        .map((row, i) => {
+          if (!row || typeof row !== "object") return null;
+          const f = row as Record<string, unknown>;
+          const question = String(f.question ?? "").trim();
+          if (!question) return null;
+          return {
+            id: String(f.id ?? `f${i}`),
+            question,
+            answer: String(f.answer ?? ""),
+          };
+        })
+        .filter((x): x is PortfolioAboutFaq => Boolean(x))
+    : fallback.faqs;
+
   return {
-    eyebrow: r.eyebrow != null && String(r.eyebrow).trim() ? String(r.eyebrow).trim() : base.eyebrow,
-    title: r.title != null && String(r.title).trim() ? String(r.title).trim() : base.title,
-    lead: r.lead != null && String(r.lead).trim() ? String(r.lead).trim() : base.lead,
+    eyebrow: strOr(r.eyebrow, fallback.eyebrow),
+    title: strOr(r.title, fallback.title),
+    lead: strOr(r.lead, fallback.lead),
     galleryUrls: gallery,
-    featureCaption:
-      r.featureCaption != null && String(r.featureCaption).trim()
-        ? String(r.featureCaption).trim()
-        : base.featureCaption,
+    featureCaption: strOr(r.featureCaption, fallback.featureCaption),
     featureImageUrl:
       r.featureImageUrl != null && String(r.featureImageUrl).trim()
         ? String(r.featureImageUrl).trim()
-        : base.featureImageUrl,
-    impactEyebrow:
-      r.impactEyebrow != null && String(r.impactEyebrow).trim()
-        ? String(r.impactEyebrow).trim()
-        : base.impactEyebrow,
-    impactHeadline:
-      r.impactHeadline != null && String(r.impactHeadline).trim()
-        ? String(r.impactHeadline).trim()
-        : base.impactHeadline,
-    impactBody:
-      r.impactBody != null && String(r.impactBody).trim() ? String(r.impactBody).trim() : base.impactBody,
+        : fallback.featureImageUrl,
+    impactEyebrow: strOr(r.impactEyebrow, fallback.impactEyebrow),
+    impactHeadline: strOr(r.impactHeadline, fallback.impactHeadline),
+    impactBody: strOr(r.impactBody, fallback.impactBody),
     impactStats: parseImpactStats(r.impactStats),
+    brandsEyebrow: strOr(r.brandsEyebrow, fallback.brandsEyebrow),
+    brandsHeadline: strOr(r.brandsHeadline, fallback.brandsHeadline),
+    brandsBody: strOr(r.brandsBody, fallback.brandsBody),
+    brands: brands.length ? brands : fallback.brands,
+    teamEyebrow: strOr(r.teamEyebrow, fallback.teamEyebrow),
+    teamHeadline: strOr(r.teamHeadline, fallback.teamHeadline),
+    teamMembers: teamMembers.length ? teamMembers : fallback.teamMembers,
+    awards: awards.length ? awards : fallback.awards,
+    teamCtaLabel: strOr(r.teamCtaLabel, fallback.teamCtaLabel),
+    testimonialsEyebrow: strOr(r.testimonialsEyebrow, fallback.testimonialsEyebrow),
+    testimonialsHeadline: strOr(r.testimonialsHeadline, fallback.testimonialsHeadline),
+    testimonials: testimonials.length ? testimonials : fallback.testimonials,
+    ctaHeadline: strOr(r.ctaHeadline, fallback.ctaHeadline),
+    ctaLabel: strOr(r.ctaLabel, fallback.ctaLabel),
+    insightsEyebrow: strOr(r.insightsEyebrow, fallback.insightsEyebrow),
+    insightsHeadline: strOr(r.insightsHeadline, fallback.insightsHeadline),
+    insightsBody: strOr(r.insightsBody, fallback.insightsBody),
+    insights: insights.length ? insights : fallback.insights,
+    pricingEyebrow: strOr(r.pricingEyebrow, fallback.pricingEyebrow),
+    pricingHeadline: strOr(r.pricingHeadline, fallback.pricingHeadline),
+    pricingBody: strOr(r.pricingBody, fallback.pricingBody),
+    plans: resolvedPlans,
+    faqs: faqs.length ? faqs : fallback.faqs,
+    blocks: parseAboutBlocks(r.blocks),
   };
 }
 
