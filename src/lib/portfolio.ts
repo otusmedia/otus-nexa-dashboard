@@ -30,6 +30,30 @@ export type PortfolioHighlight = {
   linkedItemId: string | null;
 };
 
+export type PortfolioImpactStat = {
+  id: string;
+  value: string;
+  label: string;
+  delta?: string;
+};
+
+export type PortfolioAboutContent = {
+  eyebrow: string;
+  title: string;
+  lead: string;
+  galleryUrls: string[];
+  featureCaption: string;
+  featureImageUrl: string | null;
+  impactEyebrow: string;
+  impactHeadline: string;
+  impactBody: string;
+  impactStats: PortfolioImpactStat[];
+};
+
+export type PortfolioSectionKey = "hero" | "work" | "highlights" | "about";
+
+export type PortfolioSectionsVisibility = Record<PortfolioSectionKey, boolean>;
+
 export type PortfolioPageContent = {
   logoUrl: string | null;
   navItems: PortfolioNavItem[];
@@ -46,6 +70,8 @@ export type PortfolioPageContent = {
   bandTagline: string;
   aboutText: string;
   aboutImageUrl: string | null;
+  about: PortfolioAboutContent;
+  sections: PortfolioSectionsVisibility;
 };
 
 export type PortfolioGalleryBlock = {
@@ -65,6 +91,10 @@ export type PortfolioItemContent = {
   coverMediaUrl: string | null;
   description: string;
   aboutText: string;
+  problem: string;
+  solution: string;
+  challenge: string;
+  result: string;
   gallery: PortfolioGalleryBlock[];
   sortOrder: number;
   aspect: PortfolioAspect;
@@ -96,6 +126,108 @@ const DEFAULT_STATS: PortfolioHeroStat[] = [
   { id: "s3", value: "Worldwide", label: "Clients" },
   { id: "s4", value: "Cinema", label: "Craft" },
 ];
+
+const DEFAULT_SECTIONS: PortfolioSectionsVisibility = {
+  hero: true,
+  work: true,
+  highlights: true,
+  about: true,
+};
+
+const DEFAULT_ABOUT: PortfolioAboutContent = {
+  eyebrow: "Welcome to",
+  title: "Studio",
+  lead: "We are a collective of filmmakers and visual storytellers driven by purpose. We transform complex visions into powerful cinematic realities.",
+  galleryUrls: [],
+  featureCaption: "Designing the future, today.",
+  featureImageUrl: null,
+  impactEyebrow: "Our real impact",
+  impactHeadline:
+    "We craft visual pathways that elevate brands, designing films that captivate audiences and secure lasting presence.",
+  impactBody:
+    "Our methodology sits at the intersection of craft and narrative. We don't just shoot content — we build cinematic systems that move people and grow brands.",
+  impactStats: [
+    { id: "a1", value: "72+", label: "Projects shipped", delta: "+5%" },
+    { id: "a2", value: "98%", label: "Client satisfaction", delta: "+5%" },
+    { id: "a3", value: "40+", label: "Brand partners", delta: "+5%" },
+    { id: "a4", value: "12", label: "Countries reached", delta: "+5%" },
+  ],
+};
+
+function parseSections(raw: unknown): PortfolioSectionsVisibility {
+  const base = { ...DEFAULT_SECTIONS };
+  if (!raw || typeof raw !== "object") return base;
+  const r = raw as Record<string, unknown>;
+  (Object.keys(base) as PortfolioSectionKey[]).forEach((key) => {
+    if (typeof r[key] === "boolean") base[key] = r[key] as boolean;
+  });
+  return base;
+}
+
+function parseImpactStats(raw: unknown): PortfolioImpactStat[] {
+  if (!Array.isArray(raw) || !raw.length) return DEFAULT_ABOUT.impactStats.map((s) => ({ ...s }));
+  const out: PortfolioImpactStat[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const row = raw[i];
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const value = String(r.value ?? "").trim();
+    const label = String(r.label ?? "").trim();
+    if (!value && !label) continue;
+    out.push({
+      id: String(r.id ?? `a${i}`).trim() || `a${i}`,
+      value: value || "—",
+      label: label || "—",
+      delta: r.delta != null && String(r.delta).trim() ? String(r.delta).trim() : undefined,
+    });
+  }
+  return out.length ? out : DEFAULT_ABOUT.impactStats.map((s) => ({ ...s }));
+}
+
+function parseAboutContent(
+  raw: unknown,
+  legacyText: string,
+  legacyImage: string | null,
+  version: "draft" | "live",
+): PortfolioAboutContent {
+  const fallback = version === "draft" ? DEFAULT_ABOUT : { ...DEFAULT_ABOUT, title: "", lead: "", eyebrow: "" };
+  const base: PortfolioAboutContent = {
+    ...fallback,
+    lead: legacyText.trim() || fallback.lead,
+    featureImageUrl: legacyImage,
+    galleryUrls: legacyImage ? [legacyImage] : [],
+  };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
+  const r = raw as Record<string, unknown>;
+  const gallery = Array.isArray(r.galleryUrls)
+    ? r.galleryUrls.map((u) => String(u ?? "").trim()).filter(Boolean).slice(0, 6)
+    : base.galleryUrls;
+  return {
+    eyebrow: r.eyebrow != null && String(r.eyebrow).trim() ? String(r.eyebrow).trim() : base.eyebrow,
+    title: r.title != null && String(r.title).trim() ? String(r.title).trim() : base.title,
+    lead: r.lead != null && String(r.lead).trim() ? String(r.lead).trim() : base.lead,
+    galleryUrls: gallery,
+    featureCaption:
+      r.featureCaption != null && String(r.featureCaption).trim()
+        ? String(r.featureCaption).trim()
+        : base.featureCaption,
+    featureImageUrl:
+      r.featureImageUrl != null && String(r.featureImageUrl).trim()
+        ? String(r.featureImageUrl).trim()
+        : base.featureImageUrl,
+    impactEyebrow:
+      r.impactEyebrow != null && String(r.impactEyebrow).trim()
+        ? String(r.impactEyebrow).trim()
+        : base.impactEyebrow,
+    impactHeadline:
+      r.impactHeadline != null && String(r.impactHeadline).trim()
+        ? String(r.impactHeadline).trim()
+        : base.impactHeadline,
+    impactBody:
+      r.impactBody != null && String(r.impactBody).trim() ? String(r.impactBody).trim() : base.impactBody,
+    impactStats: parseImpactStats(r.impactStats),
+  };
+}
 
 function parseNav(raw: unknown): PortfolioNavItem[] {
   if (!Array.isArray(raw)) return [...DEFAULT_NAV];
@@ -224,32 +356,42 @@ function pageFromRow(row: Record<string, unknown>, version: "draft" | "live"): P
       row[`${p}_about_image_url`] != null && String(row[`${p}_about_image_url`]).trim()
         ? String(row[`${p}_about_image_url`])
         : null,
+    about: parseAboutContent(
+      row[`${p}_about_content`],
+      String(row[`${p}_about_text`] ?? ""),
+      row[`${p}_about_image_url`] != null && String(row[`${p}_about_image_url`]).trim()
+        ? String(row[`${p}_about_image_url`])
+        : null,
+      version,
+    ),
+    sections: parseSections(row[`${p}_sections`]),
   };
 }
 
 function parseGallery(raw: unknown): PortfolioGalleryBlock[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((row, i) => {
-      if (!row || typeof row !== "object") return null;
-      const r = row as Record<string, unknown>;
-      const mediaUrl =
-        r.mediaUrl != null && String(r.mediaUrl).trim()
-          ? String(r.mediaUrl).trim()
-          : r.coverMediaUrl != null && String(r.coverMediaUrl).trim()
-            ? String(r.coverMediaUrl).trim()
-            : null;
-      if (!mediaUrl) return null;
-      const mediaTypeRaw = String(r.mediaType ?? r.coverMediaType ?? "");
-      const mediaType: PortfolioMediaType | null =
-        mediaTypeRaw === "image" || mediaTypeRaw === "video" ? mediaTypeRaw : "image";
-      return {
-        id: String(r.id ?? `g${i}`).trim() || `g${i}`,
-        mediaType,
-        mediaUrl,
-      };
-    })
-    .filter((x): x is PortfolioGalleryBlock => Boolean(x));
+  const out: PortfolioGalleryBlock[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const row = raw[i];
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const mediaUrl =
+      r.mediaUrl != null && String(r.mediaUrl).trim()
+        ? String(r.mediaUrl).trim()
+        : r.coverMediaUrl != null && String(r.coverMediaUrl).trim()
+          ? String(r.coverMediaUrl).trim()
+          : null;
+    if (!mediaUrl) continue;
+    const mediaTypeRaw = String(r.mediaType ?? r.coverMediaType ?? "");
+    const mediaType: PortfolioMediaType | null =
+      mediaTypeRaw === "image" || mediaTypeRaw === "video" ? mediaTypeRaw : "image";
+    out.push({
+      id: String(r.id ?? `g${i}`).trim() || `g${i}`,
+      mediaType,
+      mediaUrl,
+    });
+  }
+  return out;
 }
 
 function itemFromRow(row: Record<string, unknown>, version: "draft" | "live"): PortfolioItemContent | null {
@@ -275,6 +417,10 @@ function itemFromRow(row: Record<string, unknown>, version: "draft" | "live"): P
     coverMediaUrl: coverUrl,
     description,
     aboutText,
+    problem: String(row[`${p}_problem`] ?? "").trim(),
+    solution: String(row[`${p}_solution`] ?? "").trim(),
+    challenge: String(row[`${p}_challenge`] ?? "").trim(),
+    result: String(row[`${p}_result`] ?? "").trim(),
     gallery: parseGallery(row[`${p}_gallery`]),
     sortOrder: Number(row[`${p}_sort_order`] ?? 0) || 0,
     aspect: parseAspect(row[`${p}_aspect`]),
@@ -397,6 +543,14 @@ export async function updatePortfolioPageDraft(
   if (patch.bandTagline !== undefined) db.draft_band_tagline = patch.bandTagline;
   if (patch.aboutText !== undefined) db.draft_about_text = patch.aboutText;
   if (patch.aboutImageUrl !== undefined) db.draft_about_image_url = patch.aboutImageUrl;
+  if (patch.about !== undefined) {
+    db.draft_about_content = patch.about;
+    if (patch.about.lead !== undefined) db.draft_about_text = patch.about.lead;
+    if (patch.about.featureImageUrl !== undefined) {
+      db.draft_about_image_url = patch.about.featureImageUrl;
+    }
+  }
+  if (patch.sections !== undefined) db.draft_sections = patch.sections;
 
   const { error } = await supabase.from("portfolio_pages").update(db).eq("account_id", accountId);
   if (error) throw new Error(error.message);
@@ -415,6 +569,10 @@ export async function upsertPortfolioItemDraft(
     client?: string;
     year?: string;
     aboutText?: string;
+    problem?: string;
+    solution?: string;
+    challenge?: string;
+    result?: string;
     gallery?: PortfolioGalleryBlock[];
     aspect?: PortfolioAspect;
   },
@@ -433,6 +591,10 @@ export async function upsertPortfolioItemDraft(
     if (input.client !== undefined) patch.draft_client = input.client;
     if (input.year !== undefined) patch.draft_year = input.year;
     if (input.aboutText !== undefined) patch.draft_about_text = input.aboutText;
+    if (input.problem !== undefined) patch.draft_problem = input.problem;
+    if (input.solution !== undefined) patch.draft_solution = input.solution;
+    if (input.challenge !== undefined) patch.draft_challenge = input.challenge;
+    if (input.result !== undefined) patch.draft_result = input.result;
     if (input.gallery !== undefined) patch.draft_gallery = input.gallery;
 
     const { data, error } = await supabase
@@ -472,6 +634,10 @@ export async function upsertPortfolioItemDraft(
       draft_client: input.client ?? "",
       draft_year: input.year ?? "",
       draft_about_text: input.aboutText ?? input.description ?? "",
+      draft_problem: input.problem ?? "",
+      draft_solution: input.solution ?? "",
+      draft_challenge: input.challenge ?? "",
+      draft_result: input.result ?? "",
       draft_gallery: input.gallery ?? [],
       draft_sort_order: nextOrder,
       draft_aspect: aspect,
@@ -513,6 +679,8 @@ export async function publishPortfolio(accountId: string): Promise<void> {
         "Films and visual stories for brands that want work that looks good and feels effortless.",
       live_about_text: pageRow.draft_about_text ?? "",
       live_about_image_url: pageRow.draft_about_image_url ?? null,
+      live_about_content: pageRow.draft_about_content ?? {},
+      live_sections: pageRow.draft_sections ?? DEFAULT_SECTIONS,
       published_at: now,
       updated_at: now,
     })
@@ -539,6 +707,10 @@ export async function publishPortfolio(accountId: string): Promise<void> {
         live_client: r.draft_client ?? "",
         live_year: r.draft_year ?? "",
         live_about_text: r.draft_about_text ?? r.draft_description ?? "",
+        live_problem: r.draft_problem ?? "",
+        live_solution: r.draft_solution ?? "",
+        live_challenge: r.draft_challenge ?? "",
+        live_result: r.draft_result ?? "",
         live_gallery: r.draft_gallery ?? [],
         live_sort_order: r.draft_sort_order,
         live_aspect: r.draft_aspect,

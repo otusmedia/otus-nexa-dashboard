@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, ImagePlus, Plus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, EyeOff, ImagePlus, Plus, X } from "lucide-react";
+import { PortfolioAboutSection } from "@/components/portfolio/portfolio-about";
 import { PortfolioMediaFill } from "@/components/portfolio/portfolio-media";
 import { HighlightsParallaxHero } from "@/components/portfolio/portfolio-highlights-parallax";
 import { PortfolioProjectView } from "@/components/portfolio/portfolio-project-view";
@@ -15,11 +16,17 @@ import type {
   PortfolioMediaType,
   PortfolioNavItem,
   PortfolioPageContent,
+  PortfolioSectionKey,
   PortfolioSiteData,
 } from "@/lib/portfolio";
 import { detectMediaTypeFromUrlOrFile } from "@/lib/portfolio-upload";
 
 export type PortfolioSiteMode = "edit" | "view";
+
+/** Savee-like lateral padding for visual chrome (grid, slider, nav, marquee). */
+const EDGE = "px-3 sm:px-4";
+/** Text blocks keep a readable measure; still use EDGE for side alignment. */
+const TEXT_SHELL = cn(EDGE, "mx-auto w-full max-w-[52rem]");
 
 type PortfolioSiteProps = {
   mode: PortfolioSiteMode;
@@ -36,6 +43,10 @@ type PortfolioSiteProps = {
     client?: string;
     year?: string;
     aboutText?: string;
+    problem?: string;
+    solution?: string;
+    challenge?: string;
+    result?: string;
     aspect: PortfolioAspect;
   }) => void | Promise<void>;
   onUpload?: (folder: "logo" | "hero" | "about" | "items", file: File) => Promise<string>;
@@ -149,6 +160,30 @@ function aspectClass(aspect: PortfolioAspect): string {
   return "aspect-[4/3]";
 }
 
+const SECTION_LABELS: Record<PortfolioSectionKey, string> = {
+  hero: "Hero",
+  work: "Work",
+  highlights: "Highlights",
+  about: "About",
+};
+
+function SectionHiddenBanner({ visible, light }: { visible: boolean; light?: boolean }) {
+  if (visible) return null;
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 border-b px-3 py-2 text-[0.7rem]",
+        light
+          ? "border-amber-600/20 bg-amber-500/15 text-amber-900/80"
+          : "border-amber-500/20 bg-amber-500/10 text-amber-200/90",
+      )}
+    >
+      <EyeOff className="h-3.5 w-3.5 shrink-0" />
+      Hidden from visitors — still editable here. Publish to apply.
+    </div>
+  );
+}
+
 const SAMPLE_ITEMS: PortfolioItemContent[] = [
   {
     id: "sample-1",
@@ -162,6 +197,10 @@ const SAMPLE_ITEMS: PortfolioItemContent[] = [
       "https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=900&q=80",
     description: "Sample — cinematic still. Replace with your own project.",
     aboutText: "Sample — cinematic still. Replace with your own project.",
+    problem: "The brand needed a clearer visual story for product launches.",
+    solution: "A cinematic system of stills and motion built around one mood.",
+    challenge: "Keep consistency across formats without losing atmosphere.",
+    result: "A cohesive look that scales from hero to social cuts.",
     gallery: [],
     sortOrder: 0,
     aspect: "portrait",
@@ -178,6 +217,10 @@ const SAMPLE_ITEMS: PortfolioItemContent[] = [
       "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=900&q=80",
     description: "Sample — landscape frame for the grid.",
     aboutText: "",
+    problem: "",
+    solution: "",
+    challenge: "",
+    result: "",
     gallery: [],
     sortOrder: 1,
     aspect: "portrait",
@@ -194,6 +237,10 @@ const SAMPLE_ITEMS: PortfolioItemContent[] = [
       "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=900&q=80",
     description: "Sample — square crop.",
     aboutText: "",
+    problem: "",
+    solution: "",
+    challenge: "",
+    result: "",
     gallery: [],
     sortOrder: 2,
     aspect: "portrait",
@@ -210,6 +257,10 @@ const SAMPLE_ITEMS: PortfolioItemContent[] = [
       "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?auto=format&fit=crop&w=900&q=80",
     description: "Sample — tall portrait for masonry rhythm.",
     aboutText: "",
+    problem: "",
+    solution: "",
+    challenge: "",
+    result: "",
     gallery: [],
     sortOrder: 3,
     aspect: "portrait",
@@ -226,6 +277,10 @@ const SAMPLE_ITEMS: PortfolioItemContent[] = [
       "https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=900&q=80",
     description: "Sample — wide landscape.",
     aboutText: "",
+    problem: "",
+    solution: "",
+    challenge: "",
+    result: "",
     gallery: [],
     sortOrder: 4,
     aspect: "portrait",
@@ -242,17 +297,15 @@ const SAMPLE_ITEMS: PortfolioItemContent[] = [
       "https://images.unsplash.com/photo-1486325212027-8081e485255e?auto=format&fit=crop&w=900&q=80",
     description: "Sample — architecture still.",
     aboutText: "",
+    problem: "",
+    solution: "",
+    challenge: "",
+    result: "",
     gallery: [],
     sortOrder: 5,
     aspect: "portrait",
   },
 ];
-
-const SAMPLE_ABOUT =
-  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80";
-
-const SAMPLE_ABOUT_TEXT =
-  "Sample bio — filmmaker and visual storyteller. Replace this with your own about text.";
 
 const SAMPLE_HIGHLIGHTS: PortfolioHighlight[] = [
   {
@@ -339,7 +392,7 @@ function HighlightsSlider({
 
             return (
               <div key={slide.id} className="w-full min-w-full snap-start">
-                <div className="relative min-h-[42vh] w-full overflow-hidden rounded-lg bg-[#1a1a1a] sm:min-h-[50vh]">
+                <div className="relative min-h-[42vh] w-full overflow-hidden rounded-[10px] bg-[#1a1a1a] sm:min-h-[50vh]">
                   <PortfolioMediaFill
                     type={slide.coverMediaType}
                     url={slide.coverMediaUrl}
@@ -472,12 +525,12 @@ function ProjectMarquee({
   );
 
   return (
-    <div className="portfolio-marquee group/marquee relative mt-14 w-full overflow-hidden">
-      <div className="portfolio-marquee-track flex w-max gap-3 py-1">
+    <div className="portfolio-marquee group/marquee relative w-full overflow-hidden">
+      <div className="portfolio-marquee-track flex w-max gap-3 py-1 md:gap-4">
         {loop.map((item, index) => {
           const href = !usingSamples ? projectHrefForItem?.(item) : null;
           const className =
-            "group relative h-[280px] w-[200px] shrink-0 overflow-hidden rounded-sm bg-[#161616] sm:h-[320px] sm:w-[230px]";
+            "group relative h-[280px] w-[200px] shrink-0 overflow-hidden rounded-[10px] bg-[#161616] sm:h-[320px] sm:w-[230px]";
 
           if (href) {
             return (
@@ -518,20 +571,40 @@ export function PortfolioSite({
   projectHrefForItem,
 }: PortfolioSiteProps) {
   const { page, items } = data;
+  const sections = page.sections ?? {
+    hero: true,
+    work: true,
+    highlights: true,
+    about: true,
+  };
+  const showSection = (key: PortfolioSectionKey) => mode === "edit" || sections[key];
   const usingSampleItems = showSamples && items.length === 0;
   const galleryItems = usingSampleItems ? SAMPLE_ITEMS : items;
   const usingSampleHighlights = showSamples && page.highlights.length === 0 && items.length === 0;
   const highlightSlides = usingSampleHighlights ? SAMPLE_HIGHLIGHTS : page.highlights;
-  const usingSampleAboutImage = showSamples && !page.aboutImageUrl;
-  const aboutImageUrl = page.aboutImageUrl ?? (showSamples ? SAMPLE_ABOUT : null);
-  const aboutText = page.aboutText.trim() || (showSamples ? SAMPLE_ABOUT_TEXT : "");
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [highlightPickerOpen, setHighlightPickerOpen] = useState(false);
   const [detailItem, setDetailItem] = useState<PortfolioItemContent | null>(null);
   const [publishToastOpen, setPublishToastOpen] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
-  const aboutInputRef = useRef<HTMLInputElement>(null);
   const publishWrapRef = useRef<HTMLDivElement>(null);
+
+  const visibleNavItems = page.navItems.filter((item) => {
+    const anchor = item.anchor.replace(/^#/, "") as PortfolioSectionKey | string;
+    if (anchor === "hero" || anchor === "work" || anchor === "highlights" || anchor === "about") {
+      return showSection(anchor);
+    }
+    return true;
+  });
+
+  const toggleSection = (key: PortfolioSectionKey) => {
+    if (!onChangePage) return;
+    void onChangePage({ sections: { ...sections, [key]: !sections[key] } });
+  };
+
+  const firstVisibleAnchor = (["work", "highlights", "about", "hero"] as PortfolioSectionKey[]).find(
+    (k) => sections[k],
+  );
 
   useEffect(() => {
     if (!publishToastOpen) return;
@@ -587,7 +660,7 @@ export function PortfolioSite({
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
       <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[#0a0a0a]/90 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4 sm:px-6">
+        <div className={cn("flex h-16 items-center gap-4", EDGE)}>
           <button
             type="button"
             className={cn(
@@ -624,7 +697,7 @@ export function PortfolioSite({
           ) : null}
 
           <nav className="hidden flex-1 items-center justify-center gap-6 md:flex">
-            {page.navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <div key={item.id} className="text-xs uppercase tracking-[0.14em] text-white/55">
                 {mode === "edit" ? (
                   <InlineText
@@ -649,21 +722,23 @@ export function PortfolioSite({
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
-            <a
-              href="#about"
-              onClick={(e) => {
-                e.preventDefault();
-                scrollTo("about");
-              }}
-              className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/85 transition hover:border-white/30 hover:bg-white/[0.04]"
-            >
-              <InlineText
-                mode={mode}
-                value={page.ctaLabel}
-                as="span"
-                onSave={(ctaLabel) => void onChangePage?.({ ctaLabel })}
-              />
-            </a>
+            {showSection("about") || mode === "edit" ? (
+              <a
+                href="#about"
+                onClick={(e) => {
+                  e.preventDefault();
+                  scrollTo(sections.about ? "about" : firstVisibleAnchor || "hero");
+                }}
+                className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/85 transition hover:border-white/30 hover:bg-white/[0.04]"
+              >
+                <InlineText
+                  mode={mode}
+                  value={page.ctaLabel}
+                  as="span"
+                  onSave={(ctaLabel) => void onChangePage?.({ ctaLabel })}
+                />
+              </a>
+            ) : null}
             {mode === "edit" ? (
               <div className="relative" ref={publishWrapRef}>
                 <button
@@ -698,9 +773,41 @@ export function PortfolioSite({
         </div>
       </header>
 
+      {mode === "edit" ? (
+        <div className="sticky top-16 z-20 border-b border-white/[0.06] bg-[#111]/95 backdrop-blur-md">
+          <div className={cn("flex flex-wrap items-center gap-2 py-2.5", EDGE)}>
+            <span className="mr-1 text-[0.65rem] uppercase tracking-[0.12em] text-white/35">
+              Visible to clients
+            </span>
+            {(Object.keys(SECTION_LABELS) as PortfolioSectionKey[]).map((key) => {
+              const on = sections[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => toggleSection(key)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.7rem] transition",
+                    on
+                      ? "border-white/20 bg-white/[0.06] text-white/85"
+                      : "border-white/10 text-white/35 hover:border-white/20 hover:text-white/55",
+                  )}
+                  title={on ? "Hide from visitors" : "Show to visitors"}
+                >
+                  {on ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                  {SECTION_LABELS[key]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       {/* Savee-style hero */}
+      {showSection("hero") ? (
       <section id="hero" className="w-full bg-[#0a0a0a] pt-14 sm:pt-20" aria-label="Hero">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <SectionHiddenBanner visible={sections.hero} />
+        <div className={TEXT_SHELL}>
           <InlineHeadline
             mode={mode}
             value={page.heroHeadline}
@@ -758,16 +865,21 @@ export function PortfolioSite({
           </div>
         </div>
 
-        <ProjectMarquee
-          items={galleryItems}
-          usingSamples={usingSampleItems}
-          projectHrefForItem={projectHrefForItem}
-          onOpenItem={openProject}
-        />
+        <div className={cn("mt-14", EDGE)}>
+          <ProjectMarquee
+            items={galleryItems}
+            usingSamples={usingSampleItems}
+            projectHrefForItem={projectHrefForItem}
+            onOpenItem={openProject}
+          />
+        </div>
       </section>
+      ) : null}
 
-      {/* Gallery */}
-      <section id="work" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-16 sm:px-6">
+      {/* Gallery — Savee edge padding, fluid width */}
+      {showSection("work") ? (
+      <section id="work" className={cn("scroll-mt-20 py-16", EDGE)}>
+        <SectionHiddenBanner visible={sections.work} />
         <div className="mb-8 flex items-end justify-between gap-3">
           <h2 className="text-xs uppercase tracking-[0.16em] text-white/40">Work</h2>
           {usingSampleItems ? (
@@ -776,11 +888,11 @@ export function PortfolioSite({
             </p>
           ) : null}
         </div>
-        <div className="columns-2 gap-3 md:columns-3 md:gap-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-4 2xl:grid-cols-5">
           {galleryItems.map((item) => {
             const href = !usingSampleItems ? projectHrefForItem?.(item) : null;
             const tileClass = cn(
-              "group relative mb-3 w-full break-inside-avoid overflow-hidden rounded-sm bg-[#161616] text-left md:mb-4",
+              "group relative w-full overflow-hidden rounded-[10px] bg-[#161616] text-left",
               aspectClass(item.aspect),
             );
             const body = (
@@ -820,7 +932,7 @@ export function PortfolioSite({
             <button
               type="button"
               onClick={() => setProjectModalOpen(true)}
-              className="mb-3 flex aspect-[4/3] w-full break-inside-avoid flex-col items-center justify-center gap-2 rounded-sm border border-dashed border-white/15 bg-transparent text-white/40 transition hover:border-white/30 hover:text-white/70 md:mb-4"
+              className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-white/15 bg-transparent text-white/40 transition hover:border-white/30 hover:text-white/70"
             >
               <Plus className="h-6 w-6" />
               <span className="text-xs uppercase tracking-[0.12em]">Add project</span>
@@ -828,10 +940,14 @@ export function PortfolioSite({
           ) : null}
         </div>
       </section>
+      ) : null}
 
       {/* Highlights — light band: parallax hero + slider */}
+      {showSection("highlights") ? (
       <section id="highlights" className="scroll-mt-20 bg-[#fbfbfb] py-16">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <SectionHiddenBanner visible={sections.highlights} light />
+        <div className={EDGE}>
+          {/* Studio / band title keeps its own internal text padding */}
           <HighlightsParallaxHero
             mode={mode}
             title={page.bandTitle}
@@ -891,62 +1007,35 @@ export function PortfolioSite({
           ) : null}
         </div>
       </section>
+      ) : null}
 
-      {/* About */}
-      <section id="about" className="mx-auto grid max-w-6xl scroll-mt-20 gap-10 px-4 py-20 sm:grid-cols-2 sm:px-6">
+      {showSection("about") ? (
         <div>
-          <h2 className="mb-4 text-xs uppercase tracking-[0.16em] text-white/40">About</h2>
-          {mode === "edit" ? (
-            <textarea
-              value={page.aboutText}
-              onChange={(e) => void onChangePage?.({ aboutText: e.target.value })}
-              rows={10}
-              placeholder={showSamples ? SAMPLE_ABOUT_TEXT : "Tell your story…"}
-              className="w-full resize-y rounded-md border border-white/10 bg-transparent px-3 py-2 text-sm leading-relaxed text-white/85 outline-none placeholder:text-white/25 focus:border-white/25"
-            />
-          ) : (
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/75">{aboutText}</p>
-          )}
+          <SectionHiddenBanner visible={sections.about} />
+          <PortfolioAboutSection
+            mode={mode}
+            about={page.about}
+            showSamples={showSamples}
+            onChange={(patch) =>
+              void onChangePage?.({
+                about: { ...page.about, ...patch },
+                ...(patch.lead !== undefined ? { aboutText: patch.lead } : {}),
+                ...(patch.featureImageUrl !== undefined
+                  ? { aboutImageUrl: patch.featureImageUrl }
+                  : {}),
+              })
+            }
+            onUpload={
+              onUpload
+                ? async (file) => {
+                    const url = await onUpload("about", file);
+                    return url;
+                  }
+                : undefined
+            }
+          />
         </div>
-        <div>
-          <button
-            type="button"
-            disabled={mode !== "edit"}
-            onClick={() => mode === "edit" && aboutInputRef.current?.click()}
-            className={cn(
-              "relative aspect-[4/5] w-full overflow-hidden rounded-sm bg-[#161616]",
-              mode === "edit" && "cursor-pointer ring-0 hover:ring-1 hover:ring-white/20",
-            )}
-          >
-            <PortfolioMediaFill type="image" url={aboutImageUrl} className="absolute inset-0" />
-            {mode === "edit" && !aboutImageUrl ? (
-              <span className="absolute inset-0 flex items-center justify-center text-xs text-white/35">
-                Upload photo
-              </span>
-            ) : null}
-            {usingSampleAboutImage ? (
-              <span className="absolute left-2 top-2 rounded bg-black/50 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-white/50">
-                Sample
-              </span>
-            ) : null}
-          </button>
-          {mode === "edit" ? (
-            <input
-              ref={aboutInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (!file || !onUpload || !onChangePage) return;
-                const url = await onUpload("about", file);
-                await onChangePage({ aboutImageUrl: url });
-              }}
-            />
-          ) : null}
-        </div>
-      </section>
+      ) : null}
 
       {mode === "edit" && projectModalOpen ? (
         <ProjectModal
@@ -1067,6 +1156,10 @@ function ProjectModal({
     client?: string;
     year?: string;
     aboutText?: string;
+    problem?: string;
+    solution?: string;
+    challenge?: string;
+    result?: string;
     aspect: PortfolioAspect;
   }) => Promise<void>;
   onUpload?: (folder: "logo" | "hero" | "about" | "items", file: File) => Promise<string>;
@@ -1077,6 +1170,10 @@ function ProjectModal({
   const [client, setClient] = useState("");
   const [year, setYear] = useState("");
   const [description, setDescription] = useState("");
+  const [problem, setProblem] = useState("");
+  const [solution, setSolution] = useState("");
+  const [challenge, setChallenge] = useState("");
+  const [result, setResult] = useState("");
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [coverType, setCoverType] = useState<PortfolioMediaType | null>(null);
   const [urlDraft, setUrlDraft] = useState("");
@@ -1103,6 +1200,10 @@ function ProjectModal({
         coverMediaUrl: coverUrl,
         description,
         aboutText: description,
+        problem: problem.trim(),
+        solution: solution.trim(),
+        challenge: challenge.trim(),
+        result: result.trim(),
         aspect: "portrait",
       });
     } catch (err) {
@@ -1176,6 +1277,44 @@ function ProjectModal({
               className="w-full rounded-[8px] border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
             />
           </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block space-y-1">
+              <span className="text-[0.65rem] uppercase tracking-[0.08em] text-white/45">Problem</span>
+              <textarea
+                value={problem}
+                onChange={(e) => setProblem(e.target.value)}
+                rows={2}
+                className="w-full rounded-[8px] border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[0.65rem] uppercase tracking-[0.08em] text-white/45">Solution</span>
+              <textarea
+                value={solution}
+                onChange={(e) => setSolution(e.target.value)}
+                rows={2}
+                className="w-full rounded-[8px] border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[0.65rem] uppercase tracking-[0.08em] text-white/45">Challenge</span>
+              <textarea
+                value={challenge}
+                onChange={(e) => setChallenge(e.target.value)}
+                rows={2}
+                className="w-full rounded-[8px] border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[0.65rem] uppercase tracking-[0.08em] text-white/45">Result</span>
+              <textarea
+                value={result}
+                onChange={(e) => setResult(e.target.value)}
+                rows={2}
+                className="w-full rounded-[8px] border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+              />
+            </label>
+          </div>
           <div className="relative aspect-video overflow-hidden rounded-[8px] bg-black">
             <PortfolioMediaFill type={coverType} url={coverUrl} loopVideo />
             {!coverUrl ? (

@@ -282,7 +282,7 @@ export function HighlightsParallaxHero({
   return (
     <div
       ref={rootRef}
-      className="relative mb-12 min-h-[min(72vh,640px)] w-full overflow-hidden rounded-[8px] border border-black/[0.04] bg-[#fbfbfb]"
+      className="relative mb-10 min-h-[min(72vh,640px)] w-full overflow-hidden rounded-[10px] border border-black/[0.04] bg-[#fbfbfb]"
     >
       <GridBackdrop />
 

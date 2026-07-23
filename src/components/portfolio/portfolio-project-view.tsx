@@ -6,6 +6,10 @@ import { PortfolioMediaFill } from "@/components/portfolio/portfolio-media";
 import type { PortfolioItemContent } from "@/lib/portfolio";
 import { cn } from "@/lib/utils";
 
+/** Savee-like edge for media; text keeps a readable max width. */
+const EDGE = "px-3 sm:px-4";
+const TEXT_SHELL = cn(EDGE, "mx-auto w-full max-w-[52rem]");
+
 const SAMPLE_GALLERY = [
   "https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=1600&q=80",
   "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=1600&q=80",
@@ -137,7 +141,7 @@ export function PortfolioProjectView({
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white">
       {/* Header */}
-      <div className="mx-auto max-w-6xl px-4 pb-10 pt-8 sm:px-6 sm:pb-14 sm:pt-12">
+      <div className={cn("pb-10 pt-8 sm:pb-14 sm:pt-12", TEXT_SHELL)}>
         {Back}
 
         <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:items-start lg:gap-16">
@@ -159,37 +163,80 @@ export function PortfolioProjectView({
       </div>
 
       {/* Lead media */}
-      <div className="mx-auto max-w-6xl space-y-3 px-4 sm:space-y-4 sm:px-6">
+      <div className={cn("space-y-3 sm:space-y-4", EDGE)}>
         {leadMedia.map((block) => (
-          <MediaBlock key={block.id} type={block.mediaType} url={block.mediaUrl} />
+          <MediaBlock key={block.id} type={block.mediaType} url={block.mediaUrl} className="rounded-[10px]" />
         ))}
       </div>
 
-      {/* About */}
-      {about ? (
-        <section className="mx-auto grid max-w-6xl gap-8 px-4 py-16 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-12 sm:px-6 sm:py-20">
-          <h2 className="text-[0.7rem] uppercase tracking-[0.14em] text-white/40">About</h2>
-          <p className="max-w-2xl whitespace-pre-wrap text-sm leading-[1.75] text-white/70 sm:text-[0.95rem]">
-            {about}
-          </p>
-        </section>
-      ) : (
-        <div className="h-12 sm:h-16" />
-      )}
+      {/* Case study summary */}
+      {(() => {
+        const blocks = [
+          {
+            label: "Problem",
+            value:
+              item.problem.trim() ||
+              (showSamples ? "The brand needed a clearer visual story for product launches." : ""),
+          },
+          {
+            label: "Solution",
+            value:
+              item.solution.trim() ||
+              (showSamples ? "A cinematic system of stills and motion built around one mood." : ""),
+          },
+          {
+            label: "Challenge",
+            value:
+              item.challenge.trim() ||
+              (showSamples ? "Keep consistency across formats without losing atmosphere." : ""),
+          },
+          {
+            label: "Result",
+            value:
+              item.result.trim() ||
+              (showSamples ? "A cohesive look that scales from hero to social cuts." : ""),
+          },
+        ].filter((b) => b.value);
+        if (!blocks.length && !about) {
+          return <div className="h-12 sm:h-16" />;
+        }
+        return (
+          <section className={cn("space-y-12 py-16 sm:py-20", TEXT_SHELL)}>
+            {about ? (
+              <div className="grid gap-8 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-12">
+                <h2 className="text-[0.7rem] uppercase tracking-[0.14em] text-white/40">About</h2>
+                <p className="max-w-2xl whitespace-pre-wrap text-sm leading-[1.75] text-white/70 sm:text-[0.95rem]">
+                  {about}
+                </p>
+              </div>
+            ) : null}
+            {blocks.length ? (
+              <div className="grid gap-8 sm:grid-cols-2">
+                {blocks.map((block) => (
+                  <div key={block.label} className="min-w-0">
+                    <h3 className="text-[0.7rem] uppercase tracking-[0.14em] text-white/40">{block.label}</h3>
+                    <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-white/70">{block.value}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        );
+      })()}
 
       {/* Remaining gallery */}
       {restMedia.length > 0 ? (
-        <div className="mx-auto max-w-6xl space-y-3 px-4 pb-6 sm:space-y-4 sm:px-6 sm:pb-10">
+        <div className={cn("space-y-3 pb-6 sm:space-y-4 sm:pb-10", EDGE)}>
           {restMedia.map((block) => (
-            <MediaBlock key={block.id} type={block.mediaType} url={block.mediaUrl} />
+            <MediaBlock key={block.id} type={block.mediaType} url={block.mediaUrl} className="rounded-[10px]" />
           ))}
         </div>
       ) : null}
 
       {/* Continue / related */}
       <section className="bg-[#fbfbfb] py-16 text-[#141414] sm:py-20">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6">
-          <div className="text-center">
+        <div className={EDGE}>
+          <div className="mx-auto max-w-[42rem] text-center">
             <h2 className="text-2xl font-medium tracking-tight sm:text-3xl">Continue the journey</h2>
             <p className="mt-2 text-[0.7rem] uppercase tracking-[0.16em] text-black/40">Explore more projects</p>
           </div>
@@ -284,7 +331,7 @@ export function PortfolioProjectView({
       </section>
 
       <footer className="border-t border-white/[0.06] bg-[#0a0a0a] py-10">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 sm:px-6">
+        <div className={cn("flex flex-wrap items-center justify-between gap-4", EDGE)}>
           {Back}
           <p className="text-[0.65rem] uppercase tracking-[0.14em] text-white/30">{item.title}</p>
         </div>

@@ -13,6 +13,8 @@ const files = [
   "supabase/portfolio-highlights.sql",
   "supabase/portfolio-project-page.sql",
   "supabase/portfolio-band-hero.sql",
+  "supabase/portfolio-project-summary.sql",
+  "supabase/portfolio-about-sections.sql",
 ];
 const dbUrl = process.env.SUPABASE_DB_URL?.trim();
 

@@ -15,6 +15,7 @@ import {
 } from "@/lib/portfolio";
 import { uploadPortfolioMedia } from "@/lib/portfolio-upload";
 import { effectiveUserClientSlug, isAgencyCompany } from "@/lib/client-utils";
+import { getPublicAppOrigin } from "@/lib/app-url";
 
 export default function PortfolioPage() {
   const { currentUser, projectsClientFilter, dataClientSlug } = useAppContext();
@@ -64,12 +65,12 @@ export default function PortfolioPage() {
   }, [reload]);
 
   const publicUrl = useMemo(() => {
-    if (typeof window === "undefined") return null;
+    const origin = getPublicAppOrigin();
     if (site?.publicSlug) {
-      return `${window.location.origin}/p/${site.publicSlug}`;
+      return `${origin}/p/${site.publicSlug}`;
     }
     if (preferredSlug && preferredSlug !== "all") {
-      return `${window.location.origin}/p/c/${preferredSlug}`;
+      return `${origin}/p/c/${preferredSlug}`;
     }
     return null;
   }, [site?.publicSlug, preferredSlug]);
