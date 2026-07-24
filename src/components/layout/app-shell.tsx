@@ -35,7 +35,7 @@ import type { SidebarNavLink } from "@/components/layout/sidebar-nav";
 import { SIDEBAR_RAIL_LAYOUT_WIDTH } from "@/lib/sidebar-layout-preference";
 import { orderSidebarLinks, readSidebarNavOrder, writeSidebarNavOrder } from "@/lib/sidebar-nav-order";
 import { readSidebarLayout, writeSidebarLayout } from "@/lib/sidebar-layout-preference";
-import { effectiveUserClientSlug, isAgencyAdmin, isAgencyCompany } from "@/lib/client-utils";
+import { isAgencyAdmin } from "@/lib/client-utils";
 import { hasModuleAccess } from "@/lib/modules";
 import {
   AGENCY_HOME_PATH,
@@ -178,7 +178,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   useEffect(() => {
-    if (currentUser.id === GUEST_USER_ID || allowedModules.length === 0) return;
+    if (currentUser.id === GUEST_USER_ID) return;
 
     if (isAgencyHomePath(pathname)) {
       if (isAgencyAdmin(currentUser)) return;
@@ -191,10 +191,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       navOrder,
       canAccessMarketing: canAccessMarketingForUser(currentUser),
     };
+
+    if (allowedModules.length === 0) {
+      if (isAgencyAdmin(currentUser) && pathname !== AGENCY_HOME_PATH) {
+        router.replace(AGENCY_HOME_PATH);
+      }
+      return;
+    }
+
     if (pathnameAllowedForModules(pathname, allowedModules, landingOpts)) return;
-    const fallback = isAgencyAdmin(currentUser)
-      ? AGENCY_HOME_PATH
-      : resolveDefaultLandingPath(allowedModules, landingOpts);
+    const fallback = resolveDefaultLandingPath(allowedModules, landingOpts);
     if (pathname !== fallback && !pathname.startsWith(`${fallback}/`)) {
       router.replace(fallback);
     }
@@ -244,17 +250,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!isAgencyHomePath(pathname)) return;
     redirectAgencyAdminToClientLanding(projectsClientFilter);
   }, [agencyAdmin, pathname, projectsClientFilter, redirectAgencyAdminToClientLanding]);
-
-  const sidebarClient = (() => {
-    if (agencyAdmin) {
-      if (projectsClientFilter === "all") return null;
-      return clients.find((c) => c.slug === projectsClientFilter) ?? null;
-    }
-    if (isAgencyCompany(currentUser.company)) return null;
-    const slug = effectiveUserClientSlug(currentUser);
-    if (!slug) return null;
-    return clients.find((c) => c.slug === slug) ?? null;
-  })();
 
   const onUpdatesPage = pathname.startsWith("/updates");
   const hideSystemHero = pathname === "/portfolio" || pathname.startsWith("/portfolio/");
@@ -456,7 +451,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     profileImage,
     avatarInitial,
     profileName,
-    sidebarClient,
     onOpenSettings: () => setOpenSettingsModal(true),
     onLogout: handleLogout,
     isAdmin,

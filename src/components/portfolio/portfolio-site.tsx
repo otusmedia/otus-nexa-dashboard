@@ -10,6 +10,7 @@ import { PortfolioProjectView } from "@/components/portfolio/portfolio-project-v
 import { cn } from "@/lib/utils";
 import type {
   PortfolioAspect,
+  PortfolioGalleryBlock,
   PortfolioHeroStat,
   PortfolioHighlight,
   PortfolioItemContent,
@@ -48,6 +49,25 @@ type PortfolioSiteProps = {
     challenge?: string;
     result?: string;
     aspect: PortfolioAspect;
+  }) => void | Promise<void>;
+  onDeleteItem?: (itemId: string) => void | Promise<void>;
+  onUpdateItem?: (input: {
+    id: string;
+    title?: string;
+    coverMediaType?: PortfolioMediaType | null;
+    coverMediaUrl?: string | null;
+    description?: string;
+    subtitle?: string;
+    role?: string;
+    client?: string;
+    year?: string;
+    aboutText?: string;
+    problem?: string;
+    solution?: string;
+    challenge?: string;
+    result?: string;
+    gallery?: PortfolioGalleryBlock[];
+    aspect?: PortfolioAspect;
   }) => void | Promise<void>;
   onUpload?: (folder: "logo" | "hero" | "about" | "items", file: File) => Promise<string>;
   publishing?: boolean;
@@ -422,13 +442,13 @@ function HighlightsSlider({
                           {viewLabel}
                         </button>
                       ) : null}
-                      {mode === "edit" && onRemove && !usingSamples ? (
+                      {mode === "edit" && onRemove ? (
                         <button
                           type="button"
                           onClick={() => onRemove(slide.id)}
                           className="mt-3 ml-0 block text-[0.65rem] uppercase tracking-[0.1em] text-white/45 hover:text-white/80"
                         >
-                          Remove from highlights
+                          {usingSamples ? "Remove sample" : "Remove from highlights"}
                         </button>
                       ) : null}
                       {usingSamples ? (
@@ -562,6 +582,8 @@ export function PortfolioSite({
   onChangePage,
   onPublish,
   onAddItem,
+  onDeleteItem,
+  onUpdateItem,
   onUpload,
   publishing,
   publicUrl,
@@ -578,10 +600,31 @@ export function PortfolioSite({
     about: true,
   };
   const showSection = (key: PortfolioSectionKey) => mode === "edit" || sections[key];
+  const suppressed = page.about.suppressedSamples ?? {};
+  const dismissedWorkIds = new Set(suppressed.workItemIds ?? []);
+  const dismissedHighlightIds = new Set(suppressed.highlightIds ?? []);
+  const suppressedProjectGalleries = new Set(suppressed.projectGalleryItemIds ?? []);
+
   const usingSampleItems = showSamples && items.length === 0;
-  const galleryItems = usingSampleItems ? SAMPLE_ITEMS : items;
-  const usingSampleHighlights = showSamples && page.highlights.length === 0 && items.length === 0;
-  const highlightSlides = usingSampleHighlights ? SAMPLE_HIGHLIGHTS : page.highlights;
+  const sampleItems = SAMPLE_ITEMS.filter((item) => !dismissedWorkIds.has(item.id));
+  const galleryItems = usingSampleItems ? sampleItems : items;
+  const usingSampleHighlights =
+    showSamples && page.highlights.length === 0 && items.length === 0;
+  const highlightSlides = usingSampleHighlights
+    ? SAMPLE_HIGHLIGHTS.filter((h) => !dismissedHighlightIds.has(h.id))
+    : page.highlights;
+
+  const patchSuppressed = (
+    next: Partial<NonNullable<PortfolioPageContent["about"]["suppressedSamples"]>>,
+  ) => {
+    if (!onChangePage) return;
+    void onChangePage({
+      about: {
+        ...page.about,
+        suppressedSamples: { ...suppressed, ...next },
+      },
+    });
+  };
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [highlightPickerOpen, setHighlightPickerOpen] = useState(false);
   const [detailItem, setDetailItem] = useState<PortfolioItemContent | null>(null);
@@ -882,9 +925,9 @@ export function PortfolioSite({
         <SectionHiddenBanner visible={sections.work} />
         <div className="mb-8 flex items-end justify-between gap-3">
           <h2 className="text-xs uppercase tracking-[0.16em] text-white/40">Work</h2>
-          {usingSampleItems ? (
+          {usingSampleItems && galleryItems.length > 0 ? (
             <p className="text-[0.65rem] uppercase tracking-[0.12em] text-white/30">
-              Sample collection — add a project to replace
+              Sample collection — remove or add a project to replace
             </p>
           ) : null}
         </div>
@@ -895,7 +938,7 @@ export function PortfolioSite({
               "group relative w-full overflow-hidden rounded-[10px] bg-[#161616] text-left",
               aspectClass(item.aspect),
             );
-            const body = (
+            const media = (
               <>
                 <PortfolioMediaFill
                   type={item.coverMediaType}
@@ -903,29 +946,64 @@ export function PortfolioSite({
                   loopVideo
                   className="absolute inset-0"
                 />
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 opacity-0 transition group-hover:opacity-100">
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 opacity-0 transition group-hover:opacity-100">
                   <p className="truncate text-sm text-white">{item.title}</p>
                 </div>
                 {usingSampleItems ? (
-                  <span className="absolute left-2 top-2 rounded bg-black/50 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-white/50">
+                  <span className="pointer-events-none absolute left-2 top-2 rounded bg-black/50 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-white/50">
                     Sample
                   </span>
                 ) : null}
               </>
             );
+            const removeBtn =
+              mode === "edit" ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (usingSampleItems) {
+                      patchSuppressed({
+                        workItemIds: [...new Set([...(suppressed.workItemIds ?? []), item.id])],
+                      });
+                      if (detailItem?.id === item.id) setDetailItem(null);
+                      return;
+                    }
+                    if (!onDeleteItem) return;
+                    if (!window.confirm(`Delete “${item.title}”?`)) return;
+                    void (async () => {
+                      await onDeleteItem(item.id);
+                      if (detailItem?.id === item.id) setDetailItem(null);
+                    })();
+                  }}
+                  className="absolute right-2 top-2 z-10 rounded-full bg-black/60 p-1.5 text-white/80 opacity-0 transition group-hover:opacity-100"
+                  aria-label={usingSampleItems ? "Remove sample" : "Delete project"}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null;
 
             if (href && mode === "view") {
               return (
                 <Link key={item.id} href={href} className={tileClass}>
-                  {body}
+                  {media}
                 </Link>
               );
             }
 
             return (
-              <button key={item.id} type="button" onClick={() => openProject(item)} className={tileClass}>
-                {body}
-              </button>
+              <div key={item.id} className={tileClass}>
+                <button
+                  type="button"
+                  onClick={() => openProject(item)}
+                  className="absolute inset-0"
+                  aria-label={item.title}
+                >
+                  {media}
+                </button>
+                {removeBtn}
+              </div>
             );
           })}
           {mode === "edit" ? (
@@ -988,6 +1066,12 @@ export function PortfolioSite({
               onRemove={
                 mode === "edit"
                   ? (id) => {
+                      if (usingSampleHighlights) {
+                        patchSuppressed({
+                          highlightIds: [...new Set([...(suppressed.highlightIds ?? []), id])],
+                        });
+                        return;
+                      }
                       void onChangePage?.({
                         highlights: page.highlights.filter((h) => h.id !== id),
                       });
@@ -1122,7 +1206,11 @@ export function PortfolioSite({
             <X className="h-4 w-4" />
           </button>
           <PortfolioProjectView
-            item={detailItem}
+            item={
+              usingSampleItems
+                ? detailItem
+                : (items.find((i) => i.id === detailItem.id) ?? detailItem)
+            }
             backHref="#"
             backLabel="Back to portfolio"
             onBack={() => setDetailItem(null)}
@@ -1133,6 +1221,55 @@ export function PortfolioSite({
             }}
             contactLabel={page.ctaLabel || "Get in touch"}
             showSamples={usingSampleItems || showSamples}
+            mode={mode}
+            suppressSampleGallery={suppressedProjectGalleries.has(detailItem.id)}
+            onSuppressSampleGallery={
+              mode === "edit"
+                ? () => {
+                    patchSuppressed({
+                      projectGalleryItemIds: [
+                        ...new Set([...(suppressed.projectGalleryItemIds ?? []), detailItem.id]),
+                      ],
+                    });
+                  }
+                : undefined
+            }
+            onUpdateItem={
+              mode === "edit" && !usingSampleItems && onUpdateItem
+                ? async (patch) => {
+                    const current = items.find((i) => i.id === patch.id) ?? detailItem;
+                    await onUpdateItem({
+                      id: patch.id,
+                      title: current.title,
+                      coverMediaType:
+                        patch.coverMediaType !== undefined
+                          ? patch.coverMediaType
+                          : current.coverMediaType,
+                      coverMediaUrl:
+                        patch.coverMediaUrl !== undefined
+                          ? patch.coverMediaUrl
+                          : current.coverMediaUrl,
+                      description: current.description,
+                      subtitle: current.subtitle,
+                      role: current.role,
+                      client: current.client,
+                      year: current.year,
+                      aboutText: current.aboutText,
+                      problem: current.problem,
+                      solution: current.solution,
+                      challenge: current.challenge,
+                      result: current.result,
+                      gallery: patch.gallery ?? current.gallery,
+                      aspect: current.aspect,
+                    });
+                  }
+                : undefined
+            }
+            onUpload={
+              mode === "edit" && !usingSampleItems && onUpload
+                ? async (file) => onUpload("items", file)
+                : undefined
+            }
           />
         </div>
       ) : null}

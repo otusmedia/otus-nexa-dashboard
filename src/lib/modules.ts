@@ -105,6 +105,47 @@ export function resolveProvisionedModulesForClient(
 }
 
 /**
+ * Modules visible in the shell (sidebar + ModuleGuard) for the current session.
+ * When an agency user scopes the UI to one client, only that client's provisioned
+ * modules are shown (intersected with the viewer's own access) — even for admins.
+ * "All clients" keeps the full agency catalog.
+ */
+export function resolveAllowedModulesForViewer(
+  user: AppUser,
+  projectsClientFilter: string,
+  ctx: ModuleAssignmentContext,
+): ModuleKey[] {
+  const base = [...user.modules];
+  if (base.length === 0) return [];
+
+  if (!isAgencyCompany(user.company)) {
+    return base;
+  }
+
+  const slug = projectsClientFilter.trim();
+  if (!slug || slug === "all") {
+    return base;
+  }
+
+  const client = ctx.clients.find((c) => c.slug === slug);
+  if (!client) {
+    return base;
+  }
+
+  if (client.enabledModules && client.enabledModules.length > 0) {
+    return modulesFromExplicitList(client.enabledModules).filter((m) => hasModuleAccess(base, m));
+  }
+
+  const provisioned = resolveProvisionedModulesForClient(slug, ctx);
+  if (provisioned.length > 0) {
+    return provisioned.filter((m) => hasModuleAccess(base, m));
+  }
+
+  // Client selected but nothing provisioned — do not dump the full agency catalog.
+  return [];
+}
+
+/**
  * Modules a viewer may grant to other users.
  * Agency: full assignable set. RocketRide: fixed allow-list.
  * External client accounts: panels provisioned for that client (not tied to one admin user).

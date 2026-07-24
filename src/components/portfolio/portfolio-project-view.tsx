@@ -1,9 +1,10 @@
 "use client";
 
+import { useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ImagePlus, X } from "lucide-react";
 import { PortfolioMediaFill } from "@/components/portfolio/portfolio-media";
-import type { PortfolioItemContent } from "@/lib/portfolio";
+import type { PortfolioGalleryBlock, PortfolioItemContent, PortfolioMediaType } from "@/lib/portfolio";
 import { cn } from "@/lib/utils";
 
 /** Savee-like edge for media; text keeps a readable max width. */
@@ -31,19 +32,48 @@ function MediaBlock({
   type,
   url,
   className,
+  editable,
+  isSample,
+  onRemove,
 }: {
   type: PortfolioItemContent["coverMediaType"];
   url: string | null;
   className?: string;
+  editable?: boolean;
+  isSample?: boolean;
+  onRemove?: () => void;
 }) {
   return (
-    <div className={cn("relative w-full overflow-hidden bg-[#111]", className)}>
+    <div className={cn("group relative w-full overflow-hidden bg-[#111]", className)}>
       <div className="aspect-[16/10] w-full sm:aspect-[16/9]">
         <PortfolioMediaFill type={type} url={url} loopVideo className="absolute inset-0" />
       </div>
+      {isSample ? (
+        <span className="absolute left-2 top-2 rounded bg-black/50 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-white/70">
+          Sample
+        </span>
+      ) : null}
+      {editable && onRemove ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="absolute right-2 top-2 z-10 rounded-full bg-black/60 p-1.5 text-white/85 opacity-0 transition group-hover:opacity-100"
+          aria-label="Remove image"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
     </div>
   );
 }
+
+type MediaEntry = {
+  id: string;
+  mediaType: PortfolioMediaType | null;
+  mediaUrl: string | null;
+  isSample?: boolean;
+  kind: "cover" | "gallery";
+};
 
 export function PortfolioProjectView({
   item,
@@ -56,6 +86,11 @@ export function PortfolioProjectView({
   onBack,
   onSelectRelated,
   showSamples = false,
+  mode = "view",
+  suppressSampleGallery = false,
+  onUpdateItem,
+  onUpload,
+  onSuppressSampleGallery,
 }: {
   item: PortfolioItemContent;
   backHref: string;
@@ -67,7 +102,22 @@ export function PortfolioProjectView({
   onBack?: () => void;
   onSelectRelated?: (item: PortfolioItemContent) => void;
   showSamples?: boolean;
+  mode?: "edit" | "view";
+  /** When true, do not inject SAMPLE_GALLERY fillers */
+  suppressSampleGallery?: boolean;
+  onUpdateItem?: (patch: {
+    id: string;
+    coverMediaType?: PortfolioMediaType | null;
+    coverMediaUrl?: string | null;
+    gallery?: PortfolioGalleryBlock[];
+  }) => void | Promise<void>;
+  onUpload?: (file: File) => Promise<string>;
+  onSuppressSampleGallery?: () => void;
 }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const editable = mode === "edit" && Boolean(onUpdateItem || onSuppressSampleGallery);
+
   const subtitle =
     item.subtitle.trim() ||
     (showSamples && !item.subtitle.trim() ? "Crafting exceptional visual content." : "");
@@ -84,40 +134,101 @@ export function PortfolioProjectView({
       : "");
 
   const galleryFromItem = item.gallery.filter((g) => g.mediaUrl);
-  const gallery =
-    galleryFromItem.length > 0
-      ? galleryFromItem
-      : showSamples
-        ? SAMPLE_GALLERY.map((url, i) => ({
-            id: `sample-g-${i}`,
-            mediaType: "image" as const,
-            mediaUrl: url,
-          }))
-        : [];
+  const useSampleGallery = showSamples && galleryFromItem.length === 0 && !suppressSampleGallery;
 
-  const mediaStack: Array<{ id: string; mediaType: PortfolioItemContent["coverMediaType"]; mediaUrl: string | null }> =
-    [];
+  const mediaStack: MediaEntry[] = [];
   if (item.coverMediaUrl) {
     mediaStack.push({
       id: "cover",
       mediaType: item.coverMediaType,
       mediaUrl: item.coverMediaUrl,
+      kind: "cover",
     });
-  } else if (showSamples) {
+  } else if (useSampleGallery) {
     mediaStack.push({
       id: "cover-sample",
       mediaType: "image",
       mediaUrl: SAMPLE_GALLERY[0]!,
+      isSample: true,
+      kind: "cover",
     });
   }
-  for (const g of gallery) {
+
+  const galleryBlocks: MediaEntry[] = galleryFromItem.length
+    ? galleryFromItem.map((g) => ({
+        id: g.id,
+        mediaType: g.mediaType,
+        mediaUrl: g.mediaUrl,
+        kind: "gallery" as const,
+      }))
+    : useSampleGallery
+      ? SAMPLE_GALLERY.map((url, i) => ({
+          id: `sample-g-${i}`,
+          mediaType: "image" as const,
+          mediaUrl: url,
+          isSample: true,
+          kind: "gallery" as const,
+        }))
+      : [];
+
+  for (const g of galleryBlocks) {
     if (g.id === "cover") continue;
+    if (mediaStack.some((m) => m.mediaUrl === g.mediaUrl)) continue;
     mediaStack.push(g);
   }
 
   const leadMedia = mediaStack.slice(0, 2);
   const restMedia = mediaStack.slice(2);
   const related = relatedItems.filter((r) => r.id !== item.id).slice(0, 2);
+
+  const removeMedia = async (entry: MediaEntry) => {
+    if (entry.isSample) {
+      onSuppressSampleGallery?.();
+      return;
+    }
+    if (!onUpdateItem) return;
+    if (entry.kind === "cover" || entry.id === "cover") {
+      await onUpdateItem({
+        id: item.id,
+        coverMediaType: null,
+        coverMediaUrl: null,
+      });
+      return;
+    }
+    await onUpdateItem({
+      id: item.id,
+      gallery: item.gallery.filter((g) => g.id !== entry.id),
+    });
+  };
+
+  const addMedia = async (file: File) => {
+    if (!onUpload || !onUpdateItem) return;
+    setUploading(true);
+    try {
+      const url = await onUpload(file);
+      const mediaType: PortfolioMediaType = file.type.startsWith("video/") ? "video" : "image";
+      if (!item.coverMediaUrl) {
+        await onUpdateItem({
+          id: item.id,
+          coverMediaType: mediaType,
+          coverMediaUrl: url,
+        });
+      } else {
+        const next: PortfolioGalleryBlock = {
+          id: `g-${Date.now()}`,
+          mediaType,
+          mediaUrl: url,
+        };
+        await onUpdateItem({
+          id: item.id,
+          gallery: [...item.gallery.filter((g) => g.mediaUrl), next],
+        });
+      }
+      onSuppressSampleGallery?.();
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const Back = onBack ? (
     <button
@@ -165,7 +276,15 @@ export function PortfolioProjectView({
       {/* Lead media */}
       <div className={cn("space-y-3 sm:space-y-4", EDGE)}>
         {leadMedia.map((block) => (
-          <MediaBlock key={block.id} type={block.mediaType} url={block.mediaUrl} className="rounded-[10px]" />
+          <MediaBlock
+            key={block.id}
+            type={block.mediaType}
+            url={block.mediaUrl}
+            className="rounded-[10px]"
+            editable={editable}
+            isSample={block.isSample}
+            onRemove={() => void removeMedia(block)}
+          />
         ))}
       </div>
 
@@ -225,11 +344,45 @@ export function PortfolioProjectView({
       })()}
 
       {/* Remaining gallery */}
-      {restMedia.length > 0 ? (
+      {restMedia.length > 0 || (editable && onUpload) ? (
         <div className={cn("space-y-3 pb-6 sm:space-y-4 sm:pb-10", EDGE)}>
           {restMedia.map((block) => (
-            <MediaBlock key={block.id} type={block.mediaType} url={block.mediaUrl} className="rounded-[10px]" />
+            <MediaBlock
+              key={block.id}
+              type={block.mediaType}
+              url={block.mediaUrl}
+              className="rounded-[10px]"
+              editable={editable}
+              isSample={block.isSample}
+              onRemove={() => void removeMedia(block)}
+            />
           ))}
+          {editable && onUpload && onUpdateItem ? (
+            <>
+              <button
+                type="button"
+                disabled={uploading}
+                onClick={() => fileRef.current?.click()}
+                className="flex aspect-[16/10] w-full flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-white/15 bg-[#111] text-white/40 transition hover:border-white/30 hover:text-white/70 sm:aspect-[16/9] disabled:opacity-50"
+              >
+                <ImagePlus className="h-6 w-6" />
+                <span className="text-xs uppercase tracking-[0.12em]">
+                  {uploading ? "Uploading…" : "Add image"}
+                </span>
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*,video/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void addMedia(file);
+                }}
+              />
+            </>
+          ) : null}
         </div>
       ) : null}
 

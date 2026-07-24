@@ -105,6 +105,21 @@ export type PortfolioAboutBlockKey =
 
 export type PortfolioAboutBlocks = Record<PortfolioAboutBlockKey, boolean>;
 
+/** Editor prefs: hide placeholder sample media after the user dismisses them. */
+export type PortfolioSuppressedSamples = {
+  gallery?: boolean;
+  feature?: boolean;
+  teamIds?: string[];
+  testimonialIds?: string[];
+  insightIds?: string[];
+  /** Sample work tiles dismissed in the Work grid */
+  workItemIds?: string[];
+  /** Sample highlight slides dismissed */
+  highlightIds?: string[];
+  /** Project ids whose sample gallery fillers were cleared */
+  projectGalleryItemIds?: string[];
+};
+
 export type PortfolioAboutContent = {
   eyebrow: string;
   title: string;
@@ -140,6 +155,7 @@ export type PortfolioAboutContent = {
   plans: PortfolioAboutPlan[];
   faqs: PortfolioAboutFaq[];
   blocks: PortfolioAboutBlocks;
+  suppressedSamples?: PortfolioSuppressedSamples;
 };
 
 export type PortfolioSectionKey = "hero" | "work" | "highlights" | "about";
@@ -676,7 +692,31 @@ function parseAboutContent(
     plans: resolvedPlans,
     faqs: faqs.length ? faqs : fallback.faqs,
     blocks: parseAboutBlocks(r.blocks),
+    suppressedSamples: parseSuppressedSamples(r.suppressedSamples),
   };
+}
+
+function parseSuppressedSamples(raw: unknown): PortfolioSuppressedSamples | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const ids = (v: unknown) =>
+    Array.isArray(v) ? v.map((x) => String(x ?? "").trim()).filter(Boolean) : undefined;
+  const out: PortfolioSuppressedSamples = {};
+  if (r.gallery === true) out.gallery = true;
+  if (r.feature === true) out.feature = true;
+  const teamIds = ids(r.teamIds);
+  if (teamIds?.length) out.teamIds = teamIds;
+  const testimonialIds = ids(r.testimonialIds);
+  if (testimonialIds?.length) out.testimonialIds = testimonialIds;
+  const insightIds = ids(r.insightIds);
+  if (insightIds?.length) out.insightIds = insightIds;
+  const workItemIds = ids(r.workItemIds);
+  if (workItemIds?.length) out.workItemIds = workItemIds;
+  const highlightIds = ids(r.highlightIds);
+  if (highlightIds?.length) out.highlightIds = highlightIds;
+  const projectGalleryItemIds = ids(r.projectGalleryItemIds);
+  if (projectGalleryItemIds?.length) out.projectGalleryItemIds = projectGalleryItemIds;
+  return Object.keys(out).length ? out : undefined;
 }
 
 function parseNav(raw: unknown): PortfolioNavItem[] {

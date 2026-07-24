@@ -1,6 +1,6 @@
 import { platformNavigation } from "@/layout/navigation";
 import { isAgencyAdmin } from "@/lib/client-utils";
-import { hasModuleAccess, resolveProvisionedModulesForClient } from "@/lib/modules";
+import { hasModuleAccess, resolveAllowedModulesForViewer } from "@/lib/modules";
 import type { AppUser, Client, ModuleKey } from "@/types";
 
 export const AGENCY_HOME_PATH = "/home";
@@ -100,11 +100,7 @@ export function resolveAgencyClientLandingPath(
     return resolveDefaultLandingPathForUser(user, opts.navOrder);
   }
 
-  const provisioned = resolveProvisionedModulesForClient(slug, ctx);
-  const scoped =
-    provisioned.length > 0
-      ? provisioned.filter((m) => hasModuleAccess(user.modules, m))
-      : [...user.modules];
+  const scoped = resolveAllowedModulesForViewer(user, slug, ctx);
 
   const landingOpts = {
     ...opts,
@@ -112,7 +108,7 @@ export function resolveAgencyClientLandingPath(
   };
 
   if (scoped.length === 0) {
-    return MODULE_ENTRY_PATHS.dashboard;
+    return AGENCY_HOME_PATH;
   }
 
   return resolveDefaultLandingPath(scoped, landingOpts);

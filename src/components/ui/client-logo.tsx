@@ -16,13 +16,13 @@ type ClientLogoProps = {
 
 /** Matches the system mark (`/frame-1.svg`) in the sidebar header. */
 export const SIDEBAR_BRAND_LOGO_HEIGHT_PX = 36.8;
-export const SIDEBAR_BRAND_LOGO_MAX_WIDTH_PX = 93.15;
+export const SIDEBAR_BRAND_LOGO_MAX_WIDTH_PX = 87;
 
 const sizeClass: Record<NonNullable<ClientLogoProps["size"]>, string> = {
   xs: "h-4 w-auto max-w-[120px]",
   sm: "h-5 w-auto max-w-[144px]",
   md: "h-8 w-auto max-w-[160px]",
-  sidebar: "h-[36.8px] w-auto max-w-[93.15px]",
+  sidebar: "h-[36.8px] w-auto max-w-[87px]",
 };
 
 export function ClientLogo({ client, size = "sm", className, theme: themeOverride }: ClientLogoProps) {

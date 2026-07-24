@@ -7,6 +7,7 @@ import { useAppContext } from "@/components/providers/app-providers";
 import { useLanguage } from "@/context/language-context";
 import { resolveAccountForSession } from "@/lib/accounts";
 import {
+  deletePortfolioItemDraft,
   loadPortfolioSite,
   publishPortfolio,
   updatePortfolioPageDraft,
@@ -126,6 +127,38 @@ export default function PortfolioPage() {
             onAddItem={async (input) => {
               const item = await upsertPortfolioItemDraft(site.accountId, input);
               setSite((prev) => (prev ? { ...prev, items: [...prev.items, item] } : prev));
+            }}
+            onDeleteItem={async (itemId) => {
+              await deletePortfolioItemDraft(site.accountId, itemId);
+              setSite((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      items: prev.items.filter((i) => i.id !== itemId),
+                      page: {
+                        ...prev.page,
+                        highlights: prev.page.highlights.filter((h) => h.linkedItemId !== itemId),
+                      },
+                    }
+                  : prev,
+              );
+            }}
+            onUpdateItem={async (input) => {
+              if (!input.title) throw new Error("Title is required.");
+              const item = await upsertPortfolioItemDraft(site.accountId, {
+                ...input,
+                title: input.title,
+                coverMediaType: input.coverMediaType ?? null,
+                coverMediaUrl: input.coverMediaUrl ?? null,
+              });
+              setSite((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      items: prev.items.map((i) => (i.id === item.id ? item : i)),
+                    }
+                  : prev,
+              );
             }}
             onPublish={async () => {
               setPublishing(true);

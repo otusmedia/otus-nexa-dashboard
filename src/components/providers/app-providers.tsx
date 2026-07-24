@@ -10,6 +10,7 @@ import {
   defaultAdminModulesForClientCompany,
   isExternalClientCompany,
   modulesAssignableByViewer,
+  resolveAllowedModulesForViewer,
   ROCKETRIDE_ALLOWED_MODULE_KEYS,
 } from "@/lib/modules";
 import {
@@ -887,8 +888,10 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     [sessionUserId, currentUser.id],
   );
 
-  const allowedModules: ModuleKey[] =
-    !sessionUserId || currentUser.id === GUEST_USER.id ? [] : [...currentUser.modules];
+  const allowedModules = useMemo((): ModuleKey[] => {
+    if (!sessionUserId || currentUser.id === GUEST_USER.id) return [];
+    return resolveAllowedModulesForViewer(currentUser, projectsClientFilter, { users, clients });
+  }, [sessionUserId, currentUser, projectsClientFilter, users, clients]);
   const unreadCount = notifications.filter((notification) => !notification.read).length;
   const t = (key: TranslationKey) => translate(language, key);
   const td = (content: string) => localizeDynamic(language, content);

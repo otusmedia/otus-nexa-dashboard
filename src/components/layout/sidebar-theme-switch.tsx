@@ -14,7 +14,7 @@ export function SidebarThemeSwitch({ lt, className }: Props) {
   const isLight = theme === "light";
 
   return (
-    <div className={cn("flex items-center justify-between gap-3 px-1", className)}>
+    <div className={cn("ml-[10px] flex items-center justify-between gap-3 px-1", className)}>
       <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[var(--muted)]">
         {lt("Theme")}
       </span>

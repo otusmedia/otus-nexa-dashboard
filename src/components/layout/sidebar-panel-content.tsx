@@ -8,7 +8,6 @@ import type { ModuleKey } from "@/types";
 import { SidebarClientPicker } from "@/components/layout/sidebar-client-picker";
 import { SidebarNav, type SidebarNavLink } from "@/components/layout/sidebar-nav";
 import { SidebarThemeSwitch } from "@/components/layout/sidebar-theme-switch";
-import { ClientLogo, SIDEBAR_BRAND_LOGO_HEIGHT_PX, SIDEBAR_BRAND_LOGO_MAX_WIDTH_PX } from "@/components/ui/client-logo";
 import { cn } from "@/lib/utils";
 
 export type SidebarPanelContentProps = {
@@ -53,7 +52,6 @@ export type SidebarPanelContentProps = {
   profileImage: string | null;
   avatarInitial: string;
   profileName: string;
-  sidebarClient: Client | null;
   onOpenSettings: () => void;
   onLogout: () => void;
   isAdmin: boolean;
@@ -102,7 +100,6 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
     profileImage,
     avatarInitial,
     profileName,
-    sidebarClient,
     onOpenSettings,
     onLogout,
     isAdmin,
@@ -119,7 +116,7 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
           <img
             src="/frame-1.svg"
             alt="RocketRide logo"
-            className="sidebar-brand-logo h-[36.8px] w-auto max-w-[93.15px] object-contain object-left"
+            className="sidebar-brand-logo h-[36.8px] w-auto max-w-[87px] object-contain object-left"
           />
         </div>
         {showCollapse ? (
@@ -186,20 +183,6 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
           />
         </nav>
       </div>
-
-      {sidebarClient && (sidebarClient.logoUrl || sidebarClient.logoLightUrl) ? (
-        <div className="shrink-0 px-3 pb-3">
-          <div
-            className="flex min-w-0 items-center justify-start overflow-hidden"
-            style={{
-              height: SIDEBAR_BRAND_LOGO_HEIGHT_PX,
-              maxWidth: SIDEBAR_BRAND_LOGO_MAX_WIDTH_PX,
-            }}
-          >
-            <ClientLogo client={sidebarClient} size="sidebar" className="object-left" />
-          </div>
-        </div>
-      ) : null}
 
       <div className="shrink-0 space-y-3 border-t border-[var(--border)] px-3 pb-8 pt-3">
         <SidebarThemeSwitch lt={lt} />

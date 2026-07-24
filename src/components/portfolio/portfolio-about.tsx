@@ -170,14 +170,16 @@ function ImageSlot({
           Sample
         </span>
       ) : null}
-      {mode === "edit" && url ? (
+      {mode === "edit" && show ? (
         <>
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            className="absolute inset-0 bg-black/0 transition group-hover:bg-black/20"
-            aria-label="Replace"
-          />
+          {onUpload ? (
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="absolute inset-0 bg-black/0 transition group-hover:bg-black/20"
+              aria-label="Replace"
+            />
+          ) : null}
           {onClear ? (
             <button
               type="button"
@@ -185,7 +187,7 @@ function ImageSlot({
                 e.stopPropagation();
                 onClear();
               }}
-              className="absolute right-2 top-2 rounded-full bg-black/60 p-1 text-white/80 opacity-0 transition group-hover:opacity-100"
+              className="absolute right-2 top-2 z-10 rounded-full bg-black/60 p-1 text-white/80 opacity-0 transition group-hover:opacity-100"
               aria-label="Remove"
             >
               <X className="h-3.5 w-3.5" />
@@ -293,6 +295,11 @@ export function PortfolioAboutSection({
     void onChange(next);
   };
 
+  const suppressed = about.suppressedSamples ?? {};
+  const suppress = (next: Partial<NonNullable<PortfolioAboutContent["suppressedSamples"]>>) => {
+    patch({ suppressedSamples: { ...suppressed, ...next } });
+  };
+
   const toggleBlock = (key: PortfolioAboutBlockKey) => {
     patch({ blocks: { ...blocks, [key]: !blocks[key] } });
   };
@@ -303,7 +310,7 @@ export function PortfolioAboutSection({
     });
   };
 
-  const usingSampleGallery = showSamples && about.galleryUrls.length === 0;
+  const usingSampleGallery = showSamples && about.galleryUrls.length === 0 && !suppressed.gallery;
 
   return (
     <section id="about" className="scroll-mt-20 bg-[#f5f5f5] text-black">
@@ -401,11 +408,15 @@ export function PortfolioAboutSection({
                       : undefined
                   }
                   onClear={
-                    mode === "edit" && realUrl
+                    mode === "edit"
                       ? () => {
-                          const next = [...about.galleryUrls];
-                          next.splice(i, 1);
-                          patch({ galleryUrls: next });
+                          if (realUrl) {
+                            const next = [...about.galleryUrls];
+                            next.splice(i, 1);
+                            patch({ galleryUrls: next });
+                            return;
+                          }
+                          if (sampleUrl) suppress({ gallery: true });
                         }
                       : undefined
                   }
@@ -430,7 +441,9 @@ export function PortfolioAboutSection({
           <ImageSlot
             mode={mode}
             url={about.featureImageUrl}
-            sampleUrl={showSamples && !about.featureImageUrl ? SAMPLE_FEATURE : null}
+            sampleUrl={
+              showSamples && !about.featureImageUrl && !suppressed.feature ? SAMPLE_FEATURE : null
+            }
             className="aspect-[16/10] w-full rounded-sm sm:aspect-[21/9]"
             label="Upload feature image"
             onUpload={
@@ -442,7 +455,15 @@ export function PortfolioAboutSection({
                 : undefined
             }
             onClear={
-              about.featureImageUrl ? () => patch({ featureImageUrl: null }) : undefined
+              mode === "edit"
+                ? () => {
+                    if (about.featureImageUrl) {
+                      patch({ featureImageUrl: null });
+                      return;
+                    }
+                    suppress({ feature: true });
+                  }
+                : undefined
             }
           />
         </div>
@@ -675,7 +696,11 @@ export function PortfolioAboutSection({
                     mode={mode}
                     url={member.photoUrl}
                     sampleUrl={
-                      showSamples && !member.photoUrl ? SAMPLE_TEAM[i % SAMPLE_TEAM.length] : null
+                      showSamples &&
+                      !member.photoUrl &&
+                      !(suppressed.teamIds ?? []).includes(member.id)
+                        ? SAMPLE_TEAM[i % SAMPLE_TEAM.length]
+                        : null
                     }
                     className="aspect-[3/4] w-full rounded-sm"
                     onUpload={
@@ -686,6 +711,22 @@ export function PortfolioAboutSection({
                               idx === i ? { ...m, photoUrl: url } : m,
                             );
                             patch({ teamMembers });
+                          }
+                        : undefined
+                    }
+                    onClear={
+                      mode === "edit"
+                        ? () => {
+                            if (member.photoUrl) {
+                              const teamMembers = about.teamMembers.map((m, idx) =>
+                                idx === i ? { ...m, photoUrl: null } : m,
+                              );
+                              patch({ teamMembers });
+                              return;
+                            }
+                            suppress({
+                              teamIds: [...new Set([...(suppressed.teamIds ?? []), member.id])],
+                            });
                           }
                         : undefined
                     }
@@ -835,7 +876,11 @@ export function PortfolioAboutSection({
                       mode={mode}
                       url={t.photoUrl}
                       sampleUrl={
-                        showSamples && !t.photoUrl ? SAMPLE_TEAM[i % SAMPLE_TEAM.length] : null
+                        showSamples &&
+                        !t.photoUrl &&
+                        !(suppressed.testimonialIds ?? []).includes(t.id)
+                          ? SAMPLE_TEAM[i % SAMPLE_TEAM.length]
+                          : null
                       }
                       className="h-10 w-10 shrink-0 rounded-full"
                       onUpload={
@@ -846,6 +891,24 @@ export function PortfolioAboutSection({
                                 idx === i ? { ...item, photoUrl: url } : item,
                               );
                               patch({ testimonials });
+                            }
+                          : undefined
+                      }
+                      onClear={
+                        mode === "edit"
+                          ? () => {
+                              if (t.photoUrl) {
+                                const testimonials = about.testimonials.map((item, idx) =>
+                                  idx === i ? { ...item, photoUrl: null } : item,
+                                );
+                                patch({ testimonials });
+                                return;
+                              }
+                              suppress({
+                                testimonialIds: [
+                                  ...new Set([...(suppressed.testimonialIds ?? []), t.id]),
+                                ],
+                              });
                             }
                           : undefined
                       }
@@ -954,7 +1017,9 @@ export function PortfolioAboutSection({
                     mode={mode}
                     url={post.imageUrl}
                     sampleUrl={
-                      showSamples && !post.imageUrl
+                      showSamples &&
+                      !post.imageUrl &&
+                      !(suppressed.insightIds ?? []).includes(post.id)
                         ? SAMPLE_INSIGHTS[i % SAMPLE_INSIGHTS.length]
                         : null
                     }
@@ -967,6 +1032,22 @@ export function PortfolioAboutSection({
                               idx === i ? { ...item, imageUrl: url } : item,
                             );
                             patch({ insights });
+                          }
+                        : undefined
+                    }
+                    onClear={
+                      mode === "edit"
+                        ? () => {
+                            if (post.imageUrl) {
+                              const insights = about.insights.map((item, idx) =>
+                                idx === i ? { ...item, imageUrl: null } : item,
+                              );
+                              patch({ insights });
+                              return;
+                            }
+                            suppress({
+                              insightIds: [...new Set([...(suppressed.insightIds ?? []), post.id])],
+                            });
                           }
                         : undefined
                     }
