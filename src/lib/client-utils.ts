@@ -18,6 +18,11 @@ export function isAgencyAdmin(user: AppUser): boolean {
   return isAgencyCompany(user.company) && user.role === "admin";
 }
 
+/** Agency admins and managers can switch the active client in the sidebar. */
+export function canSwitchAgencyClients(user: AppUser): boolean {
+  return isAgencyCompany(user.company) && (user.role === "admin" || user.role === "manager");
+}
+
 export function effectiveUserClientSlug(user: AppUser): string | null {
   if (user.clientSlug) return user.clientSlug;
   if (user.company === "rocketride") return "rocketride";

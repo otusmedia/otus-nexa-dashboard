@@ -35,7 +35,7 @@ import type { SidebarNavLink } from "@/components/layout/sidebar-nav";
 import { SIDEBAR_RAIL_LAYOUT_WIDTH } from "@/lib/sidebar-layout-preference";
 import { orderSidebarLinks, readSidebarNavOrder, writeSidebarNavOrder } from "@/lib/sidebar-nav-order";
 import { readSidebarLayout, writeSidebarLayout } from "@/lib/sidebar-layout-preference";
-import { isAgencyAdmin } from "@/lib/client-utils";
+import { isAgencyAdmin, canSwitchAgencyClients } from "@/lib/client-utils";
 import { hasModuleAccess } from "@/lib/modules";
 import {
   AGENCY_HOME_PATH,
@@ -215,6 +215,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
   const avatarInitial = profileName.trim().slice(0, 1).toUpperCase() || "U";
   const agencyAdmin = isAgencyAdmin(currentUser);
+  const canSwitchClients = canSwitchAgencyClients(currentUser);
 
   const redirectAgencyAdminToClientLanding = useCallback(
     (clientSlug: string) => {
@@ -237,19 +238,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const handleClientFilterChange = useCallback(
     (slug: string) => {
       setProjectsClientFilter(slug);
-      if (!agencyAdmin || slug === "all") return;
+      if (!canSwitchClients || slug === "all") return;
       if (isAgencyHomePath(pathname)) {
         redirectAgencyAdminToClientLanding(slug);
       }
     },
-    [agencyAdmin, pathname, redirectAgencyAdminToClientLanding, setProjectsClientFilter],
+    [canSwitchClients, pathname, redirectAgencyAdminToClientLanding, setProjectsClientFilter],
   );
 
   useEffect(() => {
-    if (!agencyAdmin || projectsClientFilter === "all") return;
+    if (!canSwitchClients || projectsClientFilter === "all") return;
     if (!isAgencyHomePath(pathname)) return;
     redirectAgencyAdminToClientLanding(projectsClientFilter);
-  }, [agencyAdmin, pathname, projectsClientFilter, redirectAgencyAdminToClientLanding]);
+  }, [canSwitchClients, pathname, projectsClientFilter, redirectAgencyAdminToClientLanding]);
 
   const onUpdatesPage = pathname.startsWith("/updates");
   const hideSystemHero = pathname === "/portfolio" || pathname.startsWith("/portfolio/");
@@ -429,6 +430,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     onReorder: handleNavReorder,
     collapseLabel: lt("Minimize sidebar"),
     agencyAdmin,
+    canSwitchClients,
     clients,
     projectsClientFilter,
     setProjectsClientFilter: handleClientFilterChange,

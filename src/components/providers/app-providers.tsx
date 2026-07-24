@@ -75,7 +75,7 @@ import type {
 
 import {
   effectiveUserClientSlug,
-  isAgencyAdmin,
+  canSwitchAgencyClients,
   isAgencyCompany,
   isClientCompany,
   isRocketRideCompany,
@@ -772,7 +772,7 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
     [currentUser, clients, projectsClientFilter],
   );
 
-  const viewingAllClients = isAgencyAdmin(currentUser) && projectsClientFilter === "all";
+  const viewingAllClients = canSwitchAgencyClients(currentUser) && projectsClientFilter === "all";
 
   const language = useMemo(
     () =>

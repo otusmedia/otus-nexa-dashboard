@@ -30,6 +30,8 @@ export type SidebarPanelContentProps = {
   onCloseDrawer?: () => void;
   collapseLabel: string;
   agencyAdmin: boolean;
+  /** Show client picker — agency admins and managers */
+  canSwitchClients: boolean;
   clients: Client[];
   projectsClientFilter: string;
   setProjectsClientFilter: (slug: string) => void;
@@ -78,6 +80,7 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
     onCloseDrawer,
     collapseLabel,
     agencyAdmin,
+    canSwitchClients,
     clients,
     projectsClientFilter,
     setProjectsClientFilter,
@@ -186,7 +189,7 @@ export function SidebarPanelContent(props: SidebarPanelContentProps) {
 
       <div className="shrink-0 space-y-3 border-t border-[var(--border)] px-3 pb-8 pt-3">
         <SidebarThemeSwitch lt={lt} />
-        {agencyAdmin ? (
+        {canSwitchClients ? (
           <SidebarClientPicker
             clients={clients}
             value={projectsClientFilter}

@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { useAppContext } from "@/components/providers/app-providers";
 import { PageHeader } from "@/components/ui/page-header";
 import { useLanguage } from "@/context/language-context";
-import { isAgencyAdmin } from "@/lib/client-utils";
+import { canSwitchAgencyClients } from "@/lib/client-utils";
 import { canViewAllCrmLeads } from "@/lib/crm-lead-visibility";
 import { resolveCrmOwnerFilterItems } from "@/lib/crm-team-members";
 import { CrmDashboardActivityCard } from "@/modules/crm/dashboard/crm-dashboard-activity-card";
@@ -33,7 +33,7 @@ export function CrmDashboardModule() {
   const [ownerFilter, setOwnerFilter] = useState("");
 
   const activeClient = dataClientSlug ? clients.find((c) => c.slug === dataClientSlug) : undefined;
-  const viewingAllClients = isAgencyAdmin(currentUser) && projectsClientFilter === "all";
+  const viewingAllClients = canSwitchAgencyClients(currentUser) && projectsClientFilter === "all";
   const canFilterByOwner = canViewAllCrmLeads(currentUser);
 
   const {
@@ -75,7 +75,7 @@ export function CrmDashboardModule() {
 
   const accentColor = activeClient?.primaryColor ?? "#FF4500";
   const showSelectClientHint =
-    isAgencyAdmin(currentUser) && viewingAllClients && !loading && allLeadsCount > 0;
+    canSwitchAgencyClients(currentUser) && viewingAllClients && !loading && allLeadsCount > 0;
 
   if (!loading && allLeadsCount === 0 && !error) {
     return (
