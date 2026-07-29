@@ -1,4 +1,4 @@
-import { mergeCrmSourceOptions } from "@/lib/crm-data";
+import { formatCrmServiceProductLabel, mergeCrmSourceOptions } from "@/lib/crm-data";
 import { supabase } from "@/lib/supabase";
 
 function isMissingRelationError(message: string): boolean {
@@ -16,8 +16,17 @@ function isMissingServiceProductColumnError(message: string): boolean {
   return lower.includes("service_product") && lower.includes("does not exist");
 }
 
+function isMissingQuantityColumnError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes("quantity") && lower.includes("does not exist");
+}
+
 export function isCrmServiceProductSchemaError(message: string): boolean {
   return isMissingRelationError(message) || isMissingServiceProductColumnError(message);
+}
+
+export function isCrmQuantitySchemaError(message: string): boolean {
+  return isMissingQuantityColumnError(message);
 }
 
 export async function fetchCustomCrmServiceProducts(clientSlug: string | null | undefined): Promise<string[]> {
@@ -33,7 +42,7 @@ export async function fetchCustomCrmServiceProducts(clientSlug: string | null | 
 
   if (!error && data) {
     for (const row of data) {
-      const s = String(row.service_product ?? "").trim();
+      const s = formatCrmServiceProductLabel(String(row.service_product ?? ""));
       if (s) fromTable.push(s);
     }
   }
@@ -47,14 +56,16 @@ export async function fetchCustomCrmServiceProducts(clientSlug: string | null | 
   const fromLeads: string[] = [];
   if (!leadErr && leadRows) {
     for (const row of leadRows) {
-      const s = String(row.service_product ?? "").trim();
+      const s = formatCrmServiceProductLabel(String(row.service_product ?? ""));
       if (s) fromLeads.push(s);
     }
   } else if (leadErr && !isMissingServiceProductColumnError(leadErr.message)) {
     console.error("[crm] fetch service products from leads", leadErr.message);
   }
 
-  return mergeCrmSourceOptions([], [...fromTable, ...fromLeads]);
+  return mergeCrmSourceOptions([], [...fromTable, ...fromLeads]).sort((a, b) =>
+    a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
+  );
 }
 
 export async function rememberCustomCrmServiceProduct(
@@ -62,12 +73,22 @@ export async function rememberCustomCrmServiceProduct(
   serviceProduct: string,
 ): Promise<string[]> {
   const slug = (clientSlug ?? "").trim().toLowerCase();
-  const trimmed = serviceProduct.trim();
+  const trimmed = formatCrmServiceProductLabel(serviceProduct);
   if (!slug || !trimmed) return fetchCustomCrmServiceProducts(slug);
 
   const existing = await fetchCustomCrmServiceProducts(slug);
   const alreadyKnown = existing.some((opt) => opt.toLowerCase() === trimmed.toLowerCase());
-  if (alreadyKnown) return existing;
+  if (alreadyKnown) {
+    // Keep stored casing in sync with the sentence-case standard.
+    await supabase
+      .from("crm_custom_service_products")
+      .update({ service_product: trimmed })
+      .eq("client_slug", slug)
+      .ilike("service_product", trimmed);
+    return mergeCrmSourceOptions([], [...existing.filter((o) => o.toLowerCase() !== trimmed.toLowerCase()), trimmed]).sort(
+      (a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
+    );
+  }
 
   const { error } = await supabase.from("crm_custom_service_products").insert({
     client_slug: slug,
@@ -83,5 +104,7 @@ export async function rememberCustomCrmServiceProduct(
     }
   }
 
-  return mergeCrmSourceOptions([], [...existing, trimmed]);
+  return mergeCrmSourceOptions([], [...existing, trimmed]).sort((a, b) =>
+    a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
+  );
 }

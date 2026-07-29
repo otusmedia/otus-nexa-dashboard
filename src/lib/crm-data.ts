@@ -128,6 +128,8 @@ export interface CrmLead {
   owner: string | null;
   source: string | null;
   service_product: string | null;
+  /** Units / quantity for the selected service or product */
+  quantity: number | null;
   /** @deprecated Use proposal_value — kept for backward compatibility */
   value: number;
   proposal_value: number;
@@ -386,6 +388,11 @@ export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
     owner: row.owner != null ? String(row.owner) : null,
     source: row.source != null ? String(row.source) : null,
     service_product: row.service_product != null ? String(row.service_product) : null,
+    quantity: (() => {
+      if (row.quantity == null || row.quantity === "") return null;
+      const n = Number(row.quantity);
+      return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : null;
+    })(),
     value: proposal,
     proposal_value: proposal,
     closed_value: closed,
@@ -522,12 +529,30 @@ export function normalizeCrmSourceSelect(raw: string | null | undefined, clientS
   return options[0] ?? "WhatsApp";
 }
 
+/** Sentence case: first letter upper, rest lower (pt-BR aware). */
+export function formatCrmServiceProductLabel(raw: string | null | undefined): string {
+  const trimmed = String(raw ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!trimmed) return "";
+  const lower = trimmed.toLocaleLowerCase("pt-BR");
+  const first = lower.charAt(0).toLocaleUpperCase("pt-BR");
+  return `${first}${lower.slice(1)}`;
+}
+
 export function normalizeServiceProduct(raw: string | null | undefined): string {
-  return (raw ?? "").trim();
+  return formatCrmServiceProductLabel(raw);
 }
 
 export function normalizeCrmServiceProductSelect(raw: string | null | undefined): string {
   return normalizeServiceProduct(raw);
+}
+
+export function parseCrmQuantity(raw: string | number | null | undefined): number | null {
+  if (raw == null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim().replace(",", "."));
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.trunc(n));
 }
 
 export function normalizeResumeStatus(status: string | null | undefined): CrmResumeStatus {

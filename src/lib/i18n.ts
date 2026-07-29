@@ -729,6 +729,9 @@ const platformPtBR: Record<string, string> = {
   'Add source "{name}"': 'Adicionar origem "{name}"',
   "Service / product type": "Tipo de serviço / produto",
   "Select or type a new service or product": "Selecione ou digite e pressione Enter para criar",
+  Quantity: "Quantidade",
+  "CRM quantity migration required. Run supabase/crm-lead-quantity.sql in Supabase.":
+    "Migration do CRM pendente. Execute supabase/crm-lead-quantity.sql no Supabase (SQL Editor).",
   'Add service/product "{name}"': 'Adicionar serviço/produto "{name}"',
   "SERVICE / PRODUCT TYPES": "TIPOS DE SERVIÇO / PRODUTO",
   "No service or product types yet.": "Nenhum tipo de serviço ou produto registrado ainda.",

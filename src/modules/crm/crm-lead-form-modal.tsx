@@ -30,6 +30,7 @@ import {
   normalizeLeadStatus,
   normalizeResumeStatus,
   parseCrmMoney,
+  parseCrmQuantity,
   type CrmAppointment,
   type CrmContact,
   type CrmLead,
@@ -50,7 +51,10 @@ import { findCrmOwnerUser, resolveCrmOwnerOptions } from "@/lib/crm-team-members
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { CrmSourceField } from "@/modules/crm/crm-source-field";
-import { isCrmServiceProductSchemaError } from "@/lib/crm-custom-service-products";
+import {
+  isCrmQuantitySchemaError,
+  isCrmServiceProductSchemaError,
+} from "@/lib/crm-custom-service-products";
 import { useCrmServiceProductOptions } from "@/modules/crm/use-crm-service-product-options";
 import { useCrmSourceOptions } from "@/modules/crm/use-crm-source-options";
 
@@ -136,6 +140,7 @@ export function CrmLeadFormModal({
   const [cnpj, setCnpj] = useState("");
   const [source, setSource] = useState<string>(defaultSource);
   const [serviceProduct, setServiceProduct] = useState("");
+  const [quantityStr, setQuantityStr] = useState("");
   const [proposalValueStr, setProposalValueStr] = useState("0,00");
   const [closedValueStr, setClosedValueStr] = useState("0,00");
   const [owner, setOwner] = useState("");
@@ -203,6 +208,7 @@ export function CrmLeadFormModal({
       setPhone("");
       setSource(defaultSource);
       setServiceProduct("");
+      setQuantityStr("");
       setProposalValueStr(crmMoneyInputValue(0));
       setClosedValueStr(crmMoneyInputValue(0));
       setOwner(
@@ -229,6 +235,7 @@ export function CrmLeadFormModal({
     setCnpj(lead.cnpj ?? "");
     setSource(normalizeCrmSourceSelect(lead.source, crmClientSlug));
     setServiceProduct(normalizeCrmServiceProductSelect(lead.service_product));
+    setQuantityStr(lead.quantity != null ? String(lead.quantity) : "");
     setProposalValueStr(crmMoneyInputValue(leadProposalValue(lead)));
     setClosedValueStr(crmMoneyInputValue(leadClosedValue(lead)));
     setOwner(lead.owner ?? "");
@@ -426,7 +433,8 @@ export function CrmLeadFormModal({
     const proposalNum = parseCrmMoney(proposalValueStr);
     const closedNum = parseCrmMoney(closedValueStr);
     const sourceTrimmed = source.trim();
-    const serviceProductTrimmed = serviceProduct.trim();
+    const serviceProductTrimmed = normalizeCrmServiceProductSelect(serviceProduct);
+    const quantityNum = parseCrmQuantity(quantityStr);
     const ownerName = owner.trim();
     const ownerUser = findCrmOwnerUser(users, ownerName);
     const transferToSales = shouldTransferLeadToSalesFunnel(funnel, ownerUser);
@@ -444,6 +452,7 @@ export function CrmLeadFormModal({
         cnpj: cnpjTrimmed,
         source: sourceTrimmed || null,
         service_product: serviceProductTrimmed || null,
+        quantity: quantityNum,
         value: proposalNum,
         proposal_value: proposalNum,
         closed_value: closedNum,
@@ -456,6 +465,14 @@ export function CrmLeadFormModal({
         client_slug: leadClientSlug,
       };
       let { data, error } = await supabase.from("crm_leads").insert(insertPayload).select("*").maybeSingle();
+      if (error && isCrmQuantitySchemaError(error.message)) {
+        pushNotification(
+          lt("CRM quantity migration required. Run supabase/crm-lead-quantity.sql in Supabase."),
+          "task",
+        );
+        const { quantity: _q, ...withoutQty } = insertPayload;
+        ({ data, error } = await supabase.from("crm_leads").insert(withoutQty).select("*").maybeSingle());
+      }
       if (error && /cnpj|quote_url|quote_name/i.test(error.message)) {
         pushNotification(
           lt("CRM CNPJ/quote migration required. Run supabase/crm-lead-cnpj-quote.sql in Supabase."),
@@ -505,6 +522,7 @@ export function CrmLeadFormModal({
       cnpj: cnpjTrimmed,
       source: sourceTrimmed || null,
       service_product: serviceProductTrimmed || null,
+      quantity: quantityNum,
       value: proposalNum,
       proposal_value: proposalNum,
       closed_value: closedNum,
@@ -527,6 +545,19 @@ export function CrmLeadFormModal({
       .eq("id", lead.id)
       .select("*")
       .maybeSingle();
+    if (error && isCrmQuantitySchemaError(error.message)) {
+      pushNotification(
+        lt("CRM quantity migration required. Run supabase/crm-lead-quantity.sql in Supabase."),
+        "task",
+      );
+      const { quantity: _q, ...withoutQty } = updatePayload;
+      ({ data, error } = await supabase
+        .from("crm_leads")
+        .update(withoutQty)
+        .eq("id", lead.id)
+        .select("*")
+        .maybeSingle());
+    }
     if (error && /cnpj|quote_url|quote_name/i.test(error.message)) {
       pushNotification(
         lt("CRM CNPJ/quote migration required. Run supabase/crm-lead-cnpj-quote.sql in Supabase."),
@@ -963,11 +994,32 @@ export function CrmLeadFormModal({
                   sourceOptions={serviceProductOptions}
                   language={language}
                   hint={lt("Select or type a new service or product")}
-                  onCreateOption={rememberServiceProduct}
-                  formatOptionLabel={(value) => value}
-                  createOptionLabel={(name) => lt('Add service/product "{name}"').replace("{name}", name)}
+                  onCreateOption={async (name) => {
+                    const formatted = normalizeCrmServiceProductSelect(name);
+                    setServiceProduct(formatted);
+                    await rememberServiceProduct(formatted);
+                  }}
+                  formatOptionLabel={(value) => normalizeCrmServiceProductSelect(value) || value}
+                  createOptionLabel={(name) =>
+                    lt('Add service/product "{name}"').replace(
+                      "{name}",
+                      normalizeCrmServiceProductSelect(name) || name,
+                    )
+                  }
                 />
               </div>
+              <label className="block space-y-1">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                  {lt("Quantity")}
+                </span>
+                <input
+                  value={quantityStr}
+                  onChange={(e) => setQuantityStr(e.target.value.replace(/[^\d]/g, ""))}
+                  inputMode="numeric"
+                  placeholder="1"
+                  className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                />
+              </label>
               <label className="block space-y-1">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Proposal value")}</span>
                 <input
