@@ -1,4 +1,5 @@
 import { formatCrmServiceProductLabel, mergeCrmSourceOptions } from "@/lib/crm-data";
+import { primaryParsedCrmProduct } from "@/lib/crm-service-product-parse";
 import { supabase } from "@/lib/supabase";
 
 function isMissingRelationError(message: string): boolean {
@@ -18,7 +19,10 @@ function isMissingServiceProductColumnError(message: string): boolean {
 
 function isMissingQuantityColumnError(message: string): boolean {
   const lower = message.toLowerCase();
-  return lower.includes("quantity") && lower.includes("does not exist");
+  return (
+    (lower.includes("quantity") || lower.includes("quantity_unit")) &&
+    lower.includes("does not exist")
+  );
 }
 
 export function isCrmServiceProductSchemaError(message: string): boolean {
@@ -73,7 +77,7 @@ export async function rememberCustomCrmServiceProduct(
   serviceProduct: string,
 ): Promise<string[]> {
   const slug = (clientSlug ?? "").trim().toLowerCase();
-  const trimmed = formatCrmServiceProductLabel(serviceProduct);
+  const trimmed = formatCrmServiceProductLabel(primaryParsedCrmProduct(serviceProduct).name || serviceProduct);
   if (!slug || !trimmed) return fetchCustomCrmServiceProducts(slug);
 
   const existing = await fetchCustomCrmServiceProducts(slug);

@@ -57,6 +57,12 @@ import {
 } from "@/lib/crm-custom-service-products";
 import { useCrmServiceProductOptions } from "@/modules/crm/use-crm-service-product-options";
 import { useCrmSourceOptions } from "@/modules/crm/use-crm-source-options";
+import {
+  CRM_QUANTITY_UNITS,
+  normalizeCrmQuantityUnitSelect,
+  parseCrmServiceProductBlob,
+  primaryParsedCrmProduct,
+} from "@/lib/crm-service-product-parse";
 
 function calendarTimesFromAppointment(dateStr: string | null, timeStr: string | null): { start_at: string; end_at: string } {
   const d = dateStr?.trim() || new Date().toISOString().slice(0, 10);
@@ -141,6 +147,7 @@ export function CrmLeadFormModal({
   const [source, setSource] = useState<string>(defaultSource);
   const [serviceProduct, setServiceProduct] = useState("");
   const [quantityStr, setQuantityStr] = useState("");
+  const [quantityUnit, setQuantityUnit] = useState("");
   const [proposalValueStr, setProposalValueStr] = useState("0,00");
   const [closedValueStr, setClosedValueStr] = useState("0,00");
   const [owner, setOwner] = useState("");
@@ -209,6 +216,7 @@ export function CrmLeadFormModal({
       setSource(defaultSource);
       setServiceProduct("");
       setQuantityStr("");
+      setQuantityUnit("");
       setProposalValueStr(crmMoneyInputValue(0));
       setClosedValueStr(crmMoneyInputValue(0));
       setOwner(
@@ -234,8 +242,21 @@ export function CrmLeadFormModal({
     setPhone(lead.phone ?? "");
     setCnpj(lead.cnpj ?? "");
     setSource(normalizeCrmSourceSelect(lead.source, crmClientSlug));
-    setServiceProduct(normalizeCrmServiceProductSelect(lead.service_product));
-    setQuantityStr(lead.quantity != null ? String(lead.quantity) : "");
+    const parsed = primaryParsedCrmProduct(lead.service_product);
+    const cleanName = normalizeCrmServiceProductSelect(parsed.name || lead.service_product);
+    setServiceProduct(cleanName);
+    setQuantityStr(
+      lead.quantity != null
+        ? String(lead.quantity)
+        : parsed.quantity != null
+          ? String(Math.trunc(parsed.quantity))
+          : "",
+    );
+    setQuantityUnit(
+      normalizeCrmQuantityUnitSelect(lead.quantity_unit) ||
+        normalizeCrmQuantityUnitSelect(parsed.unit) ||
+        "",
+    );
     setProposalValueStr(crmMoneyInputValue(leadProposalValue(lead)));
     setClosedValueStr(crmMoneyInputValue(leadClosedValue(lead)));
     setOwner(lead.owner ?? "");
@@ -433,8 +454,11 @@ export function CrmLeadFormModal({
     const proposalNum = parseCrmMoney(proposalValueStr);
     const closedNum = parseCrmMoney(closedValueStr);
     const sourceTrimmed = source.trim();
-    const serviceProductTrimmed = normalizeCrmServiceProductSelect(serviceProduct);
+    const serviceProductTrimmed = normalizeCrmServiceProductSelect(
+      primaryParsedCrmProduct(serviceProduct).name || serviceProduct,
+    );
     const quantityNum = parseCrmQuantity(quantityStr);
+    const quantityUnitTrimmed = normalizeCrmQuantityUnitSelect(quantityUnit) || null;
     const ownerName = owner.trim();
     const ownerUser = findCrmOwnerUser(users, ownerName);
     const transferToSales = shouldTransferLeadToSalesFunnel(funnel, ownerUser);
@@ -453,6 +477,7 @@ export function CrmLeadFormModal({
         source: sourceTrimmed || null,
         service_product: serviceProductTrimmed || null,
         quantity: quantityNum,
+        quantity_unit: quantityUnitTrimmed,
         value: proposalNum,
         proposal_value: proposalNum,
         closed_value: closedNum,
@@ -470,7 +495,7 @@ export function CrmLeadFormModal({
           lt("CRM quantity migration required. Run supabase/crm-lead-quantity.sql in Supabase."),
           "task",
         );
-        const { quantity: _q, ...withoutQty } = insertPayload;
+        const { quantity: _q, quantity_unit: _u, ...withoutQty } = insertPayload;
         ({ data, error } = await supabase.from("crm_leads").insert(withoutQty).select("*").maybeSingle());
       }
       if (error && /cnpj|quote_url|quote_name/i.test(error.message)) {
@@ -523,6 +548,7 @@ export function CrmLeadFormModal({
       source: sourceTrimmed || null,
       service_product: serviceProductTrimmed || null,
       quantity: quantityNum,
+      quantity_unit: quantityUnitTrimmed,
       value: proposalNum,
       proposal_value: proposalNum,
       closed_value: closedNum,
@@ -550,7 +576,7 @@ export function CrmLeadFormModal({
         lt("CRM quantity migration required. Run supabase/crm-lead-quantity.sql in Supabase."),
         "task",
       );
-      const { quantity: _q, ...withoutQty } = updatePayload;
+      const { quantity: _q, quantity_unit: _u, ...withoutQty } = updatePayload;
       ({ data, error } = await supabase
         .from("crm_leads")
         .update(withoutQty)
@@ -984,26 +1010,46 @@ export function CrmLeadFormModal({
                   onCreateOption={rememberSource}
                 />
               </div>
-              <div className="block space-y-1">
+              <div className="block space-y-1 md:col-span-2">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
                   {lt("Service / product type")}
                 </span>
                 <CrmSourceField
                   value={serviceProduct}
-                  onChange={setServiceProduct}
+                  onChange={(value) => {
+                    const lines = parseCrmServiceProductBlob(value);
+                    if (lines.length > 1 || (lines[0] && (lines[0].quantity != null || lines[0].unit))) {
+                      const primary = lines[0]!;
+                      setServiceProduct(primary.name);
+                      if (primary.quantity != null) setQuantityStr(String(Math.trunc(primary.quantity)));
+                      if (primary.unit) setQuantityUnit(primary.unit);
+                      for (const line of lines) {
+                        if (line.name) void rememberServiceProduct(line.name);
+                      }
+                      return;
+                    }
+                    setServiceProduct(value);
+                  }}
                   sourceOptions={serviceProductOptions}
                   language={language}
                   hint={lt("Select or type a new service or product")}
                   onCreateOption={async (name) => {
-                    const formatted = normalizeCrmServiceProductSelect(name);
+                    const lines = parseCrmServiceProductBlob(name);
+                    const primary = lines[0] ?? primaryParsedCrmProduct(name);
+                    const formatted = normalizeCrmServiceProductSelect(primary.name || name);
                     setServiceProduct(formatted);
-                    await rememberServiceProduct(formatted);
+                    if (primary.quantity != null) setQuantityStr(String(Math.trunc(primary.quantity)));
+                    if (primary.unit) setQuantityUnit(primary.unit);
+                    for (const line of lines.length ? lines : [primary]) {
+                      if (line.name) await rememberServiceProduct(line.name);
+                    }
                   }}
                   formatOptionLabel={(value) => normalizeCrmServiceProductSelect(value) || value}
                   createOptionLabel={(name) =>
                     lt('Add service/product "{name}"').replace(
                       "{name}",
-                      normalizeCrmServiceProductSelect(name) || name,
+                      normalizeCrmServiceProductSelect(primaryParsedCrmProduct(name).name || name) ||
+                        name,
                     )
                   }
                 />
@@ -1019,6 +1065,27 @@ export function CrmLeadFormModal({
                   placeholder="1"
                   className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                  {lt("Unit")}
+                </span>
+                <select
+                  value={quantityUnit}
+                  onChange={(e) => setQuantityUnit(e.target.value)}
+                  className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                >
+                  <option value="">{lt("Select unit")}</option>
+                  {CRM_QUANTITY_UNITS.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                  {quantityUnit &&
+                  !CRM_QUANTITY_UNITS.includes(quantityUnit as (typeof CRM_QUANTITY_UNITS)[number]) ? (
+                    <option value={quantityUnit}>{quantityUnit}</option>
+                  ) : null}
+                </select>
               </label>
               <label className="block space-y-1">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Proposal value")}</span>

@@ -130,6 +130,8 @@ export interface CrmLead {
   service_product: string | null;
   /** Units / quantity for the selected service or product */
   quantity: number | null;
+  /** Unit for quantity (mL, L, kg, un, …) */
+  quantity_unit: string | null;
   /** @deprecated Use proposal_value — kept for backward compatibility */
   value: number;
   proposal_value: number;
@@ -393,6 +395,7 @@ export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
       const n = Number(row.quantity);
       return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : null;
     })(),
+    quantity_unit: row.quantity_unit != null ? String(row.quantity_unit).trim() || null : null,
     value: proposal,
     proposal_value: proposal,
     closed_value: closed,

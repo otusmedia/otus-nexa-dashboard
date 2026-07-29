@@ -730,6 +730,8 @@ const platformPtBR: Record<string, string> = {
   "Service / product type": "Tipo de serviço / produto",
   "Select or type a new service or product": "Selecione ou digite e pressione Enter para criar",
   Quantity: "Quantidade",
+  Unit: "Unidade",
+  "Select unit": "Selecionar unidade",
   "CRM quantity migration required. Run supabase/crm-lead-quantity.sql in Supabase.":
     "Migration do CRM pendente. Execute supabase/crm-lead-quantity.sql no Supabase (SQL Editor).",
   'Add service/product "{name}"': 'Adicionar serviço/produto "{name}"',
