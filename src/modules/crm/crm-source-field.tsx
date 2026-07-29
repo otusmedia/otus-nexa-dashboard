@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Trash2 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { crmSourceLabel, crmT } from "@/lib/crm-i18n";
@@ -26,8 +26,10 @@ export function CrmSourceField({
   hint,
   className,
   onCreateOption,
+  onDeleteOption,
   formatOptionLabel = labelForSource,
   createOptionLabel,
+  deleteConfirmMessage,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -36,8 +38,10 @@ export function CrmSourceField({
   hint?: string;
   className?: string;
   onCreateOption?: (source: string) => void | Promise<void>;
+  onDeleteOption?: (source: string) => void | Promise<void>;
   formatOptionLabel?: (value: string, language: AppLanguage) => string;
   createOptionLabel?: (name: string, language: AppLanguage) => string;
+  deleteConfirmMessage?: (name: string) => string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -128,6 +132,15 @@ export function CrmSourceField({
     inputRef.current?.blur();
   };
 
+  const handleDelete = async (option: string) => {
+    if (!onDeleteOption) return;
+    const label = formatOptionLabel(option, language);
+    const message = deleteConfirmMessage?.(label) ?? `Remove "${label}" from the list?`;
+    if (!window.confirm(message)) return;
+    await onDeleteOption(option);
+    if (sourceMatches(value, option)) onChange("");
+  };
+
   const openField = () => {
     setOpen(true);
     setQuery("");
@@ -156,29 +169,54 @@ export function CrmSourceField({
             style={{ top: menuRect.top, left: menuRect.left, width: menuRect.width }}
             className="fixed z-[200] max-h-48 overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[#121212] p-1 shadow-lg"
           >
-            {dropdownItems.map((item, index) => (
-              <button
-                key={`${item.type}-${item.value}`}
-                type="button"
-                role="option"
-                aria-selected={index === activeIndex}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void commit(item.value, item.type === "create");
-                }}
-                className={cn(
-                  "block w-full rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-white transition-colors",
-                  index === activeIndex
-                    ? "bg-[rgba(255,69,0,0.2)] text-[#ff8a66]"
-                    : "hover:bg-[rgba(255,255,255,0.06)]",
-                )}
-              >
-                {item.type === "create"
-                  ? formatCreateLabel(item.value, language)
-                  : formatOptionLabel(item.value, language)}
-              </button>
-            ))}
+            {dropdownItems.map((item, index) => {
+              const canDelete =
+                Boolean(onDeleteOption) &&
+                item.type === "option" &&
+                sourceOptions.some((opt) => sourceMatches(opt, item.value));
+
+              return (
+                <div
+                  key={`${item.type}-${item.value}`}
+                  className={cn(
+                    "flex items-center gap-1 rounded-[6px]",
+                    index === activeIndex
+                      ? "bg-[rgba(255,69,0,0.2)] text-[#ff8a66]"
+                      : "hover:bg-[rgba(255,255,255,0.06)]",
+                  )}
+                >
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void commit(item.value, item.type === "create");
+                    }}
+                    className="min-w-0 flex-1 rounded-[6px] px-2 py-1.5 text-left text-sm font-light text-inherit"
+                  >
+                    {item.type === "create"
+                      ? formatCreateLabel(item.value, language)
+                      : formatOptionLabel(item.value, language)}
+                  </button>
+                  {canDelete ? (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${formatOptionLabel(item.value, language)}`}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void handleDelete(item.value);
+                      }}
+                      className="mr-1 rounded p-1 text-white/35 transition hover:bg-white/10 hover:text-[#fca5a5]"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>,
           document.body,
         )

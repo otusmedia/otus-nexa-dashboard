@@ -44,30 +44,19 @@ export async function fetchCustomCrmServiceProducts(clientSlug: string | null | 
     .eq("client_slug", slug)
     .order("service_product", { ascending: true });
 
-  if (!error && data) {
-    for (const row of data) {
-      const s = formatCrmServiceProductLabel(String(row.service_product ?? ""));
-      if (s) fromTable.push(s);
+  if (error) {
+    if (!isMissingRelationError(error.message)) {
+      console.error("[crm] fetch custom service products", error.message);
     }
+    return [];
   }
 
-  const { data: leadRows, error: leadErr } = await supabase
-    .from("crm_leads")
-    .select("service_product")
-    .eq("client_slug", slug)
-    .not("service_product", "is", null);
-
-  const fromLeads: string[] = [];
-  if (!leadErr && leadRows) {
-    for (const row of leadRows) {
-      const s = formatCrmServiceProductLabel(String(row.service_product ?? ""));
-      if (s) fromLeads.push(s);
-    }
-  } else if (leadErr && !isMissingServiceProductColumnError(leadErr.message)) {
-    console.error("[crm] fetch service products from leads", leadErr.message);
+  for (const row of data ?? []) {
+    const s = formatCrmServiceProductLabel(String(row.service_product ?? ""));
+    if (s) fromTable.push(s);
   }
 
-  return mergeCrmSourceOptions([], [...fromTable, ...fromLeads]).sort((a, b) =>
+  return mergeCrmSourceOptions([], fromTable).sort((a, b) =>
     a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
   );
 }
@@ -83,7 +72,6 @@ export async function rememberCustomCrmServiceProduct(
   const existing = await fetchCustomCrmServiceProducts(slug);
   const alreadyKnown = existing.some((opt) => opt.toLowerCase() === trimmed.toLowerCase());
   if (alreadyKnown) {
-    // Keep stored casing in sync with the sentence-case standard.
     await supabase
       .from("crm_custom_service_products")
       .update({ service_product: trimmed })
@@ -111,4 +99,26 @@ export async function rememberCustomCrmServiceProduct(
   return mergeCrmSourceOptions([], [...existing, trimmed]).sort((a, b) =>
     a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
   );
+}
+
+/** Remove a product from the client's selectable library (does not clear leads). */
+export async function removeCustomCrmServiceProduct(
+  clientSlug: string | null | undefined,
+  serviceProduct: string,
+): Promise<string[]> {
+  const slug = (clientSlug ?? "").trim().toLowerCase();
+  const trimmed = formatCrmServiceProductLabel(primaryParsedCrmProduct(serviceProduct).name || serviceProduct);
+  if (!slug || !trimmed) return fetchCustomCrmServiceProducts(slug);
+
+  const { error } = await supabase
+    .from("crm_custom_service_products")
+    .delete()
+    .eq("client_slug", slug)
+    .ilike("service_product", trimmed);
+
+  if (error && !isMissingRelationError(error.message)) {
+    console.error("[crm] remove custom service product", error.message);
+  }
+
+  return fetchCustomCrmServiceProducts(slug);
 }

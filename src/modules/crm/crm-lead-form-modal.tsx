@@ -130,7 +130,8 @@ export function CrmLeadFormModal({
   const leadClientSlug = dataClientSlug ?? "rocketride";
   const crmClientSlug = (lead?.client_slug ?? dataClientSlug) ?? null;
   const { sourceOptions, rememberSource } = useCrmSourceOptions(crmClientSlug);
-  const { serviceProductOptions, rememberServiceProduct } = useCrmServiceProductOptions(crmClientSlug);
+  const { serviceProductOptions, rememberServiceProduct, removeServiceProduct } =
+    useCrmServiceProductOptions(crmClientSlug);
   const defaultSource = sourceOptions[0] ?? "WhatsApp";
   const ownerOptions = useMemo(
     () => resolveCrmOwnerOptions(users, dataClientSlug, currentUser),
@@ -1051,6 +1052,12 @@ export function CrmLeadFormModal({
                       normalizeCrmServiceProductSelect(primaryParsedCrmProduct(name).name || name) ||
                         name,
                     )
+                  }
+                  onDeleteOption={async (name) => {
+                    await removeServiceProduct(name);
+                  }}
+                  deleteConfirmMessage={(name) =>
+                    lt('Remove service/product "{name}" from the list?').replace("{name}", name)
                   }
                 />
               </div>

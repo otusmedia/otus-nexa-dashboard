@@ -5,6 +5,7 @@ import { mergeCrmSourceOptions } from "@/lib/crm-data";
 import {
   fetchCustomCrmServiceProducts,
   rememberCustomCrmServiceProduct,
+  removeCustomCrmServiceProduct,
 } from "@/lib/crm-custom-service-products";
 
 export function useCrmServiceProductOptions(clientSlug: string | null | undefined) {
@@ -35,5 +36,13 @@ export function useCrmServiceProductOptions(clientSlug: string | null | undefine
     [clientSlug, reload],
   );
 
-  return { serviceProductOptions, rememberServiceProduct, reload, loading };
+  const removeServiceProduct = useCallback(
+    async (serviceProduct: string) => {
+      await removeCustomCrmServiceProduct(clientSlug, serviceProduct);
+      await reload();
+    },
+    [clientSlug, reload],
+  );
+
+  return { serviceProductOptions, rememberServiceProduct, removeServiceProduct, reload, loading };
 }
