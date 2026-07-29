@@ -27,6 +27,7 @@ export const MODULE_ENTRY_PATHS: Record<ModuleKey, string> = {
   contracts: "/contracts",
   portfolio: "/portfolio",
   deliveries: "/deliveries",
+  moodboard: "/moodboard",
 };
 
 export type LandingPathOptions = {

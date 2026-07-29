@@ -19,6 +19,24 @@ const platformPtBR: Record<string, string> = {
   Contracts: "Contratos",
   Portfolio: "Portfólio",
   Deliveries: "Entregas",
+  Moodboard: "Moodboard",
+  "Select a client in the sidebar to edit their moodboard.":
+    "Selecione um cliente na barra lateral para editar o moodboard.",
+  "Could not load moodboard.": "Não foi possível carregar o moodboard.",
+  "This moodboard has not been published yet.": "Este moodboard ainda não foi publicado.",
+  "Add images": "Adicionar imagens",
+  "Add image URL": "Adicionar URL de imagem",
+  "Drop images to add to the mural": "Solte as imagens para adicionar ao mural",
+  "View photos": "Ver fotos",
+  "MoodBoard & Visual Direction": "MoodBoard & Direção Visual",
+  "Image URL": "URL da imagem",
+  "Criar moodboard": "Criar moodboard",
+  "Abra o moodboard publicado em uma nova aba.": "Abra o moodboard publicado em uma nova aba.",
+  "Crie a partir do template e edite antes de publicar.":
+    "Crie a partir do template e edite antes de publicar.",
+  "Nenhum moodboard ainda. Crie um a partir do template padrão.":
+    "Nenhum moodboard ainda. Crie um a partir do template padrão.",
+  "Nenhum moodboard publicado ainda.": "Nenhum moodboard publicado ainda.",
   "Public showcase for filmmaker work — coming soon.":
     "Vitrine pública do trabalho do filmmaker — em breve.",
   "Private client video delivery — coming soon.": "Entrega privada de vídeo ao cliente — em breve.",
@@ -26,6 +44,15 @@ const platformPtBR: Record<string, string> = {
     "A base do módulo Portfólio está pronta. Design e implementação vêm a seguir.",
   "Deliveries module foundation is ready. Signed URLs and design are next.":
     "A base do módulo Entregas está pronta. Signed URLs e design vêm a seguir.",
+  "Recent deliveries that stand out": "Entregas recentes que se destacam",
+  "Browse files": "Explorar arquivos",
+  view: "ver",
+  "File library": "Biblioteca de arquivos",
+  "Full file explorer coming next": "Explorador de arquivos completo em seguida",
+  "Same Drive-style browser you already know from Files — placed under this hero.":
+    "O mesmo explorador estilo Drive que você já conhece em Arquivos — abaixo desta hero.",
+  "No recent media yet — upload files to see them here.":
+    "Ainda não há mídia recente — faça upload para ver aqui.",
   Settings: "Configurações",
   "Users & RBAC": "Usuários e RBAC",
   Theme: "Tema",

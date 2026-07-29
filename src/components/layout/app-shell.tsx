@@ -18,6 +18,7 @@ import {
   Settings,
   Sparkles,
   Wallet,
+  Images,
   X,
 } from "lucide-react";
 import type { ModuleKey } from "@/types";
@@ -64,6 +65,7 @@ const moduleLinks: SidebarNavLink[] = [
   { key: "contracts", labelKey: "contracts", href: "/contracts", icon: FileText },
   { key: "portfolio", labelKey: "portfolio", href: "/portfolio", icon: Clapperboard },
   { key: "deliveries", labelKey: "deliveries", href: "/deliveries", icon: Package },
+  { key: "moodboard", labelKey: "moodboard", href: "/moodboard", icon: Images },
 ];
 
 const GUEST_USER_ID = "__guest__";
@@ -253,7 +255,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [canSwitchClients, pathname, projectsClientFilter, redirectAgencyAdminToClientLanding]);
 
   const onUpdatesPage = pathname.startsWith("/updates");
-  const hideSystemHero = pathname === "/portfolio" || pathname.startsWith("/portfolio/");
+  const hideSystemHero =
+    pathname === "/portfolio" ||
+    pathname.startsWith("/portfolio/") ||
+    pathname === "/deliveries" ||
+    pathname.startsWith("/deliveries/") ||
+    pathname === "/moodboard" ||
+    pathname.startsWith("/moodboard/");
   let updatesLastSeen: string | null = null;
   if (typeof window !== "undefined") {
     try {

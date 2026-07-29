@@ -13,4 +13,5 @@ export const platformNavigation: Array<{ key: ModuleKey; href: string }> = [
   { key: "contracts", href: "/contracts" },
   { key: "portfolio", href: "/portfolio" },
   { key: "deliveries", href: "/deliveries" },
+  { key: "moodboard", href: "/moodboard" },
 ];

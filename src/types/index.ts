@@ -22,7 +22,8 @@ export type ModuleKey =
   | "files"
   | "contracts"
   | "portfolio"
-  | "deliveries";
+  | "deliveries"
+  | "moodboard";
 
 export type ApprovalStatus = "draft" | "pending" | "approved" | "rejected";
 export type TaskStatus = "backlog" | "in_progress" | "in_review" | "completed";

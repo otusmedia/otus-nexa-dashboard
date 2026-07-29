@@ -14,3 +14,17 @@ export function getPublicAppOrigin(): string {
   }
   return DEFAULT_APP_ORIGIN;
 }
+
+/**
+ * Origin for opening/copying module links in the current browser session.
+ * Uses localhost in local dev so preview works before a Vercel deploy.
+ */
+export function getSessionAppOrigin(): string {
+  if (typeof window !== "undefined") {
+    const { protocol, hostname, origin } = window.location;
+    if (hostname && protocol.startsWith("http")) {
+      return origin;
+    }
+  }
+  return getPublicAppOrigin();
+}
