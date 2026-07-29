@@ -52,8 +52,10 @@ import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { CrmSourceField } from "@/modules/crm/crm-source-field";
 import {
+  isCrmOfferingKindSchemaError,
   isCrmQuantitySchemaError,
   isCrmServiceProductSchemaError,
+  type CrmOfferingKind,
 } from "@/lib/crm-custom-service-products";
 import { useCrmServiceProductOptions } from "@/modules/crm/use-crm-service-product-options";
 import { useCrmSourceOptions } from "@/modules/crm/use-crm-source-options";
@@ -130,8 +132,9 @@ export function CrmLeadFormModal({
   const leadClientSlug = dataClientSlug ?? "rocketride";
   const crmClientSlug = (lead?.client_slug ?? dataClientSlug) ?? null;
   const { sourceOptions, rememberSource } = useCrmSourceOptions(crmClientSlug);
+  const [offeringKind, setOfferingKind] = useState<CrmOfferingKind | "">("");
   const { serviceProductOptions, rememberServiceProduct, removeServiceProduct } =
-    useCrmServiceProductOptions(crmClientSlug);
+    useCrmServiceProductOptions(crmClientSlug, offeringKind || null);
   const defaultSource = sourceOptions[0] ?? "WhatsApp";
   const ownerOptions = useMemo(
     () => resolveCrmOwnerOptions(users, dataClientSlug, currentUser),
@@ -216,6 +219,7 @@ export function CrmLeadFormModal({
       setPhone("");
       setSource(defaultSource);
       setServiceProduct("");
+      setOfferingKind("");
       setQuantityStr("");
       setQuantityUnit("");
       setProposalValueStr(crmMoneyInputValue(0));
@@ -245,18 +249,31 @@ export function CrmLeadFormModal({
     setSource(normalizeCrmSourceSelect(lead.source, crmClientSlug));
     const parsed = primaryParsedCrmProduct(lead.service_product);
     const cleanName = normalizeCrmServiceProductSelect(parsed.name || lead.service_product);
+    const kindFromLead = lead.offering_kind;
+    const inferredKind: CrmOfferingKind | "" =
+      kindFromLead ??
+      (lead.quantity != null || lead.quantity_unit
+        ? "product"
+        : lead.service_product
+          ? "product"
+          : "");
+    setOfferingKind(inferredKind);
     setServiceProduct(cleanName);
     setQuantityStr(
-      lead.quantity != null
-        ? String(lead.quantity)
-        : parsed.quantity != null
-          ? String(Math.trunc(parsed.quantity))
-          : "",
+      inferredKind === "product"
+        ? lead.quantity != null
+          ? String(lead.quantity)
+          : parsed.quantity != null
+            ? String(Math.trunc(parsed.quantity))
+            : ""
+        : "",
     );
     setQuantityUnit(
-      normalizeCrmQuantityUnitSelect(lead.quantity_unit) ||
-        normalizeCrmQuantityUnitSelect(parsed.unit) ||
-        "",
+      inferredKind === "product"
+        ? normalizeCrmQuantityUnitSelect(lead.quantity_unit) ||
+            normalizeCrmQuantityUnitSelect(parsed.unit) ||
+            ""
+        : "",
     );
     setProposalValueStr(crmMoneyInputValue(leadProposalValue(lead)));
     setClosedValueStr(crmMoneyInputValue(leadClosedValue(lead)));
@@ -455,11 +472,16 @@ export function CrmLeadFormModal({
     const proposalNum = parseCrmMoney(proposalValueStr);
     const closedNum = parseCrmMoney(closedValueStr);
     const sourceTrimmed = source.trim();
-    const serviceProductTrimmed = normalizeCrmServiceProductSelect(
-      primaryParsedCrmProduct(serviceProduct).name || serviceProduct,
-    );
-    const quantityNum = parseCrmQuantity(quantityStr);
-    const quantityUnitTrimmed = normalizeCrmQuantityUnitSelect(quantityUnit) || null;
+    const serviceProductTrimmed =
+      offeringKind === "service"
+        ? normalizeCrmServiceProductSelect(serviceProduct)
+        : normalizeCrmServiceProductSelect(
+            primaryParsedCrmProduct(serviceProduct).name || serviceProduct,
+          );
+    const quantityNum = offeringKind === "product" ? parseCrmQuantity(quantityStr) : null;
+    const quantityUnitTrimmed =
+      offeringKind === "product" ? normalizeCrmQuantityUnitSelect(quantityUnit) || null : null;
+    const offeringKindValue = offeringKind || null;
     const ownerName = owner.trim();
     const ownerUser = findCrmOwnerUser(users, ownerName);
     const transferToSales = shouldTransferLeadToSalesFunnel(funnel, ownerUser);
@@ -476,6 +498,7 @@ export function CrmLeadFormModal({
         phone: phone.trim() || null,
         cnpj: cnpjTrimmed,
         source: sourceTrimmed || null,
+        offering_kind: offeringKindValue,
         service_product: serviceProductTrimmed || null,
         quantity: quantityNum,
         quantity_unit: quantityUnitTrimmed,
@@ -491,6 +514,14 @@ export function CrmLeadFormModal({
         client_slug: leadClientSlug,
       };
       let { data, error } = await supabase.from("crm_leads").insert(insertPayload).select("*").maybeSingle();
+      if (error && isCrmOfferingKindSchemaError(error.message)) {
+        pushNotification(
+          lt("CRM offering kind migration required. Run supabase/crm-lead-offering-kind.sql in Supabase."),
+          "task",
+        );
+        const { offering_kind: _ok, ...withoutKind } = insertPayload;
+        ({ data, error } = await supabase.from("crm_leads").insert(withoutKind).select("*").maybeSingle());
+      }
       if (error && isCrmQuantitySchemaError(error.message)) {
         pushNotification(
           lt("CRM quantity migration required. Run supabase/crm-lead-quantity.sql in Supabase."),
@@ -547,6 +578,7 @@ export function CrmLeadFormModal({
       phone: phone.trim() || null,
       cnpj: cnpjTrimmed,
       source: sourceTrimmed || null,
+      offering_kind: offeringKindValue,
       service_product: serviceProductTrimmed || null,
       quantity: quantityNum,
       quantity_unit: quantityUnitTrimmed,
@@ -572,6 +604,19 @@ export function CrmLeadFormModal({
       .eq("id", lead.id)
       .select("*")
       .maybeSingle();
+    if (error && isCrmOfferingKindSchemaError(error.message)) {
+      pushNotification(
+        lt("CRM offering kind migration required. Run supabase/crm-lead-offering-kind.sql in Supabase."),
+        "task",
+      );
+      const { offering_kind: _ok, ...withoutKind } = updatePayload;
+      ({ data, error } = await supabase
+        .from("crm_leads")
+        .update(withoutKind)
+        .eq("id", lead.id)
+        .select("*")
+        .maybeSingle());
+    }
     if (error && isCrmQuantitySchemaError(error.message)) {
       pushNotification(
         lt("CRM quantity migration required. Run supabase/crm-lead-quantity.sql in Supabase."),
@@ -1013,87 +1058,158 @@ export function CrmLeadFormModal({
               </div>
               <div className="block space-y-1 md:col-span-2">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-                  {lt("Service / product type")}
+                  {lt("Offering type")}
                 </span>
-                <CrmSourceField
-                  value={serviceProduct}
-                  onChange={(value) => {
-                    const lines = parseCrmServiceProductBlob(value);
-                    if (lines.length > 1 || (lines[0] && (lines[0].quantity != null || lines[0].unit))) {
-                      const primary = lines[0]!;
-                      setServiceProduct(primary.name);
-                      if (primary.quantity != null) setQuantityStr(String(Math.trunc(primary.quantity)));
-                      if (primary.unit) setQuantityUnit(primary.unit);
-                      for (const line of lines) {
-                        if (line.name) void rememberServiceProduct(line.name);
-                      }
-                      return;
-                    }
-                    setServiceProduct(value);
-                  }}
-                  sourceOptions={serviceProductOptions}
-                  language={language}
-                  hint={lt("Select or type a new service or product")}
-                  onCreateOption={async (name) => {
-                    const lines = parseCrmServiceProductBlob(name);
-                    const primary = lines[0] ?? primaryParsedCrmProduct(name);
-                    const formatted = normalizeCrmServiceProductSelect(primary.name || name);
-                    setServiceProduct(formatted);
-                    if (primary.quantity != null) setQuantityStr(String(Math.trunc(primary.quantity)));
-                    if (primary.unit) setQuantityUnit(primary.unit);
-                    for (const line of lines.length ? lines : [primary]) {
-                      if (line.name) await rememberServiceProduct(line.name);
-                    }
-                  }}
-                  formatOptionLabel={(value) => normalizeCrmServiceProductSelect(value) || value}
-                  createOptionLabel={(name) =>
-                    lt('Add service/product "{name}"').replace(
-                      "{name}",
-                      normalizeCrmServiceProductSelect(primaryParsedCrmProduct(name).name || name) ||
-                        name,
-                    )
-                  }
-                  onDeleteOption={async (name) => {
-                    await removeServiceProduct(name);
-                  }}
-                  deleteConfirmMessage={(name) =>
-                    lt('Remove service/product "{name}" from the list?').replace("{name}", name)
-                  }
-                />
-              </div>
-              <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-                  {lt("Quantity")}
-                </span>
-                <input
-                  value={quantityStr}
-                  onChange={(e) => setQuantityStr(e.target.value.replace(/[^\d]/g, ""))}
-                  inputMode="numeric"
-                  placeholder="1"
-                  className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
-                  {lt("Unit")}
-                </span>
-                <select
-                  value={quantityUnit}
-                  onChange={(e) => setQuantityUnit(e.target.value)}
-                  className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
-                >
-                  <option value="">{lt("Select unit")}</option>
-                  {CRM_QUANTITY_UNITS.map((u) => (
-                    <option key={u} value={u}>
-                      {u}
-                    </option>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      { id: "service" as const, label: lt("Service") },
+                      { id: "product" as const, label: lt("Product") },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        setOfferingKind(opt.id);
+                        if (opt.id === "service") {
+                          setQuantityStr("");
+                          setQuantityUnit("");
+                        }
+                      }}
+                      className={cn(
+                        "rounded-[8px] border px-3 py-2 text-sm transition",
+                        offeringKind === opt.id
+                          ? "border-[var(--primary)] bg-[rgba(255,69,0,0.15)] text-white"
+                          : "border-[var(--border)] bg-[var(--surface-elevated)] text-white/60 hover:text-white",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
                   ))}
-                  {quantityUnit &&
-                  !CRM_QUANTITY_UNITS.includes(quantityUnit as (typeof CRM_QUANTITY_UNITS)[number]) ? (
-                    <option value={quantityUnit}>{quantityUnit}</option>
-                  ) : null}
-                </select>
-              </label>
+                </div>
+              </div>
+              {offeringKind ? (
+                <div className="block space-y-1 md:col-span-2">
+                  <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                    {offeringKind === "service" ? lt("Service") : lt("Product")}
+                  </span>
+                  <CrmSourceField
+                    value={serviceProduct}
+                    onChange={(value) => {
+                      if (offeringKind === "service") {
+                        setServiceProduct(value);
+                        return;
+                      }
+                      const lines = parseCrmServiceProductBlob(value);
+                      if (
+                        lines.length > 1 ||
+                        (lines[0] && (lines[0].quantity != null || lines[0].unit))
+                      ) {
+                        const primary = lines[0]!;
+                        setServiceProduct(primary.name);
+                        if (primary.quantity != null) {
+                          setQuantityStr(String(Math.trunc(primary.quantity)));
+                        }
+                        if (primary.unit) setQuantityUnit(primary.unit);
+                        for (const line of lines) {
+                          if (line.name) void rememberServiceProduct(line.name);
+                        }
+                        return;
+                      }
+                      setServiceProduct(value);
+                    }}
+                    sourceOptions={serviceProductOptions}
+                    language={language}
+                    hint={
+                      offeringKind === "service"
+                        ? lt("Select or type a new service")
+                        : lt("Select or type a new product")
+                    }
+                    onCreateOption={async (name) => {
+                      if (offeringKind === "service") {
+                        const formatted = normalizeCrmServiceProductSelect(name);
+                        setServiceProduct(formatted);
+                        await rememberServiceProduct(formatted);
+                        return;
+                      }
+                      const lines = parseCrmServiceProductBlob(name);
+                      const primary = lines[0] ?? primaryParsedCrmProduct(name);
+                      const formatted = normalizeCrmServiceProductSelect(primary.name || name);
+                      setServiceProduct(formatted);
+                      if (primary.quantity != null) {
+                        setQuantityStr(String(Math.trunc(primary.quantity)));
+                      }
+                      if (primary.unit) setQuantityUnit(primary.unit);
+                      for (const line of lines.length ? lines : [primary]) {
+                        if (line.name) await rememberServiceProduct(line.name);
+                      }
+                    }}
+                    formatOptionLabel={(value) => normalizeCrmServiceProductSelect(value) || value}
+                    createOptionLabel={(name) =>
+                      (offeringKind === "service"
+                        ? lt('Add service "{name}"')
+                        : lt('Add product "{name}"')
+                      ).replace(
+                        "{name}",
+                        normalizeCrmServiceProductSelect(
+                          offeringKind === "product"
+                            ? primaryParsedCrmProduct(name).name || name
+                            : name,
+                        ) || name,
+                      )
+                    }
+                    onDeleteOption={async (name) => {
+                      await removeServiceProduct(name);
+                    }}
+                    deleteConfirmMessage={(name) =>
+                      (offeringKind === "service"
+                        ? lt('Remove service "{name}" from the list?')
+                        : lt('Remove product "{name}" from the list?')
+                      ).replace("{name}", name)
+                    }
+                  />
+                </div>
+              ) : null}
+              {offeringKind === "product" ? (
+                <>
+                  <label className="block space-y-1">
+                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                      {lt("Quantity")}
+                    </span>
+                    <input
+                      value={quantityStr}
+                      onChange={(e) => setQuantityStr(e.target.value.replace(/[^\d]/g, ""))}
+                      inputMode="numeric"
+                      placeholder="1"
+                      className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                    />
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">
+                      {lt("Unit")}
+                    </span>
+                    <select
+                      value={quantityUnit}
+                      onChange={(e) => setQuantityUnit(e.target.value)}
+                      className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
+                    >
+                      <option value="">{lt("Select unit")}</option>
+                      {CRM_QUANTITY_UNITS.map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                      {quantityUnit &&
+                      !CRM_QUANTITY_UNITS.includes(
+                        quantityUnit as (typeof CRM_QUANTITY_UNITS)[number],
+                      ) ? (
+                        <option value={quantityUnit}>{quantityUnit}</option>
+                      ) : null}
+                    </select>
+                  </label>
+                </>
+              ) : null}
               <label className="block space-y-1">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Proposal value")}</span>
                 <input

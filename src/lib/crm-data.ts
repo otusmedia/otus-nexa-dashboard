@@ -128,6 +128,8 @@ export interface CrmLead {
   owner: string | null;
   source: string | null;
   service_product: string | null;
+  /** "service" | "product" — drives which lead fields are shown */
+  offering_kind: "service" | "product" | null;
   /** Units / quantity for the selected service or product */
   quantity: number | null;
   /** Unit for quantity (mL, L, kg, un, …) */
@@ -390,6 +392,14 @@ export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
     owner: row.owner != null ? String(row.owner) : null,
     source: row.source != null ? String(row.source) : null,
     service_product: row.service_product != null ? String(row.service_product) : null,
+    offering_kind: (() => {
+      const k = String(row.offering_kind ?? "")
+        .trim()
+        .toLowerCase();
+      if (k === "service") return "service";
+      if (k === "product") return "product";
+      return null;
+    })(),
     quantity: (() => {
       if (row.quantity == null || row.quantity === "") return null;
       const n = Number(row.quantity);

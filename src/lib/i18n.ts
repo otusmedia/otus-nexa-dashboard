@@ -728,6 +728,17 @@ const platformPtBR: Record<string, string> = {
   "Select or type a new source": "Selecione ou digite e pressione Enter para criar",
   'Add source "{name}"': 'Adicionar origem "{name}"',
   "Service / product type": "Tipo de serviço / produto",
+  "Offering type": "Tipo",
+  Service: "Serviço",
+  Product: "Produto",
+  "Select or type a new service": "Selecione ou digite um novo serviço",
+  "Select or type a new product": "Selecione ou digite um novo produto",
+  'Add service "{name}"': 'Adicionar serviço "{name}"',
+  'Add product "{name}"': 'Adicionar produto "{name}"',
+  'Remove service "{name}" from the list?': 'Remover o serviço "{name}" da lista?',
+  'Remove product "{name}" from the list?': 'Remover o produto "{name}" da lista?',
+  "CRM offering kind migration required. Run supabase/crm-lead-offering-kind.sql in Supabase.":
+    "Migration do CRM pendente. Execute supabase/crm-lead-offering-kind.sql no Supabase (SQL Editor).",
   "Select or type a new service or product": "Selecione ou digite e pressione Enter para criar",
   'Remove service/product "{name}" from the list?':
     'Remover o serviço/produto "{name}" da lista?',

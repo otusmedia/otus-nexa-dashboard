@@ -6,18 +6,28 @@ import {
   fetchCustomCrmServiceProducts,
   rememberCustomCrmServiceProduct,
   removeCustomCrmServiceProduct,
+  type CrmOfferingKind,
 } from "@/lib/crm-custom-service-products";
 
-export function useCrmServiceProductOptions(clientSlug: string | null | undefined) {
+export function useCrmServiceProductOptions(
+  clientSlug: string | null | undefined,
+  kind: CrmOfferingKind | null,
+) {
   const [customOptions, setCustomOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const activeKind: CrmOfferingKind = kind ?? "product";
 
   const reload = useCallback(async () => {
+    if (!kind) {
+      setCustomOptions([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    const extras = await fetchCustomCrmServiceProducts(clientSlug);
+    const extras = await fetchCustomCrmServiceProducts(clientSlug, kind);
     setCustomOptions(extras);
     setLoading(false);
-  }, [clientSlug]);
+  }, [clientSlug, kind]);
 
   useEffect(() => {
     void reload();
@@ -30,19 +40,28 @@ export function useCrmServiceProductOptions(clientSlug: string | null | undefine
 
   const rememberServiceProduct = useCallback(
     async (serviceProduct: string) => {
-      await rememberCustomCrmServiceProduct(clientSlug, serviceProduct);
+      if (!kind) return;
+      await rememberCustomCrmServiceProduct(clientSlug, serviceProduct, kind);
       await reload();
     },
-    [clientSlug, reload],
+    [clientSlug, kind, reload],
   );
 
   const removeServiceProduct = useCallback(
     async (serviceProduct: string) => {
-      await removeCustomCrmServiceProduct(clientSlug, serviceProduct);
+      if (!kind) return;
+      await removeCustomCrmServiceProduct(clientSlug, serviceProduct, kind);
       await reload();
     },
-    [clientSlug, reload],
+    [clientSlug, kind, reload],
   );
 
-  return { serviceProductOptions, rememberServiceProduct, removeServiceProduct, reload, loading };
+  return {
+    serviceProductOptions,
+    rememberServiceProduct,
+    removeServiceProduct,
+    reload,
+    loading,
+    activeKind,
+  };
 }
