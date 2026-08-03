@@ -116,6 +116,12 @@ export const CRM_KANBAN_COLUMNS: Array<{
 
 export const CRM_LEAD_SOURCE_LABELS: CrmSourceOption[] = [...CRM_SOURCE_OPTIONS];
 
+export type CrmOfferingItem = {
+  name: string;
+  quantity: number | null;
+  quantity_unit: string | null;
+};
+
 export interface CrmLead {
   id: string;
   name: string;
@@ -130,6 +136,11 @@ export interface CrmLead {
   service_product: string | null;
   /** "service" | "product" — drives which lead fields are shown */
   offering_kind: "service" | "product" | null;
+  /**
+   * Quote/budget lines (products or a single service).
+   * Source of truth when present; legacy quantity fields mirror the first line.
+   */
+  offering_items: CrmOfferingItem[];
   /** Units / quantity for the selected service or product */
   quantity: number | null;
   /** Unit for quantity (mL, L, kg, un, …) */
@@ -368,6 +379,82 @@ export function leadClosedValue(lead: Pick<CrmLead, "closed_value">): number {
   return lead.closed_value ?? 0;
 }
 
+export function parseCrmOfferingItems(
+  raw: unknown,
+  fallback?: {
+    service_product: string | null;
+    quantity: number | null;
+    quantity_unit: string | null;
+  },
+): CrmOfferingItem[] {
+  let rows: unknown[] = [];
+  if (Array.isArray(raw)) {
+    rows = raw;
+  } else if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) rows = parsed;
+    } catch {
+      rows = [];
+    }
+  }
+
+  const items: CrmOfferingItem[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const rec = row as Record<string, unknown>;
+    const name = String(rec.name ?? "").trim();
+    if (!name) continue;
+    let quantity: number | null = null;
+    if (rec.quantity != null && rec.quantity !== "") {
+      const n = Number(rec.quantity);
+      if (Number.isFinite(n)) quantity = Math.max(0, Math.trunc(n));
+    }
+    const quantity_unit = String(rec.quantity_unit ?? "").trim() || null;
+    items.push({ name, quantity, quantity_unit });
+  }
+  if (items.length > 0) return items;
+
+  const legacyName = String(fallback?.service_product ?? "").trim();
+  if (!legacyName) return [];
+  return [
+    {
+      name: legacyName,
+      quantity: fallback?.quantity ?? null,
+      quantity_unit: fallback?.quantity_unit ?? null,
+    },
+  ];
+}
+
+/** Persistable lines + mirrored legacy columns (first line / joined names). */
+export function crmOfferingFieldsFromItems(items: CrmOfferingItem[]): {
+  offering_items: CrmOfferingItem[];
+  service_product: string | null;
+  quantity: number | null;
+  quantity_unit: string | null;
+} {
+  const offering_items = items
+    .map((item) => {
+      const name = formatCrmServiceProductLabel(item.name) || item.name.trim();
+      const quantity =
+        item.quantity != null && Number.isFinite(item.quantity)
+          ? Math.max(0, Math.trunc(item.quantity))
+          : null;
+      const quantity_unit = String(item.quantity_unit ?? "").trim() || null;
+      return { name, quantity, quantity_unit };
+    })
+    .filter((item) => item.name);
+
+  const primary = offering_items[0] ?? null;
+  return {
+    offering_items,
+    service_product: offering_items.map((i) => i.name).join("; ") || null,
+    quantity: primary?.quantity ?? null,
+    quantity_unit: primary?.quantity_unit ?? null,
+  };
+}
+
+
 export function leadStageValueSum(lead: Pick<CrmLead, "proposal_value" | "closed_value" | "value" | "status">): number {
   const status = normalizeLeadStatus(lead.status);
   if (status === "Won") {
@@ -400,6 +487,15 @@ export function mapCrmLeadRow(row: Record<string, unknown>): CrmLead {
       if (k === "product") return "product";
       return null;
     })(),
+    offering_items: parseCrmOfferingItems(row.offering_items, {
+      service_product: row.service_product != null ? String(row.service_product) : null,
+      quantity: (() => {
+        if (row.quantity == null || row.quantity === "") return null;
+        const n = Number(row.quantity);
+        return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : null;
+      })(),
+      quantity_unit: row.quantity_unit != null ? String(row.quantity_unit).trim() || null : null,
+    }),
     quantity: (() => {
       if (row.quantity == null || row.quantity === "") return null;
       const n = Number(row.quantity);

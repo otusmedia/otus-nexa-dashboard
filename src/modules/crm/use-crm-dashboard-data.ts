@@ -76,9 +76,15 @@ function sourceCountMap(leads: CrmLead[], dataClientSlug: string | null): Record
 function serviceProductCountMap(leads: CrmLead[]): Record<string, number> {
   const m: Record<string, number> = {};
   for (const lead of leads) {
-    const key = normalizeServiceProduct(lead.service_product);
-    if (!key) continue;
-    m[key] = (m[key] ?? 0) + 1;
+    const names =
+      lead.offering_items.length > 0
+        ? lead.offering_items.map((item) => item.name)
+        : [lead.service_product];
+    for (const raw of names) {
+      const key = normalizeServiceProduct(raw);
+      if (!key) continue;
+      m[key] = (m[key] ?? 0) + 1;
+    }
   }
   return m;
 }

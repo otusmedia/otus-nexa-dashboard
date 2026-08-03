@@ -44,6 +44,11 @@ function isMissingOfferingKindColumnError(message: string): boolean {
   );
 }
 
+function isMissingOfferingItemsColumnError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes("offering_items") && lower.includes("does not exist");
+}
+
 export function isCrmServiceProductSchemaError(message: string): boolean {
   return isMissingRelationError(message) || isMissingServiceProductColumnError(message);
 }
@@ -54,6 +59,10 @@ export function isCrmQuantitySchemaError(message: string): boolean {
 
 export function isCrmOfferingKindSchemaError(message: string): boolean {
   return isMissingOfferingKindColumnError(message);
+}
+
+export function isCrmOfferingItemsSchemaError(message: string): boolean {
+  return isMissingOfferingItemsColumnError(message);
 }
 
 export async function fetchCustomCrmServiceProducts(
