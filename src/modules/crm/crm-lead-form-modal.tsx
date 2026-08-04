@@ -199,6 +199,7 @@ export function CrmLeadFormModal({
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState(initialStage ?? funnel.stages[0]?.name ?? "New Lead");
   const [nameError, setNameError] = useState("");
+  const [offeringError, setOfferingError] = useState("");
   const [saving, setSaving] = useState(false);
   const [contactSuggestions, setContactSuggestions] = useState<CrmContact[]>([]);
   const [contactSearchOpen, setContactSearchOpen] = useState(false);
@@ -277,6 +278,7 @@ export function CrmLeadFormModal({
       setQuoteName(null);
       setStatus(initialStage ?? funnel.stages[0]?.name ?? "New Lead");
       setNameError("");
+      setOfferingError("");
       setContactSuggestions([]);
       setContactSearchOpen(false);
       return;
@@ -325,6 +327,7 @@ export function CrmLeadFormModal({
           : normalizeLeadStatus(lead.status),
     );
     setNameError("");
+    setOfferingError("");
     setContactSuggestions([]);
     setContactSearchOpen(false);
   }, [open, mode, lead, initialStage, funnel, defaultSource, crmClientSlug, ownerOptions, currentUser.name]);
@@ -538,6 +541,45 @@ export function CrmLeadFormModal({
         : offeringKind === "service" && serviceProductTrimmed
           ? offeringFields.offering_items
           : [];
+
+    if (proposalNum > 0) {
+      if (!offeringKindValue) {
+        setOfferingError(lt("Select service or product when proposal value is set."));
+        return;
+      }
+      if (offeringKindValue === "service") {
+        if (!serviceProductTrimmed) {
+          setOfferingError(lt("Select a service when proposal value is set."));
+          return;
+        }
+      } else {
+        const completeProducts = offeringFields.offering_items.filter(
+          (item) => item.name && item.quantity != null && item.quantity > 0,
+        );
+        if (completeProducts.length === 0) {
+          setOfferingError(lt("Add at least one product with quantity when proposal value is set."));
+          return;
+        }
+        for (const line of productLines) {
+          const parsed = primaryParsedCrmProduct(line.name);
+          const lineName = normalizeCrmServiceProductSelect(parsed.name || line.name);
+          const lineQty = parseCrmQuantity(line.quantityStr);
+          const hasPartial =
+            Boolean(lineName) ||
+            line.quantityStr.trim() !== "" ||
+            Boolean(line.quantityUnit.trim());
+          if (!hasPartial) continue;
+          if (!lineName || lineQty == null || lineQty <= 0) {
+            setOfferingError(lt("Each product needs a name and quantity when proposal value is set."));
+            return;
+          }
+        }
+      }
+      setOfferingError("");
+    } else {
+      setOfferingError("");
+    }
+
     const ownerName = owner.trim();
     const ownerUser = findCrmOwnerUser(users, ownerName);
     const transferToSales = shouldTransferLeadToSalesFunnel(funnel, ownerUser);
@@ -1180,6 +1222,7 @@ export function CrmLeadFormModal({
                       type="button"
                       onClick={() => {
                         setOfferingKind(opt.id);
+                        setOfferingError("");
                         if (opt.id === "service") {
                           setProductLines([newProductLine()]);
                         } else if (productLines.length === 0) {
@@ -1205,7 +1248,10 @@ export function CrmLeadFormModal({
                   </span>
                   <CrmSourceField
                     value={serviceProduct}
-                    onChange={setServiceProduct}
+                    onChange={(value) => {
+                      setServiceProduct(value);
+                      if (offeringError) setOfferingError("");
+                    }}
                     sourceOptions={serviceProductOptions}
                     language={language}
                     hint={lt("Select or type a new service")}
@@ -1259,6 +1305,7 @@ export function CrmLeadFormModal({
                           <CrmSourceField
                             value={line.name}
                             onChange={(value) => {
+                              if (offeringError) setOfferingError("");
                               const lines = parseCrmServiceProductBlob(value);
                               if (
                                 lines.length > 1 ||
@@ -1361,6 +1408,7 @@ export function CrmLeadFormModal({
                             value={line.quantityStr}
                             onChange={(e) => {
                               const quantityStr = e.target.value.replace(/[^\d]/g, "");
+                              if (offeringError) setOfferingError("");
                               setProductLines((prev) =>
                                 prev.map((row, i) =>
                                   i === index ? { ...row, quantityStr } : row,
@@ -1407,11 +1455,17 @@ export function CrmLeadFormModal({
                   ))}
                 </div>
               ) : null}
+              {offeringError ? (
+                <p className="text-xs text-[#f87171] md:col-span-2">{offeringError}</p>
+              ) : null}
               <label className="block space-y-1">
                 <span className="text-[0.65rem] uppercase tracking-[0.08em] text-[rgba(255,255,255,0.45)]">{lt("Proposal value")}</span>
                 <input
                   value={proposalValueStr}
-                  onChange={(e) => setProposalValueStr(e.target.value)}
+                  onChange={(e) => {
+                    setProposalValueStr(e.target.value);
+                    if (offeringError) setOfferingError("");
+                  }}
                   inputMode="decimal"
                   className="mono-num w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-white"
                 />
