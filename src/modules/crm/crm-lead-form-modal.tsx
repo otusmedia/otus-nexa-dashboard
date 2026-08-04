@@ -207,6 +207,8 @@ export function CrmLeadFormModal({
   const [quoteUploading, setQuoteUploading] = useState(false);
   const quoteInputRef = useRef<HTMLInputElement>(null);
   const contactSearchSeq = useRef(0);
+  /** Only close when pointer down + click both start on the backdrop (not text-drag out of the form). */
+  const backdropDismissRef = useRef(false);
   const [appointments, setAppointments] = useState<CrmAppointment[]>([]);
   const [apptsLoading, setApptsLoading] = useState(false);
   const [showApptForm, setShowApptForm] = useState(false);
@@ -982,11 +984,24 @@ export function CrmLeadFormModal({
       <div
         className="fixed inset-0 z-[125] overflow-y-auto overscroll-contain bg-black/70 p-4"
         role="presentation"
-        onClick={onClose}
       >
-        <div className="flex min-h-full items-center justify-center">
+        <div
+          className="flex min-h-full items-center justify-center"
+          onPointerDown={(e) => {
+            backdropDismissRef.current = e.target === e.currentTarget;
+          }}
+          onClick={(e) => {
+            if (backdropDismissRef.current && e.target === e.currentTarget) {
+              onClose();
+            }
+            backdropDismissRef.current = false;
+          }}
+        >
         <form
           onSubmit={handleSubmit}
+          onPointerDown={() => {
+            backdropDismissRef.current = false;
+          }}
           onClick={(e) => e.stopPropagation()}
           className="my-4 flex max-h-[min(92vh,900px)] w-full max-w-xl flex-col overflow-hidden rounded-[8px] border border-[var(--border)] bg-[var(--surface)]"
         >
