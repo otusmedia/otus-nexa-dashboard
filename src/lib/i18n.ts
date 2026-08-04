@@ -751,6 +751,7 @@ const platformPtBR: Record<string, string> = {
   "Remove product line": "Remover produto",
   "CRM offering items migration required. Run supabase/crm-lead-offering-items.sql in Supabase.":
     "Migration do CRM pendente. Execute supabase/crm-lead-offering-items.sql no Supabase (SQL Editor).",
+  "Could not save lead. Try again.": "Não foi possível salvar o lead. Tente novamente.",
   'Add service/product "{name}"': 'Adicionar serviço/produto "{name}"',
   "SERVICE / PRODUCT TYPES": "TIPOS DE SERVIÇO / PRODUTO",
   "No service or product types yet.": "Nenhum tipo de serviço ou produto registrado ainda.",

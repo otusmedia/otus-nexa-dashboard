@@ -23,30 +23,42 @@ function isMissingRelationError(message: string): boolean {
   );
 }
 
-function isMissingServiceProductColumnError(message: string): boolean {
+/** PostgREST may say "does not exist" or "Could not find the 'col' column ... schema cache". */
+function isMissingColumnError(message: string, ...columns: string[]): boolean {
   const lower = message.toLowerCase();
-  return lower.includes("service_product") && lower.includes("does not exist");
-}
-
-function isMissingQuantityColumnError(message: string): boolean {
-  const lower = message.toLowerCase();
+  const mentionsColumn = columns.some((col) => lower.includes(col.toLowerCase()));
+  if (!mentionsColumn) return false;
   return (
-    (lower.includes("quantity") || lower.includes("quantity_unit")) &&
-    lower.includes("does not exist")
+    lower.includes("does not exist") ||
+    lower.includes("schema cache") ||
+    lower.includes("could not find") ||
+    lower.includes("unknown column") ||
+    (lower.includes("column") && lower.includes("not found"))
   );
 }
 
+function isMissingServiceProductColumnError(message: string): boolean {
+  return isMissingColumnError(message, "service_product");
+}
+
+function isMissingQuantityColumnError(message: string): boolean {
+  return isMissingColumnError(message, "quantity", "quantity_unit");
+}
+
 function isMissingOfferingKindColumnError(message: string): boolean {
+  if (isMissingColumnError(message, "offering_kind")) return true;
   const lower = message.toLowerCase();
   return (
-    (lower.includes("offering_kind") || (lower.includes("kind") && lower.includes("crm_custom"))) &&
-    lower.includes("does not exist")
+    lower.includes("kind") &&
+    lower.includes("crm_custom") &&
+    (lower.includes("does not exist") ||
+      lower.includes("schema cache") ||
+      lower.includes("could not find"))
   );
 }
 
 function isMissingOfferingItemsColumnError(message: string): boolean {
-  const lower = message.toLowerCase();
-  return lower.includes("offering_items") && lower.includes("does not exist");
+  return isMissingColumnError(message, "offering_items");
 }
 
 export function isCrmServiceProductSchemaError(message: string): boolean {

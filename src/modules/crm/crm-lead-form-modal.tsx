@@ -547,7 +547,7 @@ export function CrmLeadFormModal({
     if (mode === "create") {
       const leadFunnel = transferToSales ? "sales" : funnel.slug;
       const leadStatus = transferToSales ? SALES_FUNNEL_TRANSFER_STATUS : status;
-      const insertPayload: Record<string, unknown> = {
+      let insertPayload: Record<string, unknown> = {
         name: trimmed,
         company: company.trim() || null,
         email: email.trim() || null,
@@ -577,7 +577,8 @@ export function CrmLeadFormModal({
           "task",
         );
         const { offering_items: _items, ...withoutItems } = insertPayload;
-        ({ data, error } = await supabase.from("crm_leads").insert(withoutItems).select("*").maybeSingle());
+        insertPayload = withoutItems;
+        ({ data, error } = await supabase.from("crm_leads").insert(insertPayload).select("*").maybeSingle());
       }
       if (error && isCrmOfferingKindSchemaError(error.message)) {
         pushNotification(
@@ -585,7 +586,8 @@ export function CrmLeadFormModal({
           "task",
         );
         const { offering_kind: _ok, ...withoutKind } = insertPayload;
-        ({ data, error } = await supabase.from("crm_leads").insert(withoutKind).select("*").maybeSingle());
+        insertPayload = withoutKind;
+        ({ data, error } = await supabase.from("crm_leads").insert(insertPayload).select("*").maybeSingle());
       }
       if (error && isCrmQuantitySchemaError(error.message)) {
         pushNotification(
@@ -593,7 +595,8 @@ export function CrmLeadFormModal({
           "task",
         );
         const { quantity: _q, quantity_unit: _u, ...withoutQty } = insertPayload;
-        ({ data, error } = await supabase.from("crm_leads").insert(withoutQty).select("*").maybeSingle());
+        insertPayload = withoutQty;
+        ({ data, error } = await supabase.from("crm_leads").insert(insertPayload).select("*").maybeSingle());
       }
       if (error && /cnpj|quote_url|quote_name/i.test(error.message)) {
         pushNotification(
@@ -601,13 +604,16 @@ export function CrmLeadFormModal({
           "task",
         );
         const { cnpj: _c, quote_url: _u, quote_name: _n, ...fallback } = insertPayload;
-        ({ data, error } = await supabase.from("crm_leads").insert(fallback).select("*").maybeSingle());
+        insertPayload = fallback;
+        ({ data, error } = await supabase.from("crm_leads").insert(insertPayload).select("*").maybeSingle());
       }
       setSaving(false);
       if (error) {
         console.error("[crm] add lead", error.message);
         if (isCrmServiceProductSchemaError(error.message)) {
           pushNotification(lt("CRM service/product migration required. Run supabase/crm-lead-service-product.sql in Supabase."), "task");
+        } else {
+          pushNotification(lt("Could not save lead. Try again."), "task");
         }
         return;
       }
@@ -638,7 +644,7 @@ export function CrmLeadFormModal({
         ? normalizeResumeStatus(status)
         : normalizeLeadStatus(status);
 
-    const updatePayload: Record<string, unknown> = {
+    let updatePayload: Record<string, unknown> = {
       name: trimmed,
       company: company.trim() || null,
       email: email.trim() || null,
@@ -678,9 +684,10 @@ export function CrmLeadFormModal({
         "task",
       );
       const { offering_items: _items, ...withoutItems } = updatePayload;
+      updatePayload = withoutItems;
       ({ data, error } = await supabase
         .from("crm_leads")
-        .update(withoutItems)
+        .update(updatePayload)
         .eq("id", lead.id)
         .select("*")
         .maybeSingle());
@@ -691,9 +698,10 @@ export function CrmLeadFormModal({
         "task",
       );
       const { offering_kind: _ok, ...withoutKind } = updatePayload;
+      updatePayload = withoutKind;
       ({ data, error } = await supabase
         .from("crm_leads")
-        .update(withoutKind)
+        .update(updatePayload)
         .eq("id", lead.id)
         .select("*")
         .maybeSingle());
@@ -704,9 +712,10 @@ export function CrmLeadFormModal({
         "task",
       );
       const { quantity: _q, quantity_unit: _u, ...withoutQty } = updatePayload;
+      updatePayload = withoutQty;
       ({ data, error } = await supabase
         .from("crm_leads")
-        .update(withoutQty)
+        .update(updatePayload)
         .eq("id", lead.id)
         .select("*")
         .maybeSingle());
@@ -717,9 +726,10 @@ export function CrmLeadFormModal({
         "task",
       );
       const { cnpj: _c, quote_url: _u, quote_name: _n, ...fallback } = updatePayload;
+      updatePayload = fallback;
       ({ data, error } = await supabase
         .from("crm_leads")
-        .update(fallback)
+        .update(updatePayload)
         .eq("id", lead.id)
         .select("*")
         .maybeSingle());
@@ -729,6 +739,8 @@ export function CrmLeadFormModal({
       console.error("[crm] save lead", error.message);
       if (isCrmServiceProductSchemaError(error.message)) {
         pushNotification(lt("CRM service/product migration required. Run supabase/crm-lead-service-product.sql in Supabase."), "task");
+      } else {
+        pushNotification(lt("Could not save lead. Try again."), "task");
       }
       return;
     }
