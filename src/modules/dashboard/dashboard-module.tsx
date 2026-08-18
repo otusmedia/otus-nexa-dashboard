@@ -572,6 +572,8 @@ type InstagramFeedPostStored = {
   isVideo?: boolean;
 };
 
+const INSTAGRAM_FEED_MAX_MANUAL_POSTS = 30;
+
 type InstagramFeedDraftSlot = {
   id: string;
   imageUrl: string;
@@ -635,7 +637,7 @@ function parseInstagramFeedFromStorage(raw: string): InstagramFeedPostStored[] |
         ...(isVideo ? { isVideo: true } : {}),
       });
     }
-    return out.slice(0, 9);
+    return out.slice(0, INSTAGRAM_FEED_MAX_MANUAL_POSTS);
   } catch {
     return null;
   }
@@ -1244,7 +1246,7 @@ export function DashboardModule() {
 
     try {
       const draftPosts = instagramFeedDraft
-        .slice(0, 9)
+        .slice(0, INSTAGRAM_FEED_MAX_MANUAL_POSTS)
         .map((slot) => ({
           id: slot.id,
           imageUrl: slot.imageUrl.trim(),
@@ -1320,7 +1322,9 @@ export function DashboardModule() {
   };
 
   const addInstagramFeedDraftSlot = () => {
-    setInstagramFeedDraft((d) => (d.length >= 9 ? d : [newInstagramFeedDraftSlot(), ...d]));
+    setInstagramFeedDraft((d) =>
+      d.length >= INSTAGRAM_FEED_MAX_MANUAL_POSTS ? d : [newInstagramFeedDraftSlot(), ...d],
+    );
   };
 
   const deleteInstagramFeedPostFromGrid = (postId: string) => {
@@ -3352,7 +3356,7 @@ export function DashboardModule() {
           <button
             type="button"
             onClick={addInstagramFeedDraftSlot}
-            disabled={instagramFeedDraft.length >= 9}
+            disabled={instagramFeedDraft.length >= INSTAGRAM_FEED_MAX_MANUAL_POSTS}
             className="btn-ghost mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-white/25 py-2 text-xs text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Plus className="h-4 w-4" strokeWidth={1.75} />
